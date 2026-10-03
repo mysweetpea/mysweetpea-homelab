@@ -76,7 +76,7 @@ controllers:
         - name: HEALTH_GRACE_S_PROBED
           value: "300"              # covers pull time in maxSurge=0 flow (probe-backed)
         - name: NOTIFY_QUIET_ALIASES
-          value: "searxng"          # multi-builds/day: verify silently, ledger only
+          value: "searxng,jellyfin,jellyseerr,seerr,aiostreams,zilean,flaresolverr,homepage,netdata,gotify,searxng-igotify,igotify-assist,authentik,nextcloud,immich,vaultwarden,vaultwarden-init,matrix,matrix-synapse,element-web,affine,affine-migrate,affine-patch,n8n,koalasync,decypharr,radarr,sonarr,prowlarr,bazarr,qbittorrent,grafana,loki,promtail,argocd,longhorn,traefik,ollama,open-webui,docling,mcp-server,open-terminal,openclaw,hindsight,nzbdav,rustdesk,rustdesk-hbbr,rustdesk-hbbs,cloudflared,uptime-kuma,headers"          # ✅ verified = ledger only for ALL aliases (Oct 3: phone = important-only); rollbacks/stuck still push
         - name: POLL_INTERVAL_S
           value: "30"
         - name: HEALTH_MAP_PATH
