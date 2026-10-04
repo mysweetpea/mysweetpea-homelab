@@ -152,11 +152,12 @@ extraObjects:
                 # declare max-version 34; two of them (drawio, previewgenerator) have no NC35
                 # release at all. Upgrading now would disable 13 apps pending updates + leave
                 # those 2 dark. Decision: wait for 35.0.1+ and app releases.
-                # TO UNBLOCK LATER: revert to "regexp:^\\d+\\.\\d+\\.\\d+$" and let the updater
-                # drive it, or bump image.tag in apps/private/nextcloud/values.yaml directly.
-                # (The earlier empty-OCI-index problem for 35.0.0 is FIXED upstream — the tag now
-                # carries 12 platforms / 22 layers, so that is no longer a reason to hold.)
-                allowTags: "regexp:^34\\."
+                # 2026-10-04: UNPINNED for NC35 upgrade (owner-approved). Pre-flight done:
+                # 6 apps capped-at-34 disabled (spreed, deck, groupfolders, integration_openai,
+                # workflow_script, assistant); all other store apps verified 35-compatible via
+                # apps.nextcloud.com platform/35 catalog; DB dumped (nc35-pre-dump.dump);
+                # Longhorn offsite backup 2026-10-03T04:03Z. Sentinel will verify the rollout.
+                allowTags: "regexp:^\\d+\\.\\d+\\.\\d+$"
               manifestTargets:
                 helm:
                   name: image.repository
