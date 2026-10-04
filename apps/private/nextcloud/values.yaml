@@ -34,8 +34,20 @@ nextcloud:
       #!/bin/sh
       # Self-healing Authentik OIDC provider config (idempotent, runs on every pod start)
       set -eu
+      # mysweetpea: entrypoint may skip occ upgrade if installed_version looks current after an
+      # interrupted migration; force it (idempotent, no-op when not needed).
+      php /var/www/html/occ upgrade || true
       echo "==> mysweetpea: ensuring user_oidc provider config"
-      php /var/www/html/occ app:enable user_oidc
+      # NC35+ first boot: store apps update during `occ upgrade`, which runs AFTER this hook.
+      # If the app is not yet registered (no commands), skip non-fatal — provider config
+      # persists in the DB from the previous version and the next start re-applies it.
+      php /var/www/html/occ app:update user_oidc >/dev/null 2>&1 || true
+      if php /var/www/html/occ list user_oidc >/dev/null 2>&1; then
+        php /var/www/html/occ app:enable user_oidc
+      else
+        echo "==> user_oidc not yet registered (pending occ upgrade) — skipping provider reconfig"
+        exit 0
+      fi
       php /var/www/html/occ user_oidc:provider authentik \
         --clientid="FmxfSIcs2A5dPUQxfeaYhFfbdwytpjFMS1YHtWGh" \
         --clientsecret-file="/run/secrets/nextcloud-oidc/client-secret" \
