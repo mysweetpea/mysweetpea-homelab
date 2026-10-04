@@ -146,6 +146,8 @@ extraObjects:
             - alias: nextcloud
               imageName: library/nextcloud
               commonUpdateSettings:
+                ignoreTags:
+                  - '35\.0\.1'
                 updateStrategy: semver
                 # HOLD AT 34.x — deliberate major-version gate (reviewed 2026-09-17).
                 # 35.0.0 is a .0 release (published Sep 15) and 15 enabled Nextcloud apps still
