@@ -1,27 +1,30 @@
 # October Usenet Cutover — Plug-and-Play Runbook
 
-**When:** when the user's Usenet credentials arrive (Newshosting + UsenetExpress block account).
-**RD expires:** 2026-10-17 (verified via RD API — user should confirm on the RD website).
-**Prereq:** user purchases providers + 3 indexers (NZBGeek, NZBPlanet, +1; see budget plan).
+**When:** 2026-10-10 — user purchases Usenet credentials (Newshosting + NewsGroupDirect block), then pastes them to Hermes for wiring.
+**RD expires:** 2026-10-17 (re-verified via RD API 2026-10-04: expiration 2026-10-17T05:56Z).
+**Prereq:** OCT budget buys = Newshosting intro ($29.85) + NZBPlanet ($15) + NewsGroupDirect block ($16). NZBGeek comes in NOV.
 
 Everything below is **already staged and scratch-verified** (2026-09-15). The
 cutover itself is a credentials drop + arr priority flip + indexer adds.
 
 ---
 
-## What is already in place (verified 2026-09-15)
+## What is already in place (verified 2026-09-15, re-verified live 2026-10-04)
 
 | Piece | State |
 |---|---|
-| Decypharr usenet streaming (direct NNTP, no SABnzbd) | Built into v2.5, running |
-| `usenet.providers: []` in configmap | Staged empty — provider array materializes ONLY when HOST is set (no 503 gate trip) |
-| Provider env schema | `DECYPHARR_USENET__PROVIDERS__N__{HOST,PORT,USERNAME,PASSWORD,BACKBONE,SSL,MAX_CONNECTIONS,PRIORITY,BACKUP}` — all fields present in v2.5 binary |
-| NNTP egress (port 563) | Open in `allow-internet-egress` netpol |
-| SAB-mock client in Radarr + Sonarr | id=3, both test green (`{}` = no errors) |
-| Decypharr state persistence | **NEW** `decypharr-state-lh` PVC — NZB metadata survives restarts (was emptyDir = fatal for usenet) |
+| Decypharr usenet streaming (direct NNTP, no SABnzbd) | Built into v2.5, running (image `cy01/blackhole:v2.5`, pod up 16d) |
+| `usenet.providers: []` in live config.json | Confirmed empty — no 503 gate trip; tunables staged (max_conn 15, read_ahead 16MB, buffer 512MB) |
+| Provider env schema | `DECYPHARR_USENET__PROVIDERS__N__*` — all fields present in v2.5 binary |
+| Sealed secret `decypharr-secrets.yaml` | Currently has ONLY arr tokens + RD api key (grep DECYPHARR_USENET = 0) — merge-into will add the 15 usenet keys at cutover |
+| NNTP egress (port 563) | Open in `allow-internet-egress` netpol (re-verified live) |
+| SAB-mock client in Radarr + Sonarr | id=3 both, **live-tested 2026-10-04: test returns `{}` = green** (usenet client prio=2, RD prio=1 — flip at cutover) |
+| Decypharr state persistence | `decypharr-state-lh` PVC Bound 5Gi |
 | auth.json preservation | Init container no longer overwrites (token stable across restarts) |
-| Repair chain | Decypharr sweep (managed source) + strm-repair-bridge (arr blocklist+re-search) — verified E2E |
+| Repair chain | Decypharr sweep (ran 2026-10-04 05:30: probed 360, broken 314 flagged YTS-dead class, bridge skipped 309 no-linkage) + strm-repair-bridge cron 06:30 live in `private` ns |
 | Download dirs | `/data/decypharr-downloads/{Radarr,Sonarr}` exist (case matches categories) |
+| Prowlarr indexers | Currently Nyaa/NZBIndex/YTS/Zilean — NZBGeek + NZBPlanet + ameNZB get ADDED at cutover (need purchased accounts first) |
+| Prowlarr→arr sync | Radarr + Sonarr fullSync both linked |
 
 **Scratch-proven credential mechanics** (docker test, 2026-09-15):
 - Full creds via env → both providers materialize, `backup:true` accepted, SAB mock 200, gated paths 200
