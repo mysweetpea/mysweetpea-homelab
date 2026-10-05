@@ -423,12 +423,6 @@ data:
               format: size
             - field: version
               label: API
-      - NzbDAV:
-          id: nzbdav
-          href: http://192.168.20.212:8080
-          description: Usenet Streaming (WebDAV)
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sabnzbd.svg
-          ping: http://192.168.20.212:8080
     - Download Stack:
       - Radarr:
           id: radarr
@@ -500,32 +494,6 @@ data:
           description: AI Chat Interface
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/open-webui.svg
           ping: https://ai.mysweetpea.cc
-      - Ollama:
-          id: ollama
-          href: http://192.168.20.228:11434
-          description: Local LLM Inference
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/ollama.svg
-          ping: http://192.168.20.228:11434
-          widget:
-            type: customapi
-            url: http://192.168.20.228:11434/api/tags
-            method: GET
-            mappings:
-            - field: models
-              label: Models
-              format: size
-      - Hindsight:
-          id: hindsight
-          href: http://192.168.20.233:8888
-          description: Memory System
-          icon: mdi-brain
-          ping: http://192.168.20.233:8888
-      - OpenClaw:
-          id: openclaw
-          href: http://192.168.20.217:8080
-          description: AI Agent Gateway
-          icon: mdi-robot-outline
-          ping: http://192.168.20.217:8080
     - AI Tooling:
       - Docling:
           id: docling
@@ -720,11 +688,16 @@ data:
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/longhorn.svg
           ping: http://192.168.20.221
     - Coming Soon:
-      - Hermes Agent:
-          id: hermes
-          href: https://hermes.mysweetpea.cc
-          description: AI Assistant
-          icon: mdi-robot-happy-outline
+      - ComfyUI:
+          id: comfyui
+          href: ''
+          description: AI Image Generation
+          icon: mdi-image-filter-hdr
+      - Home Assistant:
+          id: homeassistant
+          href: ''
+          description: Home Automation
+          icon: mdi-home-assistant
       - Sunshine VM:
           id: sunshine
           href: ''
@@ -746,6 +719,12 @@ data:
           href: ''
           description: File Sync
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/syncthing.svg
+          server: ''
+      - Pingvin Share:
+          id: pingvin
+          href: ''
+          description: Private File Sharing
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/pingvin-share.svg
           server: ''
       - Stalwart:
           id: stalwart
@@ -825,6 +804,7 @@ data:
           description: Sync Watch History Across Trackers
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/crosswatch.svg
           server: ''
+
   settings.yaml: |
     title: SweetPea Homelab
     description: Your private command center
