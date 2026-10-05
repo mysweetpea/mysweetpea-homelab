@@ -1,0 +1,62 @@
+controllers:
+  main:
+    containers:
+      main:
+        image:
+          repository: ghcr.io/cleanuparr/cleanuparr
+          tag: 2.10.8
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        probes:
+          liveness:
+            enabled: true
+            custom: true
+            type: HTTP
+            spec:
+              httpGet:
+                path: /health
+                port: 11011
+              initialDelaySeconds: 30
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 5
+          readiness:
+            enabled: true
+            custom: true
+            type: HTTP
+            spec:
+              httpGet:
+                path: /health/ready
+                port: 11011
+              initialDelaySeconds: 20
+              periodSeconds: 20
+              timeoutSeconds: 5
+              failureThreshold: 3
+    type: deployment
+# Pinned to worker-b: cleanuparr-lh is RWO (single-node attach)
+defaultPodOptions:
+  nodeSelector:
+    kubernetes.io/hostname: k3s-worker-b
+persistence:
+  config:
+    enabled: true
+    type: persistentVolumeClaim
+    accessMode: ReadWriteOnce
+    size: 2Gi
+    retain: true
+    storageClass: longhorn
+service:
+  main:
+    controller: main
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "192.168.20.226"
+    allocateLoadBalancerNodePorts: false
+    ports:
+      http:
+        port: 11011

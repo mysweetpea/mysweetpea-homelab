@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cleanuparr
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: cleanuparr=ghcr.io/cleanuparr/cleanuparr
+    argocd-image-updater.argoproj.io/cleanuparr.update-strategy: semver
+    argocd-image-updater.argoproj.io/cleanuparr.helm.image-spec: controllers.main.containers.main.image
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git.repository: git@github.com:mysweetpea/mysweetpea-homelab.git
+    argocd-image-updater.argoproj.io/git.branch: main
+    argocd-image-updater.argoproj.io/write-back-target: helmvalues:apps/private/cleanuparr/values.yaml
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: private
+  sources:
+  - repoURL: https://bjw-s-labs.github.io/helm-charts
+    chart: app-template
+    targetRevision: 3.7.3
+    helm:
+      valueFiles:
+      - $values/apps/private/cleanuparr/values.yaml
+  - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+    targetRevision: HEAD
+    ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
