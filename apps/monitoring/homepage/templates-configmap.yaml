@@ -720,6 +720,12 @@ data:
           description: File Sync
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/syncthing.svg
           server: ''
+      - Kavita:
+          id: kavita
+          href: ''
+          description: Books, Comics & Manga
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/kavita.svg
+          server: ''
       - Pingvin Share:
           id: pingvin
           href: ''
