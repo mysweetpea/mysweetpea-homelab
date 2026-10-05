@@ -7,7 +7,7 @@ controllers:
           # JF 12.1 — major DB migration (one-way). Pre-jf12-migration LH snapshot
           # taken 2026-10-02 16:57Z on jellyfin-config-lh. Plugin dirs cleaned
           # while scaled down; 12.x plugin builds reinstalled post-boot.
-          tag: "12.1"
+          tag: "12.2"
         resources:
           # Right-sized Aug 2026: idle draw ~80-150m; transcode bursts go to
           # the 6000m limit. Request was 2000m = 1.9 vCPU of phantom
