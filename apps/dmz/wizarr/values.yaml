@@ -1,0 +1,51 @@
+controllers:
+  main:
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: ghcr.io/wizarrrr/wizarr
+          tag: v2026.9.1
+        env:
+          # APP_URL is used in invite links and the wizard
+          - name: APP_URL
+            value: https://join.mysweetpea.cc
+          - name: DISABLE_ANALYTICS
+            value: "true"
+        probes:
+          liveness:
+            enabled: true
+            httpGet:
+              path: /
+              port: 5640
+          readiness:
+            enabled: true
+            httpGet:
+              path: /
+              port: 5640
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 512Mi
+
+service:
+  main:
+    ports:
+      http:
+        port: 5640
+
+ingress:
+  main:
+    enabled: false
+
+persistence:
+  data:
+    enabled: true
+    type: persistentVolumeClaim
+    accessMode: ReadWriteOnce
+    size: 1Gi
+    storageClass: longhorn
+    globalMounts:
+      - path: /data/database
