@@ -13,16 +13,14 @@ controllers:
           - name: DISABLE_ANALYTICS
             value: "true"
         probes:
-          liveness:
-            enabled: true
-            httpGet:
-              path: /
-              port: 5640
           readiness:
-            enabled: true
-            httpGet:
-              path: /
-              port: 5640
+            custom: true
+            type: HTTP
+            spec:
+              httpGet:
+                path: /
+                port: 5640
+              initialDelaySeconds: 10
         resources:
           requests:
             cpu: 10m
@@ -32,6 +30,8 @@ controllers:
 
 service:
   main:
+    controller: main
+    type: ClusterIP
     ports:
       http:
         port: 5640
