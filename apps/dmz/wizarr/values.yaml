@@ -19,7 +19,7 @@ controllers:
             spec:
               httpGet:
                 path: /
-                port: 5640
+                port: 5690
               initialDelaySeconds: 10
         resources:
           requests:
@@ -34,7 +34,7 @@ service:
     type: ClusterIP
     ports:
       http:
-        port: 5640
+        port: 5690
 
 ingress:
   main:
