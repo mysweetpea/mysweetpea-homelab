@@ -4,7 +4,7 @@ controllers:
       main:
         image:
           repository: cy01/blackhole
-          tag: v2.6
+          tag: v2.7
         resources:
           requests:
             cpu: 200m
