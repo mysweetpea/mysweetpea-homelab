@@ -12,6 +12,12 @@ controllers:
             value: https://join.mysweetpea.cc
           - name: DISABLE_ANALYTICS
             value: "true"
+          # stock config is 1 worker / 4 threads — one slow Jellyfin call
+          # held the ONLY worker and stalled every admin page load
+          - name: GUNICORN_WORKERS
+            value: "4"
+          - name: GUNICORN_THREADS
+            value: "4"
         probes:
           readiness:
             custom: true
