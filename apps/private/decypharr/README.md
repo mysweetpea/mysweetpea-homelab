@@ -85,16 +85,21 @@ so empty secret values keep the API healthy). The configmap holds
   `conn_idle_timeout: 5m` warm NNTP pool, `availability_sample_percent: 10`
   import gate, `disk_buffer_path: /cache/usenet` (emptyDir, 4Gi).
 
-**SABnzbd API auth**: query params `ma_username` = `http://<arr>:<port>`
-(the arr's own URL), `ma_password` = arr API key, `category` = `Sonarr`/`Radarr`
-(case-sensitive — matches the arr names in `arrs` config). Verified live
-(200 + valid SABnzbd queue JSON).
+**SABnzbd API auth (v2.6 contract, fixed 2026-10-08)**: v2.6 rewrote compat-API
+auth. With `use_auth: true` the SAB probe passes via **decypharr's own API token**
+(`ma_password` = token from `/app/auth.json`, `ma_username` = anything) — the old
+v2.5 scheme (`ma_username` = arr URL, `ma_password` = arr API key) only works when
+the request carries a `category` matching a configured arr, and Radarr/Sonarr
+probe without one → 401. The qBit API accepts the same token as the basic-auth
+password. Verified live: both arr `Test` → 200, real grab → RD → strm symlinks.
 
-**Download client config in arrs** (already added, id 3 in both):
-Sabnzbd, host `decypharr.private.svc.cluster.local`, port 8282, URL base
-`/sabnzbd`, username `http://sonarr:8989`/`http://radarr:7878`, password =
-arr API key, category `Sonarr`/`Radarr`, priority 2 (below the RD client at 1 —
-usenet takes over when RD expires). Both test 200.
+**Download client config in arrs** (id 3 SAB + id 2 qbit in both; fixed 2026-10-08):
+Sabnzbd: host `decypharr.private.svc.cluster.local`, port 8282, URL base `/sabnzbd`,
+username `http://<arr FQDN>:<port>`, **password = decypharr api_token** (NOT the arr
+key — v2.6 change), category `Sonarr`/`Radarr`, priority 2.
+qBittorrent (RD client, prio 1): same host, username `http://<arr FQDN>:<port>`
+(**exact FQDN** `radarr.private.svc.cluster.local` — v2.6 compares it to the
+configured arr host), password = decypharr api_token.
 
 ## Arr wiring
 

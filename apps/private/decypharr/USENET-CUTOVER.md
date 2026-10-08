@@ -170,7 +170,17 @@ Jellyfin-side guard (already live): `RemoteClientBitrateLimit` 12 Mbps per strea
 
 ## Upstream watch
 
-- `cy01/blackhole:beta` (v2.5.1-beta, 2026-09-14) carries: strm-aware arr candidate matching,
-  PAR2 repairability groundwork, memory-first buffering, SAB fixes. Consider bumping after
-  burn-in — **not** before the cutover.
+- ~~`cy01/blackhole:beta`~~ **MOOT (2026-10-08): v2.6 stable (Oct 6) superseded the
+  beta line and the image-updater already rolled the pod to v2.6.** v2.0's
+  repair-v2/DFS/PAR2 work all landed in stable. Do NOT pin `beta` (it is now
+  OLDER than stable).
+- ⚠️ **v2.6 compat-API auth break** (found + fixed 2026-10-08): the updater's
+  v2.5→v2.6 bump silently 401'd BOTH download clients (RD qbit client id=2 +
+  SAB id=3) in both arrs — v2.6 requires the arr FQDN as username and the
+  decypharr api_token as password (arr API keys no longer authenticate on
+  probes that omit `category`). Symptom was the Oct 8 06:38 HIMYM re-grab storm
+  all `downloadFailed` "Unable to connect". Fix = update username/password on
+  all 4 clients (see README "Download client config in arrs"); arr Test + live
+  grab verified. LESSON: after any decypharr major bump, re-run arr TestAll
+  BEFORE the next grab window.
 - Image-updater CR currently pins `^\d+\.\d+(\.\d+)?$` → beta/latest tags NOT auto-picked.
