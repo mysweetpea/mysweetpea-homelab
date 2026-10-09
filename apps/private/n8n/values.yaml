@@ -30,7 +30,7 @@ controllers:
             name: n8n-db-creds
         image:
           repository: n8nio/n8n
-          tag: "2.43.2"
+          tag: "2.43.3"
         probes:
           readiness:
             custom: true
