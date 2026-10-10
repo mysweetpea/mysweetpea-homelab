@@ -4,6 +4,12 @@ controllers:
       main:
         image:
           repository: cy01/blackhole
+          # PINNED to v2.5 (2026-10-10): v2.6 removed the "strm" download
+          # action that this no-mount setup depends on — with mount.type=none
+          # the symlink action can never satisfy its mount-file wait, so every
+          # grab stalled ~30m and never imported (outage 2026-10-08 -> 10-10).
+          # v2.5 = last version with the working no-mount strm flow.
+          # Do not unpin until upstream restores no-mount arr imports.
           tag: v2.5
         resources:
           requests:

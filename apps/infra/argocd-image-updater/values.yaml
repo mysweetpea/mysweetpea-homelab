@@ -587,7 +587,9 @@ extraObjects:
               imageName: cy01/blackhole
               commonUpdateSettings:
                 updateStrategy: semver
-                allowTags: "regexp:^v\\d+\\.\\d+(\\.\\d+)?$"
+                # PINNED to v2.5 (2026-10-10) — v2.6 removed the no-mount
+                # "strm" download action; see apps/private/decypharr/values.yaml
+                allowTags: "regexp:^v2\\.5(\\.\\d+)?$"
               manifestTargets:
                 helm:
                   name: controllers.main.containers.main.image.repository
