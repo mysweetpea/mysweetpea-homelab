@@ -4,7 +4,7 @@ controllers:
       main:
         image:
           repository: ghcr.io/open-webui/open-webui
-          tag: "v0.11.4"
+          tag: "v0.12.0"
           pullPolicy: IfNotPresent
         resources:
           requests:
@@ -46,10 +46,10 @@ controllers:
         - secretRef:
             name: open-webui-integrations
         # ── envFrom injected key fills TOOL_SERVER_CONNECTIONS bearer slot ──
-            # ⚠️ Probes REMOVED (Session 39): v0.11.0 bug — probe traffic deadlocks the
-            # event loop ~60s after startup (liveness fails → kubelet SIGKILLs, exit 137).
-            # Verified with 6 test pods: no probes = stable 4min+; probes = death at ~110s.
-            # Monitored externally by Uptime Kuma (monitor #9).
+        # ⚠️ Probes REMOVED (Session 39): v0.11.0 bug — probe traffic deadlocks the
+        # event loop ~60s after startup (liveness fails → kubelet SIGKILLs, exit 137).
+        # Verified with 6 test pods: no probes = stable 4min+; probes = death at ~110s.
+        # Monitored externally by Uptime Kuma (monitor #9).
         probes:
           readiness:
             custom: true
