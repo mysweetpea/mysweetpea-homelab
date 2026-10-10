@@ -46,7 +46,7 @@ controllers:
             name: homepage-secrets
         image:
           repository: ghcr.io/gethomepage/homepage
-          tag: v2.4.0
+          tag: v2.5.0
         # Homepage v2.x ships a BUILD-TIME prerendered /en page (skeleton demo
         # content, ISR never revalidates on its own). After every pod recreate
         # the stale prerender would serve until /api/revalidate is hit. This
