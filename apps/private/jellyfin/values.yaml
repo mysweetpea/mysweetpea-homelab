@@ -8,6 +8,11 @@ controllers:
           # taken 2026-10-02 16:57Z on jellyfin-config-lh. Plugin dirs cleaned
           # while scaled down; 12.x plugin builds reinstalled post-boot.
           tag: "12.2"
+        # Device cgroup blocks hostPath-mounted /dev/dri even for root (EPERM on
+        # open) - privileged lets the container actually reach the iGPU. Single-
+        # tenant node, first-party image; security delta accepted for QSV.
+        securityContext:
+          privileged: true
         resources:
           # Right-sized Aug 2026: idle draw ~80-150m; transcode bursts go to
           # the 6000m limit. Request was 2000m = 1.9 vCPU of phantom
