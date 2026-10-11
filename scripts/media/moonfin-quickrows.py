@@ -68,6 +68,24 @@ def set_items(coll_id, want_ids):
         jf('/Collections/%s/Items?ids=%s' % (coll_id, ','.join(rem)), 'DELETE')
     log('  %s: +%d -%d (total %d)' % (coll_id[:8], len(add), len(rem), len(want)))
 
+def lock_name(cid, name):
+    """JF metadata refresh renames collections by provider name-matching - force our name + lock it."""
+    if not cid:
+        return
+    it = jf('/Items/%s?userId=%s' % (cid, ADMIN_UID)) or {}
+    if not isinstance(it, dict) or not it.get('Id'):
+        return
+    cur = it.get('Name')
+    if cur != name or not it.get('IsLocked'):
+        it['Name'] = name
+        it['LockedFields'] = list(set((it.get('LockedFields') or []) + ['Name']))
+        it['IsLocked'] = True
+        if DRY:
+            log('WOULD relock %s (currently: %s)' % (name, cur))
+        else:
+            jf('/Items/%s' % cid, 'POST', it)
+            log('  relocked name: %s (was: %s)' % (name, cur))
+
 def sample(items, n):
     random.shuffle(items)
     return items[:n]
@@ -149,4 +167,5 @@ for name, items in plan:
     cid = ensure_collection(name)
     log('%s: %d items' % (name, len(ids)))
     set_items(cid, ids)
+    lock_name(cid, name)
 log('done. dry=%s' % DRY)
