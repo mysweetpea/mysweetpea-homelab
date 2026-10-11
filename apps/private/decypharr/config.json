@@ -37,7 +37,19 @@
                 "action": "import"
             },
             {
+                "id": "matched_by_id",
+                "action": "import"
+            },
+            {
+                "id": "unable_to_parse",
+                "action": "blacklist_research"
+            },
+            {
                 "id": "no_eligible_files",
+                "action": "blacklist_research"
+            },
+            {
+                "id": "episodes_missing",
                 "action": "blacklist_research"
             },
             {
@@ -47,7 +59,15 @@
         ]
     },
     "repair": {
-        "enabled": false
+        "enabled": true,
+        "source": "managed",
+        "schedule": "30 5 * * *",
+        "workers": 5,
+        "strategy": "per_entry",
+        "recheck_interval": "168h",
+        "auto_repair": false,
+        "skip_nzb_repair": false,
+        "verify_content": false
     },
     "usenet": {
         "providers": [],
@@ -59,6 +79,7 @@
         "availability_sample_percent": 10,
         "import_availability_sample_percent": 1,
         "disk_buffer_path": "/cache/usenet",
-        "skip_repair": false
+        "skip_repair": false,
+        "buffer_memory": "512MB"
     }
 }
