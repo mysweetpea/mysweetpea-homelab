@@ -40,6 +40,11 @@ controllers:
 defaultPodOptions:
   nodeSelector:
     kubernetes.io/hostname: k3s-worker-b
+  # iGPU (UHD 620) for QSV hardware transcoding: render(991)+video(44) groups
+  # from the bare-metal node. Software transcode measured 0.63x realtime on
+  # worker-b's laptop CPU - far below playback rate (constant buffering).
+  securityContext:
+    supplementalGroups: [991, 44]
 persistence:
   cache:
     existingClaim: jellyfin-cache-lh
@@ -54,6 +59,12 @@ persistence:
     type: emptyDir
     medium: Memory
     sizeLimit: 2Gi
+  # Intel iGPU passthrough for QSV (hardware decode/encode)
+  dri:
+    type: hostPath
+    hostPath: /dev/dri
+    globalMounts:
+    - path: /dev/dri
 service:
   main:
     controller: main
