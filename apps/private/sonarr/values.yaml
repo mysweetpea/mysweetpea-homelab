@@ -21,9 +21,11 @@ controllers:
                 path: /ping
                 port: 8989
               initialDelaySeconds: 15
-              periodSeconds: 20
-              timeoutSeconds: 3
-              failureThreshold: 3
+              # Relaxed 2026-10-11: under heavy fill marathons Sonarr legitimately saturates CPU
+              # and /ping can take >3s -> probe flapped it off the LB while it was working fine.
+              periodSeconds: 30
+              timeoutSeconds: 10
+              failureThreshold: 6
             enabled: true
     type: deployment
 # Pinned to worker-b: media-storage-lh is RWO (single-node attach)
