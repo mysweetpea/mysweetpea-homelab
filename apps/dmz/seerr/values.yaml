@@ -8,7 +8,7 @@ controllers:
         command:
         - sh
         - -c
-        - node /app/config/patch.js && node /app/config/patch4.js && cd /app && node dist/index.js
+        - node /app/config/patch.js && node /app/config/patch4.js && node /app/config/patch5.js && cd /app && node dist/index.js
         securityContext:
           runAsGroup: 1000
           runAsUser: 1000
