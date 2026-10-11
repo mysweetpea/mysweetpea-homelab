@@ -40,7 +40,8 @@ controllers:
         - /bin/sh
         - -c
         - |
-          python3 /scripts/strm-repair-bridge.py --execute --limit 25
+          # limit 200 during the RD-removal re-acquire wave; revert to 25 after
+          python3 /scripts/strm-repair-bridge.py --execute --limit 200
         env:
         - name: DECY_API
           value: "http://decypharr.private.svc.cluster.local:8282"

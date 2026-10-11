@@ -442,9 +442,23 @@ def main():
             log(f"freshest sweep: status={latest.get('status')} probed={probed} "
                 f"broken={broken} healthy={stats.get('healthy', 0)}")
             if probed >= 20 and broken / max(probed, 1) * 100 >= PROVIDER_DOWN_PCT:
-                log(f"PROVIDER-DOWN GUARD: {broken}/{probed} ≥ {PROVIDER_DOWN_PCT}% broken "
-                    f"— skipping (mass failure = outage, not per-release death)")
-                return 0
+                # usenet-only deployments: with no debrid providers configured, a
+                # mass failure cannot be a debrid outage - it's the expected class
+                # (e.g. the RD-removal wave where every legacy debrid entry dies).
+                ndebrids = 1
+                try:
+                    st2, cfgd = http_json(f"{DECY_API}/api/config", headers={"Authorization": f"Bearer {tok}"})
+                    if st2 == 200 and isinstance(cfgd, dict):
+                        ndebrids = len(cfgd.get("debrids") or [])
+                except Exception:  # noqa: BLE001
+                    pass
+                if ndebrids == 0:
+                    log(f"guard bypassed: {broken}/{probed} broken but no debrid providers "
+                        f"configured (usenet-only) - mass failure is expected, proceeding")
+                else:
+                    log(f"PROVIDER-DOWN GUARD: {broken}/{probed} ≥ {PROVIDER_DOWN_PCT}% broken "
+                        f"— skipping (mass failure = outage, not per-release death)")
+                    return 0
     except Exception as e:  # noqa: BLE001
         log(f"warn: sweep stats unavailable ({e}); continuing")
 
