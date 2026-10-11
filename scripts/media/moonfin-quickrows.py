@@ -57,15 +57,16 @@ def set_items(coll_id, want_ids):
     if not coll_id or DRY:
         log('WOULD set %d items' % len(want_ids))
         return
-    cur = (jf('/Items?userId=%s&parentId=%s&Recursive=true&Limit=500' % (ADMIN_UID, coll_id)) or {}).get('Items') or []
+    # Recursive=false: true lists season/episode children of series members (inflated counts, 414 URLs)
+    cur = (jf('/Items?userId=%s&parentId=%s&Recursive=false&Limit=500' % (ADMIN_UID, coll_id)) or {}).get('Items') or []
     cur_ids = {i.get('Id') for i in cur}
     want = set(want_ids)
     add = list(want - cur_ids)
     rem = list(cur_ids - want)
-    if add:
-        jf('/Collections/%s/Items?ids=%s' % (coll_id, ','.join(add)), 'POST', {})
-    if rem:
-        jf('/Collections/%s/Items?ids=%s' % (coll_id, ','.join(rem)), 'DELETE')
+    for chunk_start in range(0, len(add), 50):  # chunk: joined ids overflow the URL at ~500
+        jf('/Collections/%s/Items?ids=%s' % (coll_id, ','.join(add[chunk_start:chunk_start + 50])), 'POST', {})
+    for chunk_start in range(0, len(rem), 50):
+        jf('/Collections/%s/Items?ids=%s' % (coll_id, ','.join(rem[chunk_start:chunk_start + 50])), 'DELETE')
     log('  %s: +%d -%d (total %d)' % (coll_id[:8], len(add), len(rem), len(want)))
 
 def lock_name(cid, name):
@@ -85,6 +86,9 @@ def lock_name(cid, name):
         else:
             jf('/Items/%s' % cid, 'POST', it)
             log('  relocked name: %s (was: %s)' % (name, cur))
+
+def norm(t):
+    return ''.join(ch for ch in (t or '').lower() if ch.isalnum())
 
 def sample(items, n):
     random.shuffle(items)
@@ -110,13 +114,16 @@ surprise = sample(eps, 20) + sample(movies, 10)
 # ---------- K-Dramas (from Sonarr originalLanguage=ko) ----------
 k_ids, k_tagged = [], 0
 try:
+    # tag query first: works even when Sonarr is unreachable (tag persists on items)
+    k_ids = [i.get('Id') for i in (q('IncludeItemTypes=Series&Tags=kdrama&Limit=200').get('Items') or [])]
+except Exception as e:
+    log('kdrama tag query failed: %s' % str(e)[:80])
+try:
     sk = secret('SONARR_API_KEY')
     req = urllib.request.Request('http://192.168.20.219:8989/api/v3/series', headers={'X-Api-Key': sk})
-    series = json.load(urllib.request.urlopen(req, timeout=60))
+    series = json.load(urllib.request.urlopen(req, timeout=180))
     ko = [s for s in series if (s.get('originalLanguage') or {}).get('id') == 12 or (s.get('originalLanguage') or {}).get('name') == 'Korean']
     all_series = (q('IncludeItemTypes=Series&Limit=1000').get('Items') or [])
-    def norm(t):
-        return ''.join(ch for ch in (t or '').lower() if ch.isalnum())
     by_name = {}
     for j in all_series:
         by_name.setdefault(norm(j.get('Name')), j)
@@ -150,7 +157,69 @@ try:
 except Exception as e:
     log('genre collections failed: %s' % str(e)[:80])
 
-log('pools: eps=%d movies=%d resume=%d kdrama=%d (tagged %d) | genres: %d' % (len(eps), len(movies), len(resume), len(k_ids), k_tagged, len(genre_colls)))
+# ---------- sub-genres: languages (arrs), decades, combos, anime movies ----------
+sub_colls = []
+try:
+    LANGS = {'Japanese': ['japanese'], 'Chinese': ['chinese'], 'Spanish': ['spanish'], 'Indian': ['hindi'], 'French': ['french'], 'German': ['german'], 'Italian': ['italian'], 'Russian': ['russian'], 'Thai': ['thai']}
+    jf_series = (q('IncludeItemTypes=Series&Limit=1000').get('Items') or [])
+    jf_movies = (q('IncludeItemTypes=Movie&Limit=1500').get('Items') or [])
+    jf_by_name = {}
+    for j in jf_series + jf_movies:
+        jf_by_name.setdefault(norm(j.get('Name')), j.get('Id'))
+    lang_ids = {label: [] for label in LANGS}
+    def lang_of(name):
+        ln = (name or '').lower()
+        for label, names in LANGS.items():
+            if ln in names:
+                return label
+        return None
+    sk = secret('SONARR_API_KEY')
+    req = urllib.request.Request('http://192.168.20.219:8989/api/v3/series', headers={'X-Api-Key': sk})
+    for sx in json.load(urllib.request.urlopen(req, timeout=180)):
+        lab = lang_of((sx.get('originalLanguage') or {}).get('name'))
+        jid = jf_by_name.get(norm(sx.get('title')))
+        if lab and jid:
+            lang_ids[lab].append(jid)
+    rk = secret('RADARR_API_KEY')
+    req = urllib.request.Request('http://192.168.20.218:7878/api/v3/movie', headers={'X-Api-Key': rk})
+    for mv in json.load(urllib.request.urlopen(req, timeout=120)):
+        lab = lang_of((mv.get('originalLanguage') or {}).get('name'))
+        jid = jf_by_name.get(norm(mv.get('title')))
+        if lab and jid:
+            lang_ids[lab].append(jid)
+    for label, ids in lang_ids.items():
+        if len(ids) >= 6:
+            sub_colls.append((label, [{'Id': i} for i in sorted(set(ids))[:80]]))
+    log('languages: ' + ', '.join('%s=%d' % (l, len(set(v))) for l, v in lang_ids.items()))
+except Exception as e:
+    log('language collections failed: %s' % str(e)[:90])
+
+try:
+    for label, y0 in [('60s Movies', 1960), ('70s Movies', 1970), ('80s Movies', 1980), ('90s Movies', 1990), ('2000s Movies', 2000), ('2010s Movies', 2010)]:
+        years = ','.join(str(y) for y in range(y0, y0 + 10))
+        r = q('IncludeItemTypes=Movie&Years=%s&Limit=60&SortBy=CommunityRating&SortOrder=Descending' % years)
+        if (r.get('TotalRecordCount') or 0) >= 8:
+            sub_colls.append((label, r.get('Items') or []))
+except Exception as e:
+    log('decade collections failed: %s' % str(e)[:90])
+
+try:
+    def ids_of(query):
+        return [i.get('Id') for i in (q('IncludeItemTypes=Movie,Series&%s&Limit=500' % query).get('Items') or [])]
+    for label, qa, qb in [('Romantic Comedy', 'Genres=Romance', 'Genres=Comedy'),
+                          ('Action Comedy', 'Genres=Action', 'Genres=Comedy'),
+                          ('Sci-Fi Horror', 'Genres=Science Fiction', 'Genres=Horror')]:
+        a, b = ids_of(qa), set(ids_of(qb))
+        inter = [i for i in a if i in b]
+        if len(inter) >= 6:
+            sub_colls.append((label, [{'Id': i} for i in inter[:60]]))
+    am = q('IncludeItemTypes=Movie&Genres=Anime&Limit=60&SortBy=CommunityRating&SortOrder=Descending')
+    if (am.get('TotalRecordCount') or 0) >= 6:
+        sub_colls.append(('Anime Movies', am.get('Items') or []))
+except Exception as e:
+    log('combo collections failed: %s' % str(e)[:90])
+
+log('pools: eps=%d movies=%d resume=%d kdrama=%d (tagged %d) | genres: %d | sub-genres: %d' % (len(eps), len(movies), len(resume), len(k_ids), k_tagged, len(genre_colls), len(sub_colls)))
 
 # ---------- apply ----------
 plan = [
@@ -162,6 +231,7 @@ plan = [
     ('🇰🇷 K-Dramas', [{'Id': i} for i in k_ids]),
 ]
 plan += genre_colls  # one collection per genre with 6+ titles (search "romance" etc. finds these)
+plan += sub_colls    # languages, decades, combos, anime movies
 for name, items in plan:
     ids = [i.get('Id') for i in items]
     cid = ensure_collection(name)

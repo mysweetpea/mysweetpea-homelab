@@ -31,7 +31,7 @@ STALE_DAYS = 2              # a grab within this window means the pipeline is al
 LOW_FRAC = 0.30
 MEGA_EPS = 500              # megashow threshold: scope to recent seasons only
 MEGA_SEASONS = 2
-SEASON_CAP = 8              # max SeasonSearch commands per run
+SEASON_CAP = 12              # max SeasonSearch commands per run
 BUDGET_PER_DAY = 800        # global engine search budget (indexer capacity ~15k+/day; real limiter is Sonarr health)
 QUEUE_MAX = 40              # skip non-request lanes while Sonarr queue is this deep
 PARK_DAYS = 30
@@ -613,7 +613,8 @@ for lane in lanes:
                     if (s.get('statistics') or {}).get('episodeCount', 0) < MEGA_EPS:
                         api('/api/v3/command', 'POST', {'name': 'MissingEpisodeSearch', 'seriesId': s.get('id')})
                 elif (s.get('statistics') or {}).get('episodeCount', 0) >= MEGA_EPS:
-                    for se in megashow_seasons(s)[:MEGA_SEASONS]:
+                    mega_cap = 6 if name == 'requests' else MEGA_SEASONS  # requested megashows fill deep, oldest seasons first
+                    for se in megashow_seasons(s)[:mega_cap]:
                         st = se.get('statistics') or {}
                         if (st.get('episodeCount') or 0) > (st.get('episodeFileCount') or 0) and season_cmds < SEASON_CAP:
                             api('/api/v3/command', 'POST', {'name': 'SeasonSearch', 'seriesId': s.get('id'), 'seasonNumber': se.get('seasonNumber')})

@@ -21,11 +21,12 @@ controllers:
                 path: /ping
                 port: 8989
               initialDelaySeconds: 15
-              # Relaxed 2026-10-11: under heavy fill marathons Sonarr legitimately saturates CPU
-              # and /ping can take >3s -> probe flapped it off the LB while it was working fine.
+              # Relaxed 2026-10-11 (v2): under fill marathons Sonarr legitimately saturates HTTP
+              # and /ping can take 10s+. Evicting a SINGLE-replica app from the LB = total blackhole
+              # (no other replica to take traffic). Keep it in the pool; clients retry slow calls.
               periodSeconds: 30
-              timeoutSeconds: 10
-              failureThreshold: 6
+              timeoutSeconds: 30
+              failureThreshold: 10
             enabled: true
     type: deployment
 # Pinned to worker-b: media-storage-lh is RWO (single-node attach)
@@ -44,6 +45,8 @@ persistence:
 service:
   main:
     controller: main
+    # single-replica: never blackhole the LB just because the app is briefly slow
+    publishNotReadyAddresses: true
     ports:
       http:
         port: 8989
