@@ -50,7 +50,7 @@ def ensure_collection(name):
     if DRY:
         log('WOULD create collection %s' % name)
         return None
-    r = jf('/Collections', 'POST', {'Name': name, 'Ids': []})
+    r = jf('/Collections?name=%s' % urllib.parse.quote(name), 'POST')  # JF quirk: query params, not body
     return (r or {}).get('Id')
 
 def set_items(coll_id, want_ids):
@@ -78,10 +78,11 @@ eps = [e for e in eps if (e.get('RunTimeTicks') or 0) > 0]
 movies = (q('IncludeItemTypes=Movie&Filters=IsUnplayed&Limit=1000&Fields=RunTimeTicks,CommunityRating').get('Items') or [])
 movies = [m for m in movies if (m.get('RunTimeTicks') or 0) > 0]
 resume = {}
-r = jf('/UserItems/Resume?userId=%s&Limit=80&MediaTypes=Video&Fields=PlayedPercentage' % ADMIN_UID)
-for it in (r.get('Items') or []):
-    if (it.get('UserData') or {}).get('PlayedPercentage', 0) >= 70:
-        resume[it.get('Id')] = it.get('Name')
+for ruid in (ADMIN_UID, '3b21b627048b425a9c1138b1ca8372bb'):
+    r = jf('/UserItems/Resume?userId=%s&Limit=80&MediaTypes=Video&Fields=PlayedPercentage' % ruid)
+    for it in (r.get('Items') or []):
+        if (it.get('UserData') or {}).get('PlayedPercentage', 0) >= 25:
+            resume[it.get('Id')] = it.get('Name')
 
 under30 = sample([e for e in eps if (e.get('RunTimeTicks') or 0) <= 30 * 60 * 10**7], 40)
 dinner = sample([e for e in eps if (e.get('RunTimeTicks') or 0) <= 40 * 60 * 10**7 and 'comedy' in json.dumps(e).lower()], 40) or under30[:40]
