@@ -249,9 +249,7 @@ try:
 except Exception:
     pass
 if fails and not DRY and now - alerts.get('ImportLists', 0) > 7 * 86400:
-    gotify('MEDIA: import lists failing', 'Needs re-auth (Trakt tokens expire ~90d):
-' + '
-'.join(fails[:6]), 4)
+    gotify('MEDIA: import lists failing', 'Needs re-auth (Trakt tokens expire ~90d). Failing: ' + '; '.join(fails[:6]), 4)
     alerts['ImportLists'] = now
     log('alerted: import lists failing x%d' % len(fails))
 elif not fails:
