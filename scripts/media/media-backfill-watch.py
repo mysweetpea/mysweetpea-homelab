@@ -32,7 +32,7 @@ LOW_FRAC = 0.30
 MEGA_EPS = 500              # megashow threshold: scope to recent seasons only
 MEGA_SEASONS = 2
 SEASON_CAP = 8              # max SeasonSearch commands per run
-BUDGET_PER_DAY = 400        # global engine search budget
+BUDGET_PER_DAY = 800        # global engine search budget (indexer capacity ~15k+/day; real limiter is Sonarr health)
 QUEUE_MAX = 40              # skip non-request lanes while Sonarr queue is this deep
 PARK_DAYS = 30
 HEALTH_ALERT_DEDUPE_H = 6
@@ -234,6 +234,29 @@ except Exception:
 if se_key:
     poke_availability_sync(se_key)
 
+# --- import-list watchdog: surfaces Trakt token expiry (re-auth needed) instead of dying silently ---
+def failing_import_lists(base, key):
+    try:
+        h = api('/api/v3/health', base=base, key=key, timeout=20)
+        return [ (x.get('message') or '')[:90] for x in (h or [])
+                 if 'import' in (x.get('message') or '').lower() or 'lists unavailable' in (x.get('message') or '').lower() ]
+    except Exception:
+        return []
+
+fails = failing_import_lists(SONARR, KEY)
+try:
+    fails += failing_import_lists(RADARR, secret('RADARR_API_KEY'))
+except Exception:
+    pass
+if fails and not DRY and now - alerts.get('ImportLists', 0) > 7 * 86400:
+    gotify('MEDIA: import lists failing', 'Needs re-auth (Trakt tokens expire ~90d):
+' + '
+'.join(fails[:6]), 4)
+    alerts['ImportLists'] = now
+    log('alerted: import lists failing x%d' % len(fails))
+elif not fails:
+    alerts.pop('ImportLists', None)
+
 # --- budget (searches/day) ---
 today = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
 budget = state.setdefault('_budget', {'date': today, 'n': 0})
@@ -282,12 +305,12 @@ def m_backfill(s, ctx):
     return missing_count(s) > 0
 
 lanes = [
-    {'name': 'requests', 'match': m_requests, 'cadence_min': 15,  'gap_h': 12,  'cap': 3, 'prio': 'high'},
-    {'name': 'airing',   'match': m_airing,   'cadence_min': 120, 'gap_h': 24,  'cap': 4, 'prio': 'normal'},
-    {'name': 'watched',  'match': m_watched,  'cadence_min': 240, 'gap_h': 48,  'cap': 3, 'prio': 'normal'},
-    {'name': 'anime',    'match': m_anime,    'cadence_min': 480, 'gap_h': 48,  'cap': 4, 'prio': 'normal'},
-    {'name': 'backfill', 'match': m_backfill, 'cadence_min': 240, 'gap_h': 72,  'cap': 5, 'prio': 'normal'},
-    {'name': 'movies',   'match': None,       'cadence_min': 1440,'gap_h': 168, 'cap': 3, 'prio': 'normal'},
+    {'name': 'requests', 'match': m_requests, 'cadence_min': 15,  'gap_h': 12,  'cap': 5, 'prio': 'high'},
+    {'name': 'airing',   'match': m_airing,   'cadence_min': 120, 'gap_h': 24,  'cap': 6, 'prio': 'normal'},
+    {'name': 'watched',  'match': m_watched,  'cadence_min': 240, 'gap_h': 48,  'cap': 4, 'prio': 'normal'},
+    {'name': 'anime',    'match': m_anime,    'cadence_min': 480, 'gap_h': 48,  'cap': 5, 'prio': 'normal'},
+    {'name': 'backfill', 'match': m_backfill, 'cadence_min': 240, 'gap_h': 72,  'cap': 8, 'prio': 'normal'},
+    {'name': 'movies',   'match': None,       'cadence_min': 1440,'gap_h': 168, 'cap': 5, 'prio': 'normal'},
 ]
 lane_state = state.setdefault('_lanes', {})
 acted_total = 0
