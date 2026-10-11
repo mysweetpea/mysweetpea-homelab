@@ -7,10 +7,10 @@ controllers:
           tag: release-4.0.20.3014
         resources:
           requests:
-            cpu: 250m
+            cpu: 500m
             memory: 512Mi
           limits:
-            cpu: 2000m
+            cpu: 4000m
             memory: 2Gi
         probes:
           readiness:
