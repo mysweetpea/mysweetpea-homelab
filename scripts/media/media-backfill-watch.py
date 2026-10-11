@@ -125,7 +125,11 @@ def megashow_recent_missing(s):
         n += max(0, (st.get('episodeCount') or 0) - (st.get('episodeFileCount') or 0))
     return n
 
-JUNK_QUEUE_CLASSES = ['No files found are eligible', 'Single episode file contains all episodes', 'release was matched to series by ID']
+JUNK_QUEUE_CLASSES = ['No files found are eligible', 'Single episode file contains all episodes', 'release was matched to series by ID',
+                      # usenet class: decypharr failed/cleaned the download but the arr never got the
+                      # failure callback (arr busy/down) -> item stuck at completed/importPending while
+                      # the scratch folder is gone -> import retries fail forever. Settle after grace.
+                      'path does not exist or is not accessible']
 
 def is_junk_queue_item(rec):
     """Sonarr queue item whose import can never self-resolve (junk release classes)."""
@@ -153,6 +157,7 @@ def selftest():
     assert megashow_recent_missing(mg) == (20 - 18) + (22 - 4) == 20
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['No files found are eligible for import in /x']}]}) is True
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['Single episode file contains all episodes in seasons']}]}) is True
+    assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['Import failed, path does not exist or is not accessible by Sonarr: /data/x']}]}) is True
     assert is_junk_queue_item({'status': 'downloading', 'statusMessages': [{'messages': ['No files found are eligible for import in /x']}]}) is False
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['everything imported fine']}]}) is False
     assert is_foreign_file({'customFormatScore': -40}) is True
@@ -433,7 +438,10 @@ try:
     q = api('/api/v3/queue?page=1&pageSize=1')
     queue_full = (q.get('totalRecords') or 0) > QUEUE_MAX
 except Exception:
-    pass
+    # fail CLOSED (2026-10-11 incident): when the depth check can't be verified the
+    # app is starved/sick - do not pile more searches onto it. Requests lane still
+    # runs; other lanes wait one tick.
+    queue_full = True
 
 series = api('/api/v3/series')
 by_tvdb = {}
