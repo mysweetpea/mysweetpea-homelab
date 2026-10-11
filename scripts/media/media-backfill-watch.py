@@ -452,7 +452,7 @@ def decypharr_history_hygiene():
                 cands.append((nzo, st))
         if not cands:
             continue
-        payload = '\n'.join(nzo + '\t' + st for nzo, st in cands)
+        payload = '\n'.join(nzo + '\t' + st for nzo, st in cands) + '\n'
         try:
             out = subprocess.run(
                 ['kubectl', '-n', 'private', 'exec', '-i', 'deploy/decypharr', '--', 'sh', '-c',
