@@ -29,10 +29,8 @@ controllers:
           value: "1000"
         - name: PGID
           value: "1000"
-        - name: DECYPHARR_DEBRIDS__0__NAME
-          value: "RD Primary"
-        - name: DECYPHARR_DEBRIDS__0__PROVIDER
-          value: "realdebrid"
+        # Real-Debrid REMOVED 2026-10-11: usenet-only pipeline (user directive).
+        # The decypharr-secrets sealed secret was resealed without the RD key.
         - name: DECYPHARR_ARRS__0__NAME
           value: "Radarr"
         - name: DECYPHARR_ARRS__1__NAME
@@ -81,7 +79,6 @@ controllers:
           # Inject the RD API key into config.json (env overrides run AFTER
           # setDefaults, which pre-computes DownloadAPIKeys from an empty
           # APIKey — file-based key survives that ordering)
-          sed -i "s|\"api_key\": \"\"|\"api_key\": \"$DECYPHARR_DEBRIDS__0__API_KEY\"|" /app/config.json
           chmod 644 /app/config.json /app/auth.json
         envFrom:
         - secretRef:
