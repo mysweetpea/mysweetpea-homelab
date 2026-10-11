@@ -125,6 +125,15 @@ def megashow_recent_missing(s):
         n += max(0, (st.get('episodeCount') or 0) - (st.get('episodeFileCount') or 0))
     return n
 
+JUNK_QUEUE_CLASSES = ['No files found are eligible', 'Single episode file contains all episodes', 'release was matched to series by ID']
+
+def is_junk_queue_item(rec):
+    """Sonarr queue item whose import can never self-resolve (junk release classes)."""
+    if rec.get('status') != 'completed':
+        return False
+    msgs = ' | '.join(t for m in (rec.get('statusMessages') or []) for t in (m.get('messages') or []))
+    return any(c in msgs for c in JUNK_QUEUE_CLASSES)
+
 def selftest():
     assert gap_hours(0, 12) == 12 and gap_hours(1, 12) == 24 and gap_hours(2, 12) == 48
     assert gap_hours(3, 12) == 168 and gap_hours(9, 12) == 168 and gap_hours(0, 168) == 168
@@ -139,6 +148,10 @@ def selftest():
         {'seasonNumber': 34, 'statistics': {'episodeCount': 22, 'episodeFileCount': 4}},
     ]}
     assert megashow_recent_missing(mg) == (20 - 18) + (22 - 4) == 20
+    assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['No files found are eligible for import in /x']}]}) is True
+    assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['Single episode file contains all episodes in seasons']}]}) is True
+    assert is_junk_queue_item({'status': 'downloading', 'statusMessages': [{'messages': ['No files found are eligible for import in /x']}]}) is False
+    assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['everything imported fine']}]}) is False
     print('SELFTEST OK')
     sys.exit(0)
 
@@ -254,6 +267,48 @@ if fails and not DRY and now - alerts.get('ImportLists', 0) > 7 * 86400:
     log('alerted: import lists failing x%d' % len(fails))
 elif not fails:
     alerts.pop('ImportLists', None)
+
+# --- queue hygiene: settle import-blocked junk that never resolves on its own ---
+# (multi-season-single-file uploads, empty/fake releases, ambiguous matches -> importPending forever).
+# Removal uses removeFromClient=false (dodges decypharr's 500 on already-gone items) + blocklist=true
+# (junk can't re-grab). 75-min grace so Sonarr + Cleanuparr get first shot; max 25 removals/run.
+def queue_hygiene():
+    try:
+        q = api('/api/v3/queue?page=1&pageSize=200&includeUnknownSeriesItems=true')
+    except Exception as e:
+        log('queue hygiene: fetch failed (%s)' % str(e)[:60])
+        return 0
+    seen = state.setdefault('_qbad', {})
+    removed = 0
+    bad_now = set()
+    for x in (q or {}).get('records') or []:
+        if not is_junk_queue_item(x):
+            continue
+        qid = str(x.get('id'))
+        bad_now.add(qid)
+        first = seen.setdefault(qid, now)
+        if now - first > 75 * 60 and removed < 25:
+            if DRY:
+                log('WOULD queue-hygiene remove: %s' % (x.get('title') or '')[:60])
+                removed += 1
+                continue
+            try:
+                api('/api/v3/queue/%s?removeFromClient=false&blocklist=true' % qid, method='DELETE', timeout=45)
+                removed += 1
+                log('queue hygiene: removed %s' % (x.get('title') or '')[:60])
+            except Exception as e:
+                if '404' in str(e):
+                    seen.pop(qid, None)
+                else:
+                    log('queue hygiene: remove failed for %s (%s)' % (qid, str(e)[:50]))
+            seen.pop(qid, None)
+    for k in [k for k in seen if k not in bad_now]:
+        seen.pop(k, None)
+    return removed
+
+qh = queue_hygiene()
+if qh:
+    log('queue hygiene: %d junk item(s) settled' % qh)
 
 # --- budget (searches/day) ---
 today = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
@@ -485,10 +540,15 @@ for lane in lanes:
 # --- weekly digest (Sundays) ---
 stats = state.setdefault('_stats', {'last_digest': 0, 'acted': 0})
 stats['acted'] = stats.get('acted', 0) + acted_total
+stats['qhygiene'] = stats.get('qhygiene', 0) + qh
 if not DRY and datetime.date.today().weekday() == 6 and now - stats.get('last_digest', 0) > 6 * 86400:
     parked = [v.get('title', '?') for k, v in state.items() if not k.startswith('_') and isinstance(v, dict) and v.get('parked_until', 0) > now]
-    msg = 'acted this period: %d\nparked (unavailable after 4 tries): %d\n%s\nbudget used today: %d/%d' % (
-        stats.get('acted', 0), len(parked), ', '.join(parked[:10]) if parked else '-', budget['n'], BUDGET_PER_DAY)
+    msg = """acted this period: %d
+queue hygiene: %d junk items settled
+parked (unavailable after 4 tries): %d
+%s
+budget used today: %d/%d""" % (
+        stats.get('acted', 0), stats.get('qhygiene', 0), len(parked), ', '.join(parked[:10]) if parked else '-', budget['n'], BUDGET_PER_DAY)
     gotify('MEDIA weekly digest', msg, 3)
     stats['last_digest'] = now
     stats['acted'] = 0
