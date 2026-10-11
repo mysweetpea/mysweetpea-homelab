@@ -100,7 +100,12 @@ eps = [e for e in eps if (e.get('RunTimeTicks') or 0) > 0]
 movies = (q('IncludeItemTypes=Movie&Filters=IsUnplayed&Limit=1000&Fields=RunTimeTicks,CommunityRating').get('Items') or [])
 movies = [m for m in movies if (m.get('RunTimeTicks') or 0) > 0]
 resume = {}
-for ruid in (ADMIN_UID, '3b21b627048b425a9c1138b1ca8372bb'):
+try:
+    _all_users = jf('/Users') or []
+    ruids = [u.get('Id') for u in _all_users if isinstance(u, dict) and u.get('Id') and not (u.get('Policy') or {}).get('IsDisabled')][:10]
+except Exception:
+    ruids = [ADMIN_UID, '3b21b627048b425a9c1138b1ca8372bb']
+for ruid in ruids:
     r = jf('/UserItems/Resume?userId=%s&Limit=80&MediaTypes=Video&Fields=PlayedPercentage' % ruid)
     for it in (r.get('Items') or []):
         if (it.get('UserData') or {}).get('PlayedPercentage', 0) >= 25:
