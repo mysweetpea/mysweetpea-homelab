@@ -13,7 +13,7 @@
 # progress resets it. 4 fruitless attempts -> parked 30d + weekly digest ping.
 # Health checks (6 components) + Seerr availability poke stay as in v2.
 # Usage: python3 media-backfill-watch.py [--dry-run] [--lane NAME] [--selftest]
-import base64, json, os, socket, subprocess, sys, time, urllib.request, urllib.error, datetime
+import base64, json, os, socket, subprocess, sys, time, urllib.request, urllib.parse, urllib.error, datetime
 
 SONARR = 'http://192.168.20.219:8989'
 RADARR = 'http://192.168.20.218:7878'
@@ -35,6 +35,13 @@ SEASON_CAP = 12              # max SeasonSearch commands per run
 BUDGET_PER_DAY = 800        # global engine search budget (indexer capacity ~15k+/day; real limiter is Sonarr health)
 QUEUE_MAX = 40              # skip non-request lanes while Sonarr queue is this deep
 PARK_DAYS = 30
+SAB_BASE = 'http://192.168.20.215:8282'   # decypharr SAB-compat API (LB)
+SAB_ARRS = [                # category -> (arr FQDN used for auth, key secret)
+    ('Sonarr', 'http://sonarr.private.svc.cluster.local:8989', 'SONARR_API_KEY'),
+    ('Radarr', 'http://radarr.private.svc.cluster.local:7878', 'RADARR_API_KEY'),
+]
+SAB_GRACE_H = 2             # first-seen grace before purging an empty-folder history entry
+SAB_CAP = 300               # max history purges per run
 HEALTH_ALERT_DEDUPE_H = 6
 DRY = '--dry-run' in sys.argv
 ONLY_LANE = None
@@ -412,6 +419,74 @@ def queue_hygiene():
     for k in [k for k in seen if k not in bad_now]:
         seen.pop(k, None)
     return removed
+
+def sab_get(mode, fqdn, key, extra=''):
+    """Read/delete via decypharr's SAB-compat API. Auth = arr FQDN + that arr's own
+    API key (decypharr validates the pair by calling the arr back)."""
+    url = '%s/sabnzbd/api?mode=%s&output=json&ma_username=%s&ma_password=%s%s' % (
+        SAB_BASE, mode, urllib.parse.quote(fqdn, safe=''), key, extra)
+    with urllib.request.urlopen(url, timeout=60) as r:
+        return json.loads(r.read().decode())
+
+def decypharr_history_hygiene():
+    """Purge decypharr SAB history tracking entries whose download folder holds no
+    files left to import. This is the 'ghost' class (2026-10-11 incident): the arr
+    never got the failure callback, so it re-tries these on every refresh forever.
+    Entries must stay empty-folder for SAB_GRACE_H before removal; capped per run."""
+    removed = 0
+    seen = state.setdefault('_dhist', {})
+    bad_now = set()
+    for cat, fqdn, keyname in SAB_ARRS:
+        try:
+            slots = (sab_get('history', fqdn, secret(keyname), '&limit=100000').get('history') or {}).get('slots') or []
+        except Exception as e:
+            log('history hygiene: fetch failed for %s (%s)' % (cat, str(e)[:60]))
+            continue
+        cands = []
+        for s in slots:
+            if s.get('category') != cat or s.get('status') not in ('Completed', 'Failed'):
+                continue
+            st = (s.get('storage') or '').strip()
+            nzo = s.get('nzo_id') or ''
+            if st and nzo:
+                cands.append((nzo, st))
+        if not cands:
+            continue
+        payload = '\n'.join(nzo + '\t' + st for nzo, st in cands)
+        try:
+            out = subprocess.run(
+                ['kubectl', '-n', 'private', 'exec', '-i', 'deploy/decypharr', '--', 'sh', '-c',
+                 'T=$(printf "\\t"); while IFS="$T" read -r id path; do c=$(find "$path" -maxdepth 1 -type f 2>/dev/null | wc -l); [ "$c" -eq 0 ] && echo EMPTY "$id"; done'],
+                input=payload, capture_output=True, text=True, timeout=180).stdout
+        except Exception as e:
+            log('history hygiene: scan failed (%s)' % str(e)[:60])
+            continue
+        empty = set(l.split()[1] for l in out.splitlines() if l.startswith('EMPTY '))
+        for nzo, st in cands:
+            if nzo not in empty:
+                seen.pop(nzo, None)
+                continue
+            bad_now.add(nzo)
+            first = seen.setdefault(nzo, now)
+            if now - first > SAB_GRACE_H * 3600 and removed < SAB_CAP:
+                if DRY:
+                    log('WOULD purge history entry (empty folder): %s' % st.split('/')[-1][:70])
+                    removed += 1
+                else:
+                    try:
+                        sab_get('history', fqdn, secret(keyname), '&name=delete&value=' + nzo)
+                        removed += 1
+                        log('history hygiene: purged ghost entry %s' % st.split('/')[-1][:70])
+                    except Exception as e:
+                        log('history hygiene: purge failed (%s)' % str(e)[:60])
+                seen.pop(nzo, None)
+    for k in [k for k in seen if k not in bad_now]:
+        seen.pop(k, None)
+    return removed
+
+dh = decypharr_history_hygiene()
+if dh:
+    log('history hygiene: %d ghost tracking entry(ies) purged' % dh)
 
 qh = queue_hygiene()
 if qh:
