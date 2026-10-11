@@ -152,6 +152,9 @@ def selftest():
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['Single episode file contains all episodes in seasons']}]}) is True
     assert is_junk_queue_item({'status': 'downloading', 'statusMessages': [{'messages': ['No files found are eligible for import in /x']}]}) is False
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['everything imported fine']}]}) is False
+    assert is_foreign_file({'customFormatScore': -40}) is True
+    assert is_foreign_file({'customFormatScore': 110}) is False
+    assert is_foreign_file({}) is False
     print('SELFTEST OK')
     sys.exit(0)
 
@@ -268,6 +271,79 @@ if fails and not DRY and now - alerts.get('ImportLists', 0) > 7 * 86400:
 elif not fails:
     alerts.pop('ImportLists', None)
 
+# --- language audit: daily sweep for foreign-only files (negative CF score = French/German/Dutch/MULTi class) ---
+# Dynamic + case-by-case: detects via scores, blocklists the old grabs, deletes foreign files and re-searches
+# (max 2 series + 1 movie per run). No global language blocks — each title is handled on real data.
+def is_foreign_file(f):
+    return (f.get('customFormatScore') or 0) < 0
+
+def language_audit():
+    res = {'series': [], 'movies': []}
+    try:
+        efs = api('/api/v3/episodefile', timeout=180) or []
+    except Exception as e:
+        log('language audit: episodefile list failed (%s)' % str(e)[:60]); efs = []
+    bad = {}
+    for f in efs:
+        if is_foreign_file(f):
+            bad.setdefault(f.get('seriesId'), []).append(f)
+    picks = sorted(bad.items(), key=lambda kv: -len(kv[1]))[:2]
+    if not picks:
+        log('language audit: no foreign-scored files')
+    for sid, files in picks:
+        log('language audit: series %s -> %d foreign file(s), e.g. %s' % (sid, len(files), (files[0].get('sceneName') or '')[:55]))
+        if DRY:
+            res['series'].append((sid, 0)); continue
+        try:
+            hist = api('/api/v3/history/series?seriesId=%s&page=1&pageSize=500&sortKey=date&sortDirection=descending' % sid) or []
+            names = [(f.get('sceneName') or '') for f in files if f.get('sceneName')]
+            for h in (hist if isinstance(hist, list) else []):
+                st = h.get('sourceTitle') or ''
+                if h.get('eventType') == 'grabbed' and any(n[:40] in st for n in names):
+                    try:
+                        api('/api/v3/history/failed/%s' % h.get('id'), method='POST', body={})
+                    except Exception:
+                        pass
+        except Exception as e:
+            log('language audit: blocklist scan failed (%s)' % str(e)[:50])
+        deleted = 0
+        for f in files[:25]:
+            try:
+                api('/api/v3/episodefile/%s' % f.get('id'), method='DELETE'); deleted += 1
+            except Exception:
+                pass
+        try:
+            api('/api/v3/command', method='POST', body={'name': 'MissingEpisodeSearch', 'seriesId': sid})
+        except Exception:
+            pass
+        res['series'].append((sid, deleted))
+    try:
+        mfs = api('/api/v3/moviefile', timeout=120) or []
+    except Exception:
+        mfs = []
+    for f in [x for x in mfs if is_foreign_file(x)][:1]:
+        log('language audit: movie %s foreign (%s)' % (f.get('movieId'), (f.get('sceneName') or f.get('relativePath') or '')[:55]))
+        if DRY:
+            res['movies'].append(f.get('movieId')); continue
+        try:
+            hist = api('/api/v3/history/movie?movieId=%s&page=1&pageSize=200&sortKey=date&sortDirection=descending' % f.get('movieId')) or []
+            st0 = (f.get('sceneName') or '')
+            for h in (hist if isinstance(hist, list) else []):
+                if h.get('eventType') == 'grabbed' and st0 and st0[:40] in (h.get('sourceTitle') or ''):
+                    try:
+                        api('/api/v3/history/failed/%s' % h.get('id'), method='POST', body={})
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        try:
+            api('/api/v3/moviefile/%s' % f.get('id'), method='DELETE')
+            api('/api/v3/command', method='POST', body={'name': 'MoviesSearch', 'movieIds': [f.get('movieId')]})
+            res['movies'].append(f.get('movieId'))
+        except Exception:
+            pass
+    return res
+
 # --- queue hygiene: settle import-blocked junk that never resolves on its own ---
 # (multi-season-single-file uploads, empty/fake releases, ambiguous matches -> importPending forever).
 # Removal uses removeFromClient=false (dodges decypharr's 500 on already-gone items) + blocklist=true
@@ -309,6 +385,13 @@ def queue_hygiene():
 qh = queue_hygiene()
 if qh:
     log('queue hygiene: %d junk item(s) settled' % qh)
+
+# language audit at most once per 24h (dry runs always check, never write)
+if DRY or now - state.get('_langaudit_ts', 0) > 86400:
+    la = language_audit()
+    if not DRY:
+        state['_langaudit_ts'] = now
+    log('language audit: series_fixed=%d movies_fixed=%d (dry=%s)' % (len(la['series']), len(la['movies']), DRY))
 
 # --- budget (searches/day) ---
 today = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
