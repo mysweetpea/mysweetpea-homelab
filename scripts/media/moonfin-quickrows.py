@@ -117,7 +117,22 @@ try:
 except Exception as e:
     log('kdrama detection failed: %s' % str(e)[:80])
 
-log('pools: eps=%d movies=%d resume=%d kdrama=%d (tagged %d)' % (len(eps), len(movies), len(resume), len(k_ids), k_tagged))
+# ---------- genre collections: searchable category hubs ("romance"/"comedy"/"action"... find these) ----------
+genre_colls = []
+try:
+    g = jf('/Genres?userId=%s&IncludeItemTypes=Movie,Series&Recursive=true' % ADMIN_UID)
+    genres = [x.get('Name') for x in (g.get('Items') or []) if x.get('Name')]
+    for gname in genres[:30]:
+        cnt = q('IncludeItemTypes=Movie,Series&Genres=%s&Limit=0' % urllib.parse.quote(gname)).get('TotalRecordCount') or 0
+        if cnt < 6:
+            continue
+        items = (q('IncludeItemTypes=Movie,Series&Genres=%s&Limit=60&SortBy=CommunityRating,SortName&SortOrder=Descending' % urllib.parse.quote(gname)).get('Items') or [])
+        if items:
+            genre_colls.append((gname, items))
+except Exception as e:
+    log('genre collections failed: %s' % str(e)[:80])
+
+log('pools: eps=%d movies=%d resume=%d kdrama=%d (tagged %d) | genres: %d' % (len(eps), len(movies), len(resume), len(k_ids), k_tagged, len(genre_colls)))
 
 # ---------- apply ----------
 plan = [
@@ -128,6 +143,7 @@ plan = [
     ('🎲 Surprise Me', surprise),
     ('🇰🇷 K-Dramas', [{'Id': i} for i in k_ids]),
 ]
+plan += genre_colls  # one collection per genre with 6+ titles (search "romance" etc. finds these)
 for name, items in plan:
     ids = [i.get('Id') for i in items]
     cid = ensure_collection(name)
