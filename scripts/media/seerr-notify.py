@@ -53,7 +53,13 @@ def jf_message(title, body, user_ids, color='green'):
         return True
     st, resp = call(JF, '/Moonfin/Admin/Messages', JH, 'POST', msg)
     log('message [%s] -> %s' % (title[:50], st))
-    return st in (200, 204)
+    if st in (200, 204):
+        mid = (resp or {}).get('Id') if isinstance(resp, dict) else None
+        stt = globals().get('state')
+        if mid and isinstance(stt, dict):
+            stt.setdefault('msgs', []).append({'id': mid, 'ts': int(time.time())})
+        return True
+    return False
 
 def media_title(x):
     m = x.get('media') or {}
@@ -124,6 +130,18 @@ for x in (r.get('results') or []):
                 s['nudge'] = True
         except Exception:
             pass
+
+# prune our own messages after 72h so the inbox never accumulates (read state is client-side)
+if not DRY:
+    cutoff = time.time() - 72 * 3600
+    kept_msgs = []
+    for mm in state.get('msgs', []):
+        if mm.get('ts', 0) < cutoff:
+            pst, _ = call(JF, '/Moonfin/Admin/Messages/%s' % mm.get('id'), JH, 'DELETE')
+            log('pruned old message %s -> %s' % (mm.get('id'), pst))
+        else:
+            kept_msgs.append(mm)
+    state['msgs'] = kept_msgs
 
 state['seeded'] = True
 if not DRY:
