@@ -37,8 +37,12 @@ controllers:
                 port: 8096
               initialDelaySeconds: 15
               periodSeconds: 20
-              timeoutSeconds: 3
-              failureThreshold: 3
+              # Relaxed 2026-10-11: single-replica media host; /health can exceed
+              # 3s during QSV transcode + scan bursts (23 failed probes/10h).
+              # Evicting it from service endpoints = user-visible errors; keep it
+              # in the pool and let slow requests drain.
+              timeoutSeconds: 10
+              failureThreshold: 5
             enabled: true
     type: deployment
 # Pinned to worker-b: media-storage-lh is RWO (single-node attach)

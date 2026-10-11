@@ -8,10 +8,16 @@ controllers:
         resources:
           requests:
             cpu: 500m
-            memory: 512Mi
+            # Raised 512Mi -> 1Gi 2026-10-11: usenet-era import/scan storms need
+            # GC headroom; Sonarr sat at 1.95Gi/2Gi under load.
+            memory: 1Gi
           limits:
             cpu: 4000m
-            memory: 2Gi
+            # 2Gi -> 5Gi 2026-10-11: OOMKill loop (16 restarts / 11h) under
+            # season-pack import backlog: .NET GC thrash at the 2Gi ceiling made
+            # /ping, the queue API and decypharr's arr callbacks all time out.
+            # 380-series library + usenet fill marathons need real headroom.
+            memory: 5Gi
         probes:
           readiness:
             custom: true
