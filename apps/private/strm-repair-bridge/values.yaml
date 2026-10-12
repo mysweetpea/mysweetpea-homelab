@@ -59,7 +59,7 @@ controllers:
         - name: PYTHONUNBUFFERED
           value: "1"
         - name: SWEEP_WORKERS
-          value: "16"
+          value: "6"
         - name: SWEEP_DEADLINE_S
           value: "1800"
         - name: JELLYFIN_API
@@ -335,13 +335,13 @@ configMaps:
             Dead results are double-probed so transients never trigger repairs.
             A wall-clock deadline fails safe: files not reached in time count as
             alive (no action). Returns ({entry_name: detection}, stats)."""
-            workers = workers or int(os.environ.get("SWEEP_WORKERS", "16"))
+            workers = workers or int(os.environ.get("SWEEP_WORKERS", "6"))
             deadline = time.monotonic() + SWEEP_DEADLINE_S
 
             def probe(item, guarded=True):
                 entry, sp = item
                 if guarded and time.monotonic() > deadline:
-                    return sp, True  # fail safe: treat as alive
+                    return sp, "ok"  # fail safe: treat as alive
                 try:
                     with open(sp, "r", errors="replace") as f:
                         url = f.readline().strip()
@@ -355,26 +355,52 @@ configMaps:
                 try:
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         resp.read(64)
-                        return sp, True
-                except urllib.error.HTTPError:
-                    return sp, False
+                        return sp, "ok"
+                except urllib.error.HTTPError as e:
+                    body = b""
+                    try:
+                        body = e.read()[:300]
+                    except Exception:  # noqa: BLE001
+                        pass
+                    # "file is gone" signature vs "backend having a moment": only the
+                    # former may ever trigger a repair (2026-10-12 eviction-storm lesson:
+                    # decypharr died mid-sweep and unreachable files must NOT look dead).
+                    if e.code in (404, 410, 451) or b"client_not_found" in body:
+                        return sp, "dead"
+                    if 400 <= e.code < 500 and e.code != 429:
+                        return sp, "dead"
+                    return sp, "offline"
                 except Exception:  # noqa: BLE001
-                    return sp, False
+                    return sp, "offline"
 
             tasks = [(e, s) for e, ss in _by_entry(raw_index).items() for s in ss]
-            dead1 = []
+            dead1, offline1 = [], 0
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-                for sp, ok in ex.map(probe, tasks, chunksize=16):
-                    if not ok:
+                for sp, st in ex.map(probe, tasks, chunksize=16):
+                    if st == "dead":
                         dead1.append(sp)
+                    elif st == "offline":
+                        offline1 += 1
+            # Backend-outage gate (2026-10-12): if a large share of the library is
+            # UNREACHABLE (not HTTP-dead - connection-level failure), the streaming
+            # backend itself is sick (e.g. decypharr evicted mid-sweep by its cache
+            # limit). No death verdicts are trustworthy then, and continuing to hammer
+            # it feeds the crash loop. Abort; the next run retries.
+            if tasks and offline1 > 50 and offline1 / len(tasks) > 0.3:
+                log(f"sweep ABORTED: {offline1}/{len(tasks)} unreachable - "
+                    f"streaming backend outage suspected")
+                return {}, {"probed": len(tasks), "alive": len(tasks) - len(dead1) - offline1,
+                            "dead_files": 0, "dead_entries": 0, "offline": offline1,
+                            "aborted": True}
             still_dead = []
             if dead1:
                 # NOT deadline-guarded: a fail-safe "alive" here would exonerate the
                 # dead set wholesale (this exact bug nuked the first production run).
                 # Bounded naturally: only dead candidates, each with a 10 s timeout.
+                # "offline" on the re-probe defers the entry (never repaired blind).
                 with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-                    for sp, ok in ex.map(lambda a: probe(a, False), [(raw_index[s], s) for s in dead1], chunksize=8):
-                        if not ok:
+                    for sp, st in ex.map(lambda a: probe(a, False), [(raw_index[s], s) for s in dead1], chunksize=8):
+                        if st == "dead":
                             still_dead.append(sp)
             dead_entries = {}
             for sp in still_dead:
@@ -384,8 +410,9 @@ configMaps:
                     "failure_reason": "not_streamable", "dead_files": [],
                 })
                 d["dead_files"].append(sp)
-            stats = {"probed": len(tasks), "alive": len(tasks) - len(dead1),
-                     "dead_files": len(still_dead), "dead_entries": len(dead_entries)}
+            stats = {"probed": len(tasks), "alive": len(tasks) - len(dead1) - offline1,
+                     "dead_files": len(still_dead), "dead_entries": len(dead_entries),
+                     "offline": offline1, "aborted": False}
             return dead_entries, stats
 
 
@@ -822,6 +849,10 @@ configMaps:
             broken_entries = list(detections.values())
             if not broken_entries:
                 log("nothing to repair")
+                if sw.get("aborted"):
+                    kuma_push("down", f"sweep aborted: {sw.get('offline', 0)} unreachable "
+                                      f"- streaming backend outage suspected")
+                    return 0
                 kuma_push("up", f"clean: probed={sw.get('probed', 0)}")
                 return 0
 
@@ -1021,6 +1052,8 @@ configMaps:
                 reasons.append(f"bulk death: {dead_now} dead (was {prev_dead})")
             if streak >= 2:
                 reasons.append(f"repairs stalled: {streak} runs, {len(broken_entries)} candidates")
+            if sw and sw.get("aborted"):
+                reasons.append(f"sweep aborted: {sw.get('offline', 0)} unreachable (backend outage?)")
             kuma_push("down" if reasons else "up", "; ".join(reasons) or
                       f"probed={sw.get('probed', 0)} dead={dead_now} "
                       f"entries={len(broken_entries)} repaired={repaired_now}"
@@ -1042,6 +1075,7 @@ configMaps:
                 log(f"FATAL: unhandled: {e!r}")
                 kuma_push("down", f"bridge crashed: {e!r}"[:250])
                 sys.exit(3)
+
 persistence:
   script:
     enabled: true
