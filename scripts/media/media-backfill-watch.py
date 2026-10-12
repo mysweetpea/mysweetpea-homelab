@@ -211,9 +211,17 @@ JUNK_QUEUE_CLASSES = ['No files found are eligible', 'Single episode file contai
                       'path does not exist or is not accessible']
 
 def is_junk_queue_item(rec):
-    """Sonarr queue item whose import can never self-resolve (junk release classes)."""
+    """Sonarr queue item whose import can never self-resolve (junk release classes).
+    Two detectors: (a) known junk import messages; (b) the message-less ghost class
+    measured 2026-10-12 - completed + importPending + episodeHasFile=False = a
+    download whose scratch folder is gone (import retries log 'path does not exist'
+    transiently but the queue record shows no message, so message-matching alone
+    let 678 of these pile up while CPU churned re-trying them). The lane's 75-min
+    first-seen grace protects genuinely-slow imports."""
     if rec.get('status') != 'completed':
         return False
+    if rec.get('trackedDownloadState') == 'importPending' and rec.get('episodeHasFile') is False:
+        return True
     msgs = ' | '.join(t for m in (rec.get('statusMessages') or []) for t in (m.get('messages') or []))
     return any(c in msgs for c in JUNK_QUEUE_CLASSES)
 
@@ -239,6 +247,10 @@ def selftest():
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['Import failed, path does not exist or is not accessible by Sonarr: /data/x']}]}) is True
     assert is_junk_queue_item({'status': 'downloading', 'statusMessages': [{'messages': ['No files found are eligible for import in /x']}]}) is False
     assert is_junk_queue_item({'status': 'completed', 'statusMessages': [{'messages': ['everything imported fine']}]}) is False
+    # ghost class (2026-10-12): message-less completed/importPending without a file
+    assert is_junk_queue_item({'status': 'completed', 'trackedDownloadState': 'importPending', 'episodeHasFile': False}) is True
+    assert is_junk_queue_item({'status': 'completed', 'trackedDownloadState': 'importPending', 'episodeHasFile': True}) is False
+    assert is_junk_queue_item({'status': 'completed', 'trackedDownloadState': 'imported', 'episodeHasFile': False}) is False
     assert is_foreign_file({'customFormatScore': -40}) is True
     assert is_foreign_file({'customFormatScore': 110}) is False
     assert is_foreign_file({}) is False
@@ -473,6 +485,7 @@ def queue_hygiene():
         return 0
     seen = state.setdefault('_qbad', {})
     removed = 0
+    CAP = 60  # wave-proof: 25 let a 500+ ghost wave outrun the lane; 60 x 96 runs/day clears fast, steady-state stays tiny
     bad_now = set()
     for x in (q or {}).get('records') or []:
         if not is_junk_queue_item(x):
@@ -480,7 +493,7 @@ def queue_hygiene():
         qid = str(x.get('id'))
         bad_now.add(qid)
         first = seen.setdefault(qid, now)
-        if now - first > 75 * 60 and removed < 25:
+        if now - first > 75 * 60 and removed < CAP:
             if DRY:
                 log('WOULD queue-hygiene remove: %s' % (x.get('title') or '')[:60])
                 removed += 1
