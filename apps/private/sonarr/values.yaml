@@ -13,11 +13,13 @@ controllers:
             memory: 1Gi
           limits:
             cpu: 4000m
-            # 2Gi -> 5Gi 2026-10-11: OOMKill loop (16 restarts / 11h) under
-            # season-pack import backlog: .NET GC thrash at the 2Gi ceiling made
-            # /ping, the queue API and decypharr's arr callbacks all time out.
-            # 380-series library + usenet fill marathons need real headroom.
-            memory: 5Gi
+            # 5Gi -> 8Gi 2026-10-12: still OOMKill-looping at 5Gi (13 restarts
+            # in 17h) while a full-library RefreshSeries pass + overdue RssSync
+            # + engine bulk searches ran concurrently; executor ended up wedged
+            # with /ping and /queue timing out and memory still climbing (4.4Gi).
+            # 294-series library needs the extra GC headroom. Live cgroup was
+            # bumped to 8Gi same-day; this commit makes it permanent.
+            memory: 8Gi
         probes:
           readiness:
             custom: true
