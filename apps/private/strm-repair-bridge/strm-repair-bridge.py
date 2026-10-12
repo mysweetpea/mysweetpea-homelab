@@ -80,7 +80,7 @@ DECY_TOKEN = os.environ.get("DECY_API_TOKEN", "")
 SCAN_ROOT = os.environ.get("SCAN_ROOT", "/data/media")
 TV_ROOT = os.environ.get("TV_ROOT", "/data/media/tv")
 STATE_FILE = os.environ.get("STATE_FILE", "/data/.strm-repair-ledger.json")
-SWEEP_DEADLINE_S = int(os.environ.get("SWEEP_DEADLINE_S", "900"))
+SWEEP_DEADLINE_S = int(os.environ.get("SWEEP_DEADLINE_S", "1800"))
 JELLYFIN_API = os.environ.get("JELLYFIN_API", "http://jellyfin.private.svc.cluster.local:8096")
 JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
 
@@ -247,12 +247,12 @@ def sweep_dead_entries(raw_index, workers=None):
     Dead results are double-probed so transients never trigger repairs.
     A wall-clock deadline fails safe: files not reached in time count as
     alive (no action). Returns ({entry_name: detection}, stats)."""
-    workers = workers or int(os.environ.get("SWEEP_WORKERS", "8"))
+    workers = workers or int(os.environ.get("SWEEP_WORKERS", "16"))
     deadline = time.monotonic() + SWEEP_DEADLINE_S
 
-    def probe(item):
+    def probe(item, guarded=True):
         entry, sp = item
-        if time.monotonic() > deadline:
+        if guarded and time.monotonic() > deadline:
             return sp, True  # fail safe: treat as alive
         try:
             with open(sp, "r", errors="replace") as f:
@@ -281,8 +281,11 @@ def sweep_dead_entries(raw_index, workers=None):
                 dead1.append(sp)
     still_dead = []
     if dead1:
+        # NOT deadline-guarded: a fail-safe "alive" here would exonerate the
+        # dead set wholesale (this exact bug nuked the first production run).
+        # Bounded naturally: only dead candidates, each with a 10 s timeout.
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            for sp, ok in ex.map(probe, [(raw_index[s], s) for s in dead1], chunksize=8):
+            for sp, ok in ex.map(lambda a: probe(a, False), [(raw_index[s], s) for s in dead1], chunksize=8):
                 if not ok:
                     still_dead.append(sp)
     dead_entries = {}
@@ -337,11 +340,17 @@ def jf_probe_failures(raw_index):
     Requires >= 2 failures within today's + yesterday's logs. Carries the
     LATEST failure timestamp as last_failed_at so the existing settle gate
     stops re-acting once a replacement has landed."""
-    if not JELLYFIN_API_KEY:
-        log("jf-probe lane: no JELLYFIN_API_KEY configured (skipping)")
+    key = JELLYFIN_API_KEY
+    if not key:
+        try:
+            key = json.load(open("/decy-state/bridge-config.json")).get("jellyfin_api_key", "")
+        except Exception:  # noqa: BLE001
+            key = ""
+    if not key:
+        log("jf-probe lane: no JELLYFIN_API_KEY (env or bridge-config.json) - skipping")
         return {}
     base = JELLYFIN_API.rstrip("/")
-    auth = {"Authorization": f'MediaBrowser Token="{JELLYFIN_API_KEY}"'}
+    auth = {"Authorization": f'MediaBrowser Token="{key}"'}
 
     def fetch(path):
         req = urllib.request.Request(f"{base}{path}", headers=auth)

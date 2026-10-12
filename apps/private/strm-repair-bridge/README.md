@@ -126,6 +126,9 @@ down-push notifies immediately) at the
 end of every run. The push URL lives in `/decy-state/kuma-push-url.txt` on the
 state PVC — never in git (public repo).
 
+The JF-probe lane's API key lives in `/decy-state/bridge-config.json`
+(`jellyfin_api_key`) on the same PVC - never in git.
+
 Kuma fires when: (a) the beat goes missing >12h (bridge/cron died — the exact
 silent-failure class that let ~4.9k dead files linger), or (b) we push
 `status=down` for: sweep probed 0 files / bulk content death (+300 dead vs the
