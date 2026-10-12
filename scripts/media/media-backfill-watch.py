@@ -34,6 +34,7 @@ MEGA_SEASONS = 2
 SEASON_CAP = 12              # max SeasonSearch commands per run
 BUDGET_PER_DAY = 800        # global engine search budget (indexer capacity ~15k+/day; real limiter is Sonarr health)
 QUEUE_MAX = 40              # skip non-request lanes while Sonarr queue is this deep
+STALL_MIN = 45              # commands stuck 'started' this long = executor jam (gate lanes + alert)
 PARK_DAYS = 30
 SAB_BASE = 'http://192.168.20.215:8282'   # decypharr SAB-compat API (LB)
 SAB_ARRS = [                # category -> (arr FQDN used for auth, key secret)
@@ -79,6 +80,22 @@ def jf_get(path, jk, timeout=25):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
+JF_ADMIN_UID = '3d75456ef9c5438480195d731242133d'
+
+def jf_post(path, jk, body=None, timeout=90):
+    req = urllib.request.Request(JF_BASE + path, data=json.dumps(body or {}).encode(),
+        headers={'Authorization': 'MediaBrowser Token="%s"' % jk,
+                 'Content-Type': 'application/json', 'User-Agent': UA}, method='POST')
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read()
+        return json.loads(raw) if raw else None
+
+def jf_raw(path, jk, timeout=45):
+    req = urllib.request.Request(JF_BASE + path,
+        headers={'Authorization': 'MediaBrowser Token="%s"' % jk, 'User-Agent': UA})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
 def http_alive(url, key=None, timeout=6):
     try:
         h = {'User-Agent': UA}
@@ -97,6 +114,58 @@ def tcp(host, port, timeout=3):
             return True
     except Exception:
         return False
+
+def warm_lane(st):
+    """Post-import warm (2026-10-12): for items added in the last 48h, run the
+    two one-time server-side costs so NO member pays them on first play:
+      (a) PlaybackInfo -> forces+caches the metadata probe (measured 20.5s cold -> 0.2s warm);
+      (b) per text-subtitle track -> SubtitleEncoder extraction cached under
+          /config/data/subtitles/<xx>/<item>/<idx>.* (cold reads run 10-120s over usenet;
+          the burn-in on first play otherwise waits on exactly this).
+    Caches are server-side + shared by every user and platform. Newest-first,
+    capped, idempotent via state; failures retry on later runs."""
+    try:
+        jk = secret('JELLYFIN_API_KEY')
+    except Exception as e:
+        log('warm lane: no JELLYFIN_API_KEY (%s)' % e)
+        return
+    acted = 0
+    try:
+        data = jf_get('/Items?SortBy=DateCreated&SortOrder=Descending&IncludeItemTypes=Movie,Episode'
+                      '&Recursive=true&Limit=60&Fields=DateCreated&ImageTypeLimit=0'
+                      '&userId=%s' % JF_ADMIN_UID, jk, timeout=60)
+    except Exception as e:
+        log('warm lane: item list failed (%s)' % e)
+        return
+    warm = st.setdefault('_warm', {})
+    cutoff = (datetime.datetime.now(datetime.timezone.utc) -
+              datetime.timedelta(hours=48)).isoformat()
+    todo = [it for it in (data.get('Items') or [])
+            if (it.get('DateCreated') or '') >= cutoff and it.get('Id') not in warm]
+    for it in todo[:6]:
+        iid = it['Id']
+        try:
+            info = jf_post('/Items/%s/PlaybackInfo?userId=%s' % (iid, JF_ADMIN_UID), jk,
+                           {'UserId': JF_ADMIN_UID}, timeout=120)
+            idxs = []
+            for src_ in (info or {}).get('MediaSources', []):
+                for st_ in (src_.get('MediaStreams') or []):
+                    if st_.get('Type') == 'Subtitle' and st_.get('IsTextSubtitleStream') and st_.get('Index') is not None:
+                        idxs.append(st_['Index'])
+            for i2 in idxs[:8]:
+                try:
+                    jf_raw('/Videos/%s/%s/Subtitles/%d/Stream.srt' % (iid, iid, i2), jk, timeout=45)
+                except Exception:
+                    pass  # cold tail reads can exceed the window; first play retries naturally
+            warm[iid] = now
+            acted += 1
+        except Exception as e:
+            log('warm: %s failed (%s) - retry next run' % (str(it.get('Name'))[:40], str(e)[:60]))
+    # prune old entries (7d)
+    for k2 in [k2 for k2, v in warm.items() if isinstance(v, (int, float)) and v < now - 7 * 86400]:
+        warm.pop(k2, None)
+    if acted or todo:
+        log('warm lane: acted=%d pending=%d' % (acted, max(0, len(todo) - acted)))
 
 def gotify(title, message, priority=5):
     tok = open(TOKEN_FILE).read().strip()
@@ -264,6 +333,13 @@ except Exception:
     se_key = None
 if se_key:
     poke_availability_sync(se_key)
+
+# --- post-import warm lane (JF-side; runs every tick; moves first-play costs
+#     server-side so no member pays them - see warm_lane docstring) ---
+try:
+    warm_lane(state)
+except Exception as e:
+    log('warm lane error: %r' % e)
 
 # --- import-list watchdog: surfaces Trakt token expiry (re-auth needed) instead of dying silently ---
 def failing_import_lists(base, key):
@@ -509,6 +585,7 @@ budget_left = max(0, BUDGET_PER_DAY - budget['n'])
 
 # --- queue depth (wedge guard) ---
 queue_full = False
+q = None
 try:
     q = api('/api/v3/queue?page=1&pageSize=1')
     queue_full = (q.get('totalRecords') or 0) > QUEUE_MAX
@@ -517,6 +594,36 @@ except Exception:
     # app is starved/sick - do not pile more searches onto it. Requests lane still
     # runs; other lanes wait one tick.
     queue_full = True
+
+# --- executor stall (wedge guard v2, 2026-10-12 incident): 3 searches hung in
+# 'started' for 2h; depth stayed under QUEUE_MAX the whole time so the guard
+# above never tripped, and RssSync starved behind the jam for hours.
+exec_stalled, stuck_n = False, 0
+try:
+    for c in api('/api/v3/command', timeout=60) or []:
+        if c.get('status') != 'started':
+            continue
+        try:
+            age = (datetime.datetime.now(datetime.timezone.utc) -
+                   datetime.datetime.fromisoformat((c.get('queued') or '').replace('Z', '+00:00'))).total_seconds()
+        except Exception:
+            age = 0
+        if age > STALL_MIN * 60:
+            stuck_n += 1
+    exec_stalled = stuck_n > 0
+except Exception:
+    exec_stalled = False  # the depth guard above already fails closed
+if exec_stalled:
+    log('executor STALLED: %d command(s) started >%dmin - gating non-request lanes' % (stuck_n, STALL_MIN))
+    queue_full = True
+    if not DRY and now - state.get('_stall_alert_ts', 0) > HEALTH_ALERT_DEDUPE_H * 3600:
+        try:
+            gotify('MEDIA: Sonarr executor stalled',
+                   '%d search command(s) stuck >%dmin; non-request lanes paused until it clears. '
+                   'If it persists, restart the sonarr pod.' % (stuck_n, STALL_MIN), 6)
+            state['_stall_alert_ts'] = now
+        except Exception:
+            pass
 
 series = api('/api/v3/series')
 by_tvdb = {}
