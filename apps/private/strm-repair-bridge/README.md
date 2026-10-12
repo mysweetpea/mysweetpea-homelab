@@ -21,10 +21,15 @@ Dead `.strm` entries 404 at playback **forever** in this stack. Root cause chain
 
 Daily CronJob (`30 6 * * *`, after the 05:30 Decypharr sweep) —
 
-1. **Detections — two sources**:
+1. **Detections — three sources**:
    a. `GET /api/repair/health` → probe-broken entries (status=broken).
    b. `GET /api/browse/__bad__` → the **sticky-Bad-flag dead zone**
       (see next section — the probe can't see these).
+   c. **Empirical sweep lane** — ranged GET on every strm's real webdav URL
+      (double-probed). The only source that catches the legacy
+      `client_not_found` class, which decypharr's probe reports healthy.
+      Skipped when decypharr itself reports >=20% broken (provider outage,
+      not per-release death).
    Deduped; probe-broken wins on conflict.
 2. **Streamability verification** (before any destructive action): ranged
    GET on the exact `webdav/stream/__all__/<entry>/<file>` URL Jellyfin
@@ -108,3 +113,16 @@ kubectl logs -n private job/strm-repair-bridge-manual
 
 Dry-run outside the cluster (against LB IPs + a strm index file):
 `--strm-index <{path: entry}.json> --dry-run`
+
+## Monitoring — dead-man's switch (2026-10-12)
+
+The job beats a Kuma push monitor ("strm-repair-bridge", 12h interval) at the
+end of every run. The push URL lives in `/decy-state/kuma-push-url.txt` on the
+state PVC — never in git (public repo).
+
+Kuma fires when: (a) the beat goes missing >12h (bridge/cron died — the exact
+silent-failure class that let ~4.9k dead files linger), or (b) we push
+`status=down` for: sweep probed 0 files / bulk content death (+300 dead vs the
+previous run — the RD-removal early-warning) / repairs stalled (2 consecutive
+runs with 0 planned actions while candidates exist). Alerts chain: Kuma →
+Gotify → phone + Paperclip poller → Groundskeeper triage.

@@ -295,6 +295,34 @@ def sweep_dead_entries(raw_index, workers=None):
     return dead_entries, stats
 
 
+KUMA_PUSH_FILE = os.environ.get("KUMA_PUSH_FILE", "/decy-state/kuma-push-url.txt")
+
+
+def kuma_push(status, msg):
+    """Beat the Kuma push monitor (dead-man's switch + anomaly alerts).
+
+    URL comes from KUMA_PUSH_URL or the state-PVC file - never from git
+    (public repo; a leaked push token would allow only alert spam, but
+    still)."""
+    url = os.environ.get("KUMA_PUSH_URL", "").strip()
+    if not url:
+        try:
+            with open(KUMA_PUSH_FILE) as f:
+                url = f.readline().strip()
+        except Exception:  # noqa: BLE001
+            url = ""
+    if not url:
+        log("kuma push: no URL configured (skipping)")
+        return
+    try:
+        q = urllib.parse.urlencode({"status": status, "msg": msg[:250]})
+        with urllib.request.urlopen(f"{url}?{q}", timeout=10) as resp:
+            resp.read(64)
+        log(f"kuma push: {status} - {msg[:120]}")
+    except Exception as e:  # noqa: BLE001
+        log(f"WARN: kuma push failed: {e}")
+
+
 # ---------------------------------------------------------------- decypharr side
 
 class Decypharr:
@@ -575,6 +603,7 @@ def main():
         broken_entries = decy.health_all()
     except Exception as e:  # noqa: BLE001
         log(f"FATAL: cannot read health state: {e}")
+        kuma_push("down", f"cannot read decypharr health state: {e}")
         return 2
     try:
         bad_entries = decy.bad_flag_entries()
@@ -584,8 +613,8 @@ def main():
     detections = {h["entry_name"]: h for h in broken_entries}
     for b in bad_entries:
         detections.setdefault(b["entry_name"], b)  # probe-broken takes precedence
-    dq = len(broken_entries) - len(bad_entries)
-    log(f"detections: probe-broken={dq} bad-flagged={len(bad_entries)} total={len(detections)}")
+    log(f"detections: probe-broken={len(detections) - len(bad_entries)} "
+        f"bad-flagged={len(bad_entries)} total={len(detections)}")
 
     # ---- strm index: entry_name -> [strm paths]
     if args.strm_index:
@@ -600,6 +629,7 @@ def main():
     # legacy client_not_found class as broken, so this sweep is the detection
     # source for it. Skipped when Decypharr itself reports mass breakage
     # (>=20%) - that pattern is a provider outage, not per-release death.
+    sw = {}
     if sweep_stats.get("probed") and \
             sweep_stats.get("broken", 0) / max(sweep_stats["probed"], 1) >= 0.2:
         log("sweep lane skipped: decypharr reports >=20% broken (provider outage suspected)")
@@ -616,6 +646,7 @@ def main():
     broken_entries = list(detections.values())
     if not broken_entries:
         log("nothing to repair")
+        kuma_push("up", f"clean: probed={sw.get('probed', 0)}")
         return 0
 
     # ---- arr indexes: strm path -> file record
@@ -788,8 +819,44 @@ def main():
     log(f"done: entries_planned={planned} actions_used={actions}/{args.limit} "
         f"cooldown_skips={skipped_cooldown} settled_skips={skipped_settled} "
         f"({'EXECUTED' if execute else 'dry-run — nothing changed'})")
+
+    # ---- monitoring: dead-man's switch + anomaly detection.
+    # Kuma alerts when the beat goes missing (bridge died) or on a
+    # deliberate down-push (bulk content death / stalled repairs).
+    meta = ledger.setdefault("_meta", {})
+    dead_now = sw.get("dead_entries", 0)
+    prev_dead = meta.get("last_dead")
+    repaired_now = len(movie_files) + len(ep_files)
+    streak = meta.get("zero_streak", 0)
+    if broken_entries and repaired_now == 0:
+        streak += 1
+    else:
+        streak = 0
+    reasons = []
+    if sw and sw.get("probed", 0) == 0:
+        reasons.append("sweep probed 0 files")
+    if prev_dead is not None and dead_now - prev_dead >= 300:
+        reasons.append(f"bulk death: {dead_now} dead (was {prev_dead})")
+    if streak >= 2:
+        reasons.append(f"repairs stalled: {streak} runs, {len(broken_entries)} candidates")
+    kuma_push("down" if reasons else "up", "; ".join(reasons) or
+              f"probed={sw.get('probed', 0)} dead={dead_now} "
+              f"entries={len(broken_entries)} repaired={repaired_now}"
+              f"{', guard-skipped sweep' if not sw else ''}")
+    meta["last_dead"] = dead_now
+    meta["zero_streak"] = streak
+    meta["last_run"] = now.isoformat()
+    if execute:
+        save_ledger(ledger)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log(f"FATAL: unhandled: {e!r}")
+        kuma_push("down", f"bridge crashed: {e!r}"[:250])
+        sys.exit(3)
