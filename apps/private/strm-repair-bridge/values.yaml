@@ -56,6 +56,8 @@ controllers:
           value: "/data/media"
         - name: STATE_FILE
           value: "/decy-state/strm-repair-ledger.json"
+        - name: PYTHONUNBUFFERED
+          value: "1"
         - name: SWEEP_WORKERS
           value: "16"
         - name: SWEEP_DEADLINE_S

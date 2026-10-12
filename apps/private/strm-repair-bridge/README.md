@@ -116,7 +116,8 @@ Dry-run outside the cluster (against LB IPs + a strm index file):
 
 ## Monitoring — dead-man's switch (2026-10-12)
 
-The job beats a Kuma push monitor ("strm-repair-bridge", 12h interval) at the
+The job beats a Kuma push monitor ("strm-repair-bridge", 12h interval; maxretries=0 so a single
+down-push notifies immediately) at the
 end of every run. The push URL lives in `/decy-state/kuma-push-url.txt` on the
 state PVC — never in git (public repo).
 
