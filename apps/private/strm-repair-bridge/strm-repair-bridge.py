@@ -16,6 +16,9 @@ why ~60 dead YTS strms lingered).
 
 This bridge supplies the missing link. It:
 
+  0. empirically sweeps EVERY strm (ranged GET on the exact webdav URL
+     Jellyfin plays) - the only detection source that catches the legacy
+     client_not_found class, which Decypharr's own probe reports healthy,
   1. reads Decypharr's entry-health state (broken entries + failure reasons),
   2. maps each broken entry to the .strm files that reference it by SCANNING
      STRM CONTENT — every strm's first line is
@@ -53,10 +56,12 @@ Deployed as a CronJob after the nightly Decypharr sweep.
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -72,7 +77,9 @@ SONARR_KEY = os.environ.get("SONARR_API_KEY", "")
 DECY_TOKEN = os.environ.get("DECY_API_TOKEN", "")
 
 SCAN_ROOT = os.environ.get("SCAN_ROOT", "/data/media")
+TV_ROOT = os.environ.get("TV_ROOT", "/data/media/tv")
 STATE_FILE = os.environ.get("STATE_FILE", "/data/.strm-repair-ledger.json")
+SWEEP_DEADLINE_S = int(os.environ.get("SWEEP_DEADLINE_S", "900"))
 
 PROVIDER_DOWN_PCT = float(os.environ.get("PROVIDER_DOWN_PCT", "90"))
 MAX_ACTIONS_PER_RUN = int(os.environ.get("MAX_ACTIONS_PER_RUN", "25"))
@@ -222,6 +229,72 @@ def file_from_strm(strm_path):
     return ""
 
 
+def _by_entry(raw_index):
+    out = {}
+    for sp, e in raw_index.items():
+        out.setdefault(e, []).append(sp)
+    return out
+
+
+def sweep_dead_entries(raw_index, workers=None):
+    """Empirically probe EVERY strm's webdav URL - the same endpoint Jellyfin
+    plays from - because Decypharr's own health probe is blind to the legacy
+    client_not_found class (entry reports healthy, playback 500s).
+
+    Dead results are double-probed so transients never trigger repairs.
+    A wall-clock deadline fails safe: files not reached in time count as
+    alive (no action). Returns ({entry_name: detection}, stats)."""
+    workers = workers or int(os.environ.get("SWEEP_WORKERS", "8"))
+    deadline = time.monotonic() + SWEEP_DEADLINE_S
+
+    def probe(item):
+        entry, sp = item
+        if time.monotonic() > deadline:
+            return sp, True  # fail safe: treat as alive
+        try:
+            with open(sp, "r", errors="replace") as f:
+                url = f.readline().strip()
+        except Exception:  # noqa: BLE001
+            url = ""
+        if not url:
+            fn = file_from_strm(sp) or entry
+            url = (f"{DECY_API}/webdav/stream/__all__/"
+                   f"{urllib.parse.quote(entry, safe='')}/{urllib.parse.quote(fn, safe='')}")
+        req = urllib.request.Request(url, headers={"Range": "bytes=0-2047"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read(64)
+                return sp, True
+        except urllib.error.HTTPError:
+            return sp, False
+        except Exception:  # noqa: BLE001
+            return sp, False
+
+    tasks = [(e, s) for e, ss in _by_entry(raw_index).items() for s in ss]
+    dead1 = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        for sp, ok in ex.map(probe, tasks, chunksize=16):
+            if not ok:
+                dead1.append(sp)
+    still_dead = []
+    if dead1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            for sp, ok in ex.map(probe, [(raw_index[s], s) for s in dead1], chunksize=8):
+                if not ok:
+                    still_dead.append(sp)
+    dead_entries = {}
+    for sp in still_dead:
+        e = raw_index[sp]
+        d = dead_entries.setdefault(e, {
+            "entry_name": e, "status": "sweep_dead", "src": "sweep",
+            "failure_reason": "not_streamable", "dead_files": [],
+        })
+        d["dead_files"].append(sp)
+    stats = {"probed": len(tasks), "alive": len(tasks) - len(dead1),
+             "dead_files": len(still_dead), "dead_entries": len(dead_entries)}
+    return dead_entries, stats
+
+
 # ---------------------------------------------------------------- decypharr side
 
 class Decypharr:
@@ -335,17 +408,50 @@ class Arr:
                 out.append(mf)
         return out
 
-    def episodefiles(self):
-        st, series = self.api("/api/v3/series")
+    def api_retry(self, path, method="GET", body=None, attempts=3):
+        """Arr calls that survive Sonarr's slow windows (its /series list can
+        take >30s while the box grinds); loud, retried, never swallowed."""
+        st, d = 0, None
+        for i in range(attempts):
+            st, d = self.api(path, method, body)
+            if st == 200:
+                return st, d
+            if i < attempts - 1:
+                time.sleep(5)
+        log(f"WARN: {self.name} {method} {path} failed after {attempts} attempts: {st} {str(d)[:90]}")
+        return st, d
+
+    def episodefiles_for(self, candidate_strms):
+        """TV index scoped to the series that own a candidate strm.
+
+        The old full walk (every series x 2 calls) silently produced an EMPTY
+        index whenever /api/v3/series hiccuped during Sonarr's slow windows -
+        so TV repairs never happened at all. Scoped, retried, and loud now."""
+        need = set()
+        for sp in candidate_strms:
+            if not sp.startswith(TV_ROOT + os.sep):
+                continue
+            rel = os.path.relpath(sp, TV_ROOT)
+            top = rel.split(os.sep, 1)[0]
+            if top and top not in (".", ".."):
+                need.add(top)
+        if not need:
+            return []
+        st, series = self.api_retry("/api/v3/series")
         if st != 200 or not isinstance(series, list):
+            log(f"ERROR: sonarr series list unavailable ({st}); TV repairs skipped this run")
             return []
         out = []
         for s in series:
-            st2, files = self.api(f"/api/v3/episodefile?seriesId={s.get('id')}")
+            if os.path.basename((s.get("path") or "").rstrip("/")) not in need:
+                continue
+            sid = s.get("id")
+            st2, files = self.api_retry(f"/api/v3/episodefile?seriesId={sid}")
             if st2 != 200 or not isinstance(files, list):
+                log(f"ERROR: sonarr episodefile seriesId={sid} failed ({st2})")
                 continue
             # build episodeFileId -> episodeId map from the episode list
-            st3, eps = self.api(f"/api/v3/episode?seriesId={s.get('id')}")
+            st3, eps = self.api_retry(f"/api/v3/episode?seriesId={sid}")
             file_to_ep = {}
             if st3 == 200 and isinstance(eps, list):
                 for e in eps:
@@ -353,7 +459,7 @@ class Arr:
                         file_to_ep[e["episodeFileId"]] = e.get("id")
             for f in files:
                 if f.get("path"):
-                    f["seriesId"] = s.get("id")
+                    f["seriesId"] = sid
                     f["episodeId"] = file_to_ep.get(f.get("id"))
                     out.append(f)
         return out
@@ -433,11 +539,13 @@ def main():
     decy = Decypharr(tok)
 
     # ---- provider-down guard
+    sweep_stats = {}
     try:
         runs = decy.repair_runs()
         if runs:
             latest = sorted(runs, key=lambda r: r.get("started_at") or "")[-1]
             stats = latest.get("stats", {})
+            sweep_stats = stats
             probed, broken = stats.get("probed", 0), stats.get("broken", 0)
             log(f"freshest sweep: status={latest.get('status')} probed={probed} "
                 f"broken={broken} healthy={stats.get('healthy', 0)}")
@@ -476,12 +584,8 @@ def main():
     detections = {h["entry_name"]: h for h in broken_entries}
     for b in bad_entries:
         detections.setdefault(b["entry_name"], b)  # probe-broken takes precedence
-    broken_entries = list(detections.values())
-    log(f"detections: probe-broken={len(broken_entries) - len(bad_entries)} "
-        f"bad-flagged={len(bad_entries)} total={len(broken_entries)}")
-    if not broken_entries:
-        log("nothing to repair")
-        return 0
+    dq = len(broken_entries) - len(bad_entries)
+    log(f"detections: probe-broken={dq} bad-flagged={len(bad_entries)} total={len(detections)}")
 
     # ---- strm index: entry_name -> [strm paths]
     if args.strm_index:
@@ -490,15 +594,37 @@ def main():
     else:
         raw = scan_strm_index(args.scan_root)
         log(f"strm scan: {len(raw)} strms under {args.scan_root}")
-    entry_to_strms = {}
-    for strm_path, entry_name in raw.items():
-        entry_to_strms.setdefault(entry_name, []).append(strm_path)
+    entry_to_strms = _by_entry(raw)
+
+    # ---- empirical sweep lane: Decypharr's health probe never flags the
+    # legacy client_not_found class as broken, so this sweep is the detection
+    # source for it. Skipped when Decypharr itself reports mass breakage
+    # (>=20%) - that pattern is a provider outage, not per-release death.
+    if sweep_stats.get("probed") and \
+            sweep_stats.get("broken", 0) / max(sweep_stats["probed"], 1) >= 0.2:
+        log("sweep lane skipped: decypharr reports >=20% broken (provider outage suspected)")
+    else:
+        sweep_entries, sw = sweep_dead_entries(raw)
+        added = 0
+        for e, h in sweep_entries.items():
+            if e not in detections:
+                detections[e] = h
+                added += 1
+        log(f"sweep lane: probed={sw['probed']} alive={sw['alive']} "
+            f"dead_files={sw['dead_files']} dead_entries={added}")
+
+    broken_entries = list(detections.values())
+    if not broken_entries:
+        log("nothing to repair")
+        return 0
 
     # ---- arr indexes: strm path -> file record
     radarr = Arr(RADARR_API, RADARR_KEY, "radarr")
     sonarr = Arr(SONARR_API, SONARR_KEY, "sonarr")
+    candidate_strms = [p for h in broken_entries
+                       for p in entry_to_strms.get(h["entry_name"], [])]
     mfs = radarr.moviefiles()
-    efs = sonarr.episodefiles()
+    efs = sonarr.episodefiles_for(candidate_strms)
     path_index = {}
     for f in mfs:
         path_index[f["path"]] = ("movie", f)
@@ -521,7 +647,15 @@ def main():
     movie_files, ep_files = set(), set()
     acted_entries = []
 
+    sort_keys = {}
     for h in broken_entries:
+        ss = entry_to_strms.get(h.get("entry_name", ""), [])
+        sort_keys[h.get("entry_name", "")] = max(
+            (os.path.getmtime(s) for s in ss), default=0.0)
+
+    for h in sorted(broken_entries,
+                    key=lambda x: sort_keys.get(x.get("entry_name", ""), 0.0),
+                    reverse=True):
         name = h.get("entry_name", "")
         if not name:
             continue
@@ -536,10 +670,15 @@ def main():
             # (b) act again ONLY if the entry failed again after our action
             # (replacement landed and later died). Prevents blocklist churn
             # on titles whose every candidate is unrepairable (RD 451 class).
-            failed_again = parse_dt(h.get("last_failed_at"))
-            if failed_again is None or (acted and failed_again <= acted):
-                skipped_settled += 1
-                continue
+            # Sweep-lane entries carry fresh empirical evidence from THIS run
+            # (re-probed every run), so the timestamp gate doesn't apply.
+            if h.get("src") == "sweep":
+                pass
+            else:
+                failed_again = parse_dt(h.get("last_failed_at"))
+                if failed_again is None or (acted and failed_again <= acted):
+                    skipped_settled += 1
+                    continue
 
         reason = h.get("failure_reason") or (
             (h.get("broken_files") or [{}])[0].get("reason") if h.get("broken_files") else ""
