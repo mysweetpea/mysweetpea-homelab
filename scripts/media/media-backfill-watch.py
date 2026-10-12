@@ -122,6 +122,9 @@ def warm_lane(st):
       (b) per text-subtitle track -> SubtitleEncoder extraction cached under
           /config/data/subtitles/<xx>/<item>/<idx>.* (cold reads run 10-120s over usenet;
           the burn-in on first play otherwise waits on exactly this).
+    Byte prefetch (head/tail ranged reads) was tested 2026-10-12 and REVERTED:
+    decypharr's buffer is session-scoped - a prefetched item streams at the same
+    speed minutes later; only JF-side caches (probe, subtitles) are durable.
     Caches are server-side + shared by every user and platform. Newest-first,
     capped, idempotent via state; failures retry on later runs."""
     try:
