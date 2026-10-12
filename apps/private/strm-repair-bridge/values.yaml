@@ -56,6 +56,10 @@ controllers:
           value: "/data/media"
         - name: STATE_FILE
           value: "/decy-state/strm-repair-ledger.json"
+        - name: SWEEP_WORKERS
+          value: "16"
+        - name: SWEEP_DEADLINE_S
+          value: "1800"
         - name: RADARR_API_KEY
           valueFrom:
             secretKeyRef:
