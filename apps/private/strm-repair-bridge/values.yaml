@@ -59,7 +59,7 @@ controllers:
         - name: PYTHONUNBUFFERED
           value: "1"
         - name: SWEEP_WORKERS
-          value: "6"
+          value: "4"
         - name: SWEEP_DEADLINE_S
           value: "1800"
         - name: JELLYFIN_API

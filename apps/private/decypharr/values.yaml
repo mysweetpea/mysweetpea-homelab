@@ -119,7 +119,7 @@ persistence:
   cache:
     enabled: true
     type: emptyDir
-    sizeLimit: 4Gi
+    sizeLimit: 8Gi
     globalMounts:
     - path: /cache
 service:
