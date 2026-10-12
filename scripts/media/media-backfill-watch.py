@@ -593,11 +593,13 @@ def franchise_lane(state, se, ra_key, tmdb_have, added_run):
     today = datetime.date.today().isoformat()
     adds = 0
     checked = 0
+    examined = 0   # bound per run: first run must not enumerate the whole played set (measured 11-min run)
     for tid, _cnt in sorted(played.items(), key=lambda kv: -kv[1]):
-        if adds >= FR_CAP_PER_RUN:
+        if adds >= FR_CAP_PER_RUN or examined >= 25:
             break
         if ('m%d' % tid) in done:
             continue
+        examined += 1
         try:
             det = seerr_get('/api/v1/movie/%d' % tid, se)
         except Exception:
