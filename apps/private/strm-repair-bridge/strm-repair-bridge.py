@@ -59,6 +59,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -80,6 +81,8 @@ SCAN_ROOT = os.environ.get("SCAN_ROOT", "/data/media")
 TV_ROOT = os.environ.get("TV_ROOT", "/data/media/tv")
 STATE_FILE = os.environ.get("STATE_FILE", "/data/.strm-repair-ledger.json")
 SWEEP_DEADLINE_S = int(os.environ.get("SWEEP_DEADLINE_S", "900"))
+JELLYFIN_API = os.environ.get("JELLYFIN_API", "http://jellyfin.private.svc.cluster.local:8096")
+JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
 
 PROVIDER_DOWN_PCT = float(os.environ.get("PROVIDER_DOWN_PCT", "90"))
 MAX_ACTIONS_PER_RUN = int(os.environ.get("MAX_ACTIONS_PER_RUN", "25"))
@@ -321,6 +324,77 @@ def kuma_push(status, msg):
         log(f"kuma push: {status} - {msg[:120]}")
     except Exception as e:  # noqa: BLE001
         log(f"WARN: kuma push failed: {e}")
+
+
+def jf_probe_failures(raw_index):
+    """Probe-Provider failures from Jellyfin's own server log.
+
+    Files whose deep ffprobe keeps failing (truncated / sick usenet grabs)
+    answer the sweep's 2 KB range read happily, so the sweep can't see them -
+    but every playback pays a failed 30-45 s re-probe (PlaybackInfo timeout,
+    app gives up at 30 s). Jellyfin literally logs the failures; harvest them.
+
+    Requires >= 2 failures within today's + yesterday's logs. Carries the
+    LATEST failure timestamp as last_failed_at so the existing settle gate
+    stops re-acting once a replacement has landed."""
+    if not JELLYFIN_API_KEY:
+        log("jf-probe lane: no JELLYFIN_API_KEY configured (skipping)")
+        return {}
+    base = JELLYFIN_API.rstrip("/")
+    auth = {"Authorization": f'MediaBrowser Token="{JELLYFIN_API_KEY}"'}
+
+    def fetch(path):
+        req = urllib.request.Request(f"{base}{path}", headers=auth)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read().decode("utf-8", "replace")
+
+    try:
+        logs = json.loads(fetch("/System/Logs"))
+        names = sorted(l["Name"] for l in logs if str(l.get("Name", "")).startswith("log_"))
+    except Exception as e:  # noqa: BLE001
+        log(f"jf-probe lane: cannot list jellyfin logs: {e}")
+        return {}
+    counts, latest = {}, {}
+    pat = re.compile(
+        r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[^\]]*\] \[ERR\][^\n]*?"
+        r'Error in "Probe Provider" for "([^"]+)"',
+        re.M,
+    )
+    for name in names[-2:]:
+        try:
+            text = fetch(f"/System/Logs/Log?name={urllib.parse.quote(name)}")
+        except Exception as e:  # noqa: BLE001
+            log(f"jf-probe lane: cannot fetch {name}: {e}")
+            continue
+        for m in pat.finditer(text):
+            p = m.group(2)
+            if not p.startswith("/data/media/"):
+                continue
+            counts[p] = counts.get(p, 0) + 1
+            latest[p] = max(latest.get(p, ""), m.group(1))
+
+    norm_index = {}
+    for sp in raw_index:
+        norm_index[sp[:-5] if sp.endswith(".strm") else sp] = sp
+    out, unmatched = {}, 0
+    for p, n in counts.items():
+        if n < 2:
+            continue
+        key = p[:-5] if p.endswith(".strm") else p
+        sp = norm_index.get(key)
+        if not sp:
+            unmatched += 1
+            continue
+        e = raw_index[sp]
+        iso = latest[p].replace(" ", "T") + "+00:00"
+        d = out.setdefault(e, {
+            "entry_name": e, "status": "jf_probe_failed", "src": "jfprobe",
+            "failure_reason": "jellyfin_probe_failed", "last_failed_at": iso,
+        })
+        d["last_failed_at"] = max(d["last_failed_at"], iso)
+    log(f"jf-probe lane: failing paths={len(counts)} candidates={len(out)} "
+        f"(unmatched={unmatched}; need >=2 occurrences in 48h)")
+    return out
 
 
 # ---------------------------------------------------------------- decypharr side
@@ -643,6 +717,11 @@ def main():
         log(f"sweep lane: probed={sw['probed']} alive={sw['alive']} "
             f"dead_files={sw['dead_files']} dead_entries={added}")
 
+    # ---- JF probe-failure lane (truncated/sick grabs the sweep can't see).
+    jf = jf_probe_failures(raw)
+    for e, h in jf.items():
+        detections.setdefault(e, h)
+
     broken_entries = list(detections.values())
     if not broken_entries:
         log("nothing to repair")
@@ -735,11 +814,17 @@ def main():
         # counts as dead if ANY file fails.
         strms_sorted = sorted(strms)
         dead_file = None
-        for sp in strms_sorted:
-            fname = file_from_strm(sp)
-            if not decy.streamable(name, fname or None):
-                dead_file = fname or sp
-                break
+        if h.get("src") == "jfprobe":
+            # Jellyfin's own deep ffprobe failed >= 2x in 48h. The shallow
+            # streamability probe CANNOT see this class (truncated grabs
+            # answer 2 KB range reads fine) - trust JF's evidence directly.
+            dead_file = file_from_strm(strms_sorted[0]) or strms_sorted[0]
+        else:
+            for sp in strms_sorted:
+                fname = file_from_strm(sp)
+                if not decy.streamable(name, fname or None):
+                    dead_file = fname or sp
+                    break
         if dead_file is not None:
             log(f"  VERIFIED-DEAD: {name[:70]} file={dead_file[-50:]} reason={reason}")
         else:

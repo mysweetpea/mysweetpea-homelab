@@ -30,6 +30,11 @@ Daily CronJob (`30 6 * * *`, after the 05:30 Decypharr sweep) —
       `client_not_found` class, which decypharr's probe reports healthy.
       Skipped when decypharr itself reports >=20% broken (provider outage,
       not per-release death).
+   d. **JF probe-failure lane** — harvests `Error in "Probe Provider"` lines
+      from Jellyfin's own log via the System/Logs API (>=2 failures in 48h).
+      Catches truncated/sick grabs that answer shallow range probes but fail
+      Jellyfin's deep ffprobe - the "endless slow PlaybackInfo / app timeout"
+      class.
    Deduped; probe-broken wins on conflict.
 2. **Streamability verification** (before any destructive action): ranged
    GET on the exact `webdav/stream/__all__/<entry>/<file>` URL Jellyfin
