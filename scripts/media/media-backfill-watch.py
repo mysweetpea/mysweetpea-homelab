@@ -31,11 +31,18 @@ STALE_DAYS = 2              # a grab within this window means the pipeline is al
 LOW_FRAC = 0.30
 MEGA_EPS = 500              # megashow threshold: scope to recent seasons only
 MEGA_SEASONS = 2
-SEASON_CAP = 12              # max SeasonSearch commands per run
+SEASON_CAP = 6              # U5 (2026-10-12): was 12 - a 12-cmd megashow burst produced an
+                            # 800+-grab wave that flooded decypharr imports (ghost storm). Halved.
 BUDGET_PER_DAY = 800        # global engine search budget (indexer capacity ~15k+/day; real limiter is Sonarr health)
 QUEUE_MAX = 40              # skip non-request lanes while Sonarr queue is this deep
 STALL_MIN = 45              # commands stuck 'started' this long = executor jam (gate lanes + alert)
 PARK_DAYS = 30
+# Acquisition intelligence (U1/U2, 2026-10-12): Seerr API = TMDB proxy (no extra keys).
+AFF_MIN_RATING = 6.5        # TMDB vote average floor for auto-added movies
+AFF_MIN_VOTES = 300         # ...and vote-count floor (anti-obscure)
+AFF_PER_USER_WEEK = 3       # hard weekly budget per member
+AFF_CAP_PER_RUN = 3         # movie adds per run (U1+U2 share this)
+FR_CAP_PER_RUN = 2          # collection-part adds per run
 SAB_BASE = 'http://192.168.20.215:8282'   # decypharr SAB-compat API (LB)
 SAB_ARRS = [                # category -> (arr FQDN used for auth, key secret)
     ('Sonarr', 'http://sonarr.private.svc.cluster.local:8989', 'SONARR_API_KEY'),
@@ -228,6 +235,73 @@ def is_junk_queue_item(rec):
 def is_foreign_file(f):
     return (f.get('customFormatScore') or 0) < 0
 
+# --- acquisition intelligence helpers (U1/U2, 2026-10-12) ---
+def seerr_get(path, se, timeout=25):
+    return api(path, base=SEERR_BASES[0], key=se, timeout=timeout, ua=True)
+
+def seerr_known_tmdbids(se):
+    """{(mediaType, tmdbId)} for EVERY Seerr request record (any status) - auto-adds
+    must never step on a human request or a decline."""
+    out = set()
+    try:
+        reqs = seerr_get('/api/v1/request?take=500', se, timeout=30)
+        for r in (reqs.get('results') or []):
+            m = r.get('media') or {}
+            if m.get('tmdbId'):
+                out.add((m.get('mediaType'), int(m['tmdbId'])))
+    except Exception as e:
+        log('acq: seerr request fetch failed (%s)' % str(e)[:50])
+    return out
+
+def affinity_ok(c, tmdb_have, seen_req, added_run, today):
+    """Pure filter for U1 candidates (unit-tested in selftest)."""
+    cid = int(c.get('id') or 0)
+    if not cid or (c.get('mediaType') or 'movie') != 'movie':
+        return False
+    if cid in tmdb_have or cid in added_run:
+        return False
+    if ('movie', cid) in seen_req:
+        return False
+    if (c.get('voteAverage') or 0) < AFF_MIN_RATING:
+        return False
+    if (c.get('voteCount') or 0) < AFF_MIN_VOTES:
+        return False
+    rel = (c.get('releaseDate') or '')
+    if not rel or rel > today:
+        return False
+    return True
+
+def radarr_add_movie(ra_key, cand, tmdb_have, added_run, tag):
+    """Add one movie to Radarr (monitored, search-on-add, released-only, profile 4
+    'HD-1080p' = what all 410 existing movies use). Benignly swallows already-exists."""
+    tid = int(cand.get('id') or 0)
+    if not tid or tid in tmdb_have or tid in added_run:
+        return False
+    if (cand.get('mediaType') or 'movie') != 'movie':
+        return False
+    title = (cand.get('title') or '')[:70]
+    if DRY:
+        log('WOULD add movie: %s (%s) [%s]' % (title[:55], tid, tag))
+        return True
+    body = {'title': title, 'tmdbId': tid, 'qualityProfileId': 4,
+            'rootFolderPath': '/data/media/movies', 'monitored': True,
+            'minimumAvailability': 'released',
+            'addOptions': {'searchForMovie': True}}
+    try:
+        api('/api/v3/movie', 'POST', body, base=RADARR, key=ra_key)
+        tmdb_have.add(tid); added_run.add(tid)
+        log('added movie: %s (%s) [%s]' % (title[:55], tid, tag))
+        return True
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 409):   # already exists / conflict - benign, remember it
+            tmdb_have.add(tid); added_run.add(tid)
+            return False
+        log('acq: add failed (%s): HTTP %s' % (tid, e.code))
+        return False
+    except Exception as e:
+        log('acq: add failed (%s): %s' % (tid, str(e)[:60]))
+        return False
+
 def selftest():
     assert gap_hours(0, 12) == 12 and gap_hours(1, 12) == 24 and gap_hours(2, 12) == 48
     assert gap_hours(3, 12) == 168 and gap_hours(9, 12) == 168 and gap_hours(0, 168) == 168
@@ -254,6 +328,15 @@ def selftest():
     assert is_foreign_file({'customFormatScore': -40}) is True
     assert is_foreign_file({'customFormatScore': 110}) is False
     assert is_foreign_file({}) is False
+    # U1 affinity filter (2026-10-12)
+    good = {'id': 111, 'mediaType': 'movie', 'voteAverage': 8.1, 'voteCount': 5000, 'releaseDate': '2020-01-01'}
+    assert affinity_ok(dict(good), set(), set(), set(), '2026-10-12') is True
+    assert affinity_ok(dict(good, releaseDate='2026-12-01'), set(), set(), set(), '2026-10-12') is False   # unreleased
+    assert affinity_ok(dict(good, voteAverage=5.9), set(), set(), set(), '2026-10-12') is False           # low rating
+    assert affinity_ok(dict(good, voteCount=120), set(), set(), set(), '2026-10-12') is False            # too obscure
+    assert affinity_ok(dict(good), {111}, set(), set(), '2026-10-12') is False                           # in radarr
+    assert affinity_ok(dict(good), set(), {('movie', 111)}, set(), '2026-10-12') is False                # requested before
+    assert affinity_ok(dict(good, mediaType='tv'), set(), set(), set(), '2026-10-12') is False           # movies-only v1
     print('SELFTEST OK')
     sys.exit(0)
 
@@ -472,6 +555,157 @@ def language_audit():
                 pass
             break
     return res
+
+# --- acquisition intelligence (U1/U2, 2026-10-12) ---
+# U2 franchise: someone watches Iron Man -> complete the Iron Man collection in Radarr.
+# U1 affinity: each member's top-played movies seed Seerr/TMDB "recommendations";
+#     high-confidence, released, not-in-library, never-requested candidates get added
+#     (monitored + search-on-add) under a hard weekly budget. The library grows toward
+#     what members actually watch, so they request less.
+def franchise_lane(state, se, ra_key, tmdb_have, added_run):
+    if now - state.get('_fr_ts', 0) < 6 * 3600 and not DRY:
+        return 0
+    state['_fr_ts'] = now
+    try:
+        jk = secret('JELLYFIN_API_KEY')
+        users = jf_get('/Users', jk)
+    except Exception as e:
+        log('franchise: JF unreachable (%s)' % str(e)[:50])
+        return 0
+    cutoff90 = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+    active = [u for u in users if (u.get('LastActivityDate') or '')[:10] >= cutoff90][:8]
+    played = {}
+    for u in active:
+        try:
+            d = jf_get('/Items?userId=%s&SortBy=PlayCount&SortOrder=Descending&Recursive=true&Limit=50'
+                       '&IncludeItemTypes=Movie&Filters=IsPlayed&fields=ProviderIds' % u.get('Id'), jk)
+        except Exception:
+            continue
+        for it in (d.get('Items') or []):
+            ud = it.get('UserData') or {}
+            t = (it.get('ProviderIds') or {}).get('Tmdb')
+            if t and (ud.get('PlayCount') or 0) > 0:
+                played[int(t)] = played.get(int(t), 0) + ud['PlayCount']
+    if not played:
+        return 0
+    seen_req = seerr_known_tmdbids(se)
+    done = state.setdefault('_fr_done', {})
+    today = datetime.date.today().isoformat()
+    adds = 0
+    checked = 0
+    for tid, _cnt in sorted(played.items(), key=lambda kv: -kv[1]):
+        if adds >= FR_CAP_PER_RUN:
+            break
+        if ('m%d' % tid) in done:
+            continue
+        try:
+            det = seerr_get('/api/v1/movie/%d' % tid, se)
+        except Exception:
+            continue
+        coll = (det or {}).get('collection') or {}
+        cid = coll.get('id')
+        if not cid:
+            done['m%d' % tid] = now
+            continue
+        if ('c%d' % cid) in done:
+            done['m%d' % tid] = now
+            continue
+        try:
+            cparts = (seerr_get('/api/v1/collection/%d' % cid, se) or {}).get('parts') or []
+        except Exception:
+            continue
+        checked += 1
+        done['m%d' % tid] = now
+        capped = False
+        for pt in cparts:
+            if adds >= FR_CAP_PER_RUN:
+                capped = True
+                break
+            pid = int(pt.get('id') or 0)
+            pdate = (pt.get('releaseDate') or '')
+            if not pid or pid in added_run or pid in tmdb_have:
+                continue
+            if pdate and pdate > today:
+                continue          # not released yet - the movies lane catches it later
+            if ('movie', pid) in seen_req:
+                continue          # requested or declined once - respect the human
+            if radarr_add_movie(ra_key, {'id': pid, 'title': pt.get('title'), 'mediaType': 'movie'},
+                                tmdb_have, added_run, 'collection:%s' % ((coll.get('name') or str(cid))[:26])):
+                adds += 1
+        if not capped:
+            done['c%d' % cid] = now
+    log('franchise: played_movies=%d collections_checked=%d adds=%d' % (len(played), checked, adds))
+    return adds
+
+def affinity_lane(state, se, ra_key, tmdb_have, added_run):
+    if now - state.get('_aff_ts', 0) < 3600 and not DRY:
+        return 0
+    state['_aff_ts'] = now
+    try:
+        jk = secret('JELLYFIN_API_KEY')
+        users = jf_get('/Users', jk)
+    except Exception as e:
+        log('affinity: JF unreachable (%s)' % str(e)[:50])
+        return 0
+    cutoff90 = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+    active = [u for u in users if (u.get('LastActivityDate') or '')[:10] >= cutoff90][:8]
+    seen_req = seerr_known_tmdbids(se)
+    week = datetime.date.today().isocalendar()
+    week_key = '%d-W%02d' % (week[0], week[1])
+    today = datetime.date.today().isoformat()
+    adds = 0
+    cands_n, ok_n = 0, 0
+    for u in active:
+        if adds >= AFF_CAP_PER_RUN:
+            break
+        uid = u.get('Id')
+        ustate = state.setdefault('_aff', {}).setdefault(uid, {})
+        if ustate.get('week') != week_key:
+            ustate['week'] = week_key
+            ustate['added'] = 0
+        if ustate.get('added', 0) >= AFF_PER_USER_WEEK:
+            continue                       # weekly budget spent - zero calls for this user
+        try:
+            d = jf_get('/Items?userId=%s&SortBy=PlayCount&SortOrder=Descending&Recursive=true&Limit=15'
+                       '&IncludeItemTypes=Movie&Filters=IsPlayed&fields=ProviderIds' % uid, jk)
+        except Exception:
+            continue
+        seeds = [int((it.get('ProviderIds') or {}).get('Tmdb')) for it in (d.get('Items') or [])
+                 if (it.get('ProviderIds') or {}).get('Tmdb') and ((it.get('UserData') or {}).get('PlayCount') or 0) > 0]
+        if len(seeds) < 3:
+            continue                       # not enough signal yet
+        used = set(ustate.get('seeds_used') or [])
+        todo = [s for s in seeds if s not in used][:3]
+        if not todo:
+            ustate['seeds_used'] = []
+            todo = seeds[:2]
+        cands = {}
+        for seed in todo:
+            try:
+                r = seerr_get('/api/v1/movie/%d/recommendations' % seed, se)
+            except Exception:
+                continue
+            used.add(seed)
+            for c in (r.get('results') or []):
+                cid = int(c.get('id') or 0)
+                if not cid:
+                    continue
+                prev = cands.get(cid)
+                if not prev or (c.get('popularity') or 0) > (prev.get('popularity') or 0):
+                    cands[cid] = c
+        ustate['seeds_used'] = list(used)[-80:]
+        cands_n += len(cands)
+        ok = [c for c in cands.values() if affinity_ok(c, tmdb_have, seen_req, added_run, today)]
+        ok_n += len(ok)
+        ok.sort(key=lambda c: -(c.get('popularity') or 0))
+        for c in ok:
+            if adds >= AFF_CAP_PER_RUN or ustate.get('added', 0) >= AFF_PER_USER_WEEK:
+                break
+            if radarr_add_movie(ra_key, c, tmdb_have, added_run, 'taste:%s' % ((u.get('Name') or uid)[:18])):
+                adds += 1
+                ustate['added'] = ustate.get('added', 0) + 1
+    log('affinity: active_users=%d candidates=%d passed_filters=%d adds=%d' % (len(active), cands_n, ok_n, adds))
+    return adds
 
 # --- queue hygiene: settle import-blocked junk that never resolves on its own ---
 # (multi-season-single-file uploads, empty/fake releases, ambiguous matches -> importPending forever).
@@ -853,21 +1087,46 @@ for lane in lanes:
         log('lane %s: acted=%d season_cmds=%d' % (name, acted, season_cmds))
     acted_total += acted
 
+# --- run acquisition lanes (U1/U2), Radarr-side, capped; skipped while wedged ---
+acq_adds = 0
+if (not queue_full) and ONLY_LANE in (None, 'franchise', 'affinity'):
+    try:
+        se_a = se_key or secret('SEERR_API_KEY')
+    except Exception:
+        se_a = None
+    if se_a:
+        try:
+            ra_key_a = secret('RADARR_API_KEY')
+            _all_movies = api('/api/v3/movie', base=RADARR, key=ra_key_a, timeout=120) or []
+            tmdb_have = set(int(m['tmdbId']) for m in _all_movies if m.get('tmdbId'))
+            added_run = set()
+            if ONLY_LANE in (None, 'franchise'):
+                acq_adds += franchise_lane(state, se_a, ra_key_a, tmdb_have, added_run)
+            if ONLY_LANE in (None, 'affinity'):
+                acq_adds += affinity_lane(state, se_a, ra_key_a, tmdb_have, added_run)
+        except Exception as e:
+            log('acquisition lanes error: %r' % (e,))
+elif ONLY_LANE in (None, 'franchise', 'affinity'):
+    log('acq: skipped this tick (pipeline busy or gated)')
+
 # --- weekly digest (Sundays) ---
 stats = state.setdefault('_stats', {'last_digest': 0, 'acted': 0})
 stats['acted'] = stats.get('acted', 0) + acted_total
 stats['qhygiene'] = stats.get('qhygiene', 0) + qh
+stats['acq'] = stats.get('acq', 0) + acq_adds
 if not DRY and datetime.date.today().weekday() == 6 and now - stats.get('last_digest', 0) > 6 * 86400:
     parked = [v.get('title', '?') for k, v in state.items() if not k.startswith('_') and isinstance(v, dict) and v.get('parked_until', 0) > now]
     msg = """acted this period: %d
 queue hygiene: %d junk items settled
+taste/collection adds: %d
 parked (unavailable after 4 tries): %d
 %s
 budget used today: %d/%d""" % (
-        stats.get('acted', 0), stats.get('qhygiene', 0), len(parked), ', '.join(parked[:10]) if parked else '-', budget['n'], BUDGET_PER_DAY)
+        stats.get('acted', 0), stats.get('qhygiene', 0), stats.get('acq', 0), len(parked), ', '.join(parked[:10]) if parked else '-', budget['n'], BUDGET_PER_DAY)
     gotify('MEDIA weekly digest', msg, 3)
     stats['last_digest'] = now
     stats['acted'] = 0
+    stats['acq'] = 0
 
 tracked = len([k for k in state if not k.startswith('_')])
 if not DRY:
