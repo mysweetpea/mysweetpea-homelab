@@ -71,3 +71,8 @@ Filtered JSON is space-padded to the original byte length so Content-Length stay
   snippets/aiostreams-pi-proxy.conf). Verified: browser PI+detail = 8 sources all H.264
   vs native 19, byte-identical padding. Probe note: the app rate-limits jellyfin logins
   per IP (~2 min window) - reuse one token and pace requests.
+- v2.1 (2026-10-13): routes widened so EVERY browser play entry point is covered -
+  all user-scoped Items/Shows responses + /Shows/ responses flow through the sidecar
+  (continue-watching rows, show pages, lists, detail, PlaybackInfo). Classification is
+  per-request by client UA: zero per-account or per-device config; any browser on any
+  platform gets the best playable source first, native apps stay byte-identical.
