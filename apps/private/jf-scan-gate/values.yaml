@@ -1,0 +1,84 @@
+# jf-scan-gate: coalesces arr /Library/Refresh webhooks into at most ~6 scans/hour.
+# Why (measured 2026-10-12): bulk import waves (repair re-grabs, megashow seasons) fired one
+# full library scan PER IMPORT - 93 scan requests in 90 min, overlapping/cancelling scans and
+# near-continuous library locks -> every Moonfin browse call queued (p50 9-11s vs 0.9s baseline).
+# Extras are swallowed with a 200 so the arr webhook sees success and keeps its retry quiet.
+configMaps:
+  conf:
+    enabled: true
+    data:
+      nginx.conf: |
+        events { worker_connections 64; }
+        http {
+          # one shared bucket for ALL callers: strictly 1 forwarded request per 600s (0.1r/m).
+          # burst=0 (default): anything inside the window is rejected -> @debounced -> 200.
+          limit_req_zone $host zone=scanrefresh:1m rate=0.1r/m;
+          server {
+            listen 8096;
+            location = /Library/Refresh {
+              limit_req zone=scanrefresh;
+              proxy_pass http://jellyfin.private.svc.cluster.local:8096/Library/Refresh;
+              error_page 503 = @debounced;
+            }
+            location @debounced { return 200 "debounced\n"; }
+            location = /health { return 200 "ok\n"; }
+            location / { return 404; }
+          }
+        }
+controllers:
+  main:
+    containers:
+      main:
+        image:
+          repository: nginx
+          tag: 1.27-alpine
+        ports:
+          - name: http
+            containerPort: 8096
+            protocol: TCP
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        probes:
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /health
+                port: 8096
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              timeoutSeconds: 3
+              failureThreshold: 3
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /health
+                port: 8096
+              initialDelaySeconds: 2
+              periodSeconds: 15
+              timeoutSeconds: 3
+              failureThreshold: 3
+service:
+  main:
+    controller: main
+    type: ClusterIP
+    ports:
+      http:
+        port: 8096
+        targetPort: 8096
+persistence:
+  conf:
+    type: configMap
+    identifier: conf
+    globalMounts:
+      - path: /etc/nginx/nginx.conf
+        subPath: nginx.conf
+        readOnly: true
