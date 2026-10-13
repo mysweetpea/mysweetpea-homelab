@@ -20,7 +20,7 @@ LOGFILE = '/var/log/aiostreams-warmer.log'
 
 BUDGET_S = 600          # hard cap for the whole run
 VIEW_LIMIT = 25         # never more than this many views
-IDS_PER_VIEW = 40       # top item ids per view queued for meta warm
+IDS_PER_VIEW = 60       # top item ids per view queued for meta warm
 META_BATCH = 40         # ids per /Items?Ids= call
 MAX_META_BATCHES = 30   # hard cap on meta batches per run
 
@@ -58,6 +58,12 @@ def auth():
     d, _ = call('/Users/AuthenticateByName', method='POST',
                 body={'Username': creds['uuid'], 'Pw': creds['password']})
     return d['AccessToken'], d['User']['Id']
+
+
+def _get_uid(token):
+    """The current user's id, for user-scoped row URLs. One cheap call."""
+    d, _ = call('/Users/Me', token)
+    return d.get('Id')
 
 
 def main():
@@ -105,6 +111,20 @@ def main():
         meta_ids.extend(i.get('Id') for i in items_of(d) if i.get('Id'))
     except Exception:
         bad += 1
+
+    # Moonfin home row shapes (sorted lists, no ParentId) — warm the exact
+    # variants the client requests (observed in real boot traffic).
+    uid = _get_uid(token)
+    for itype in ('Movie', 'Series'):
+        path = ('/Users/%s/Items?IncludeItemTypes=%s&SortBy=ProductionYear%%2CSortName'
+                '&SortOrder=Descending&Limit=30&Recursive=true' % (uid, itype))
+        try:
+            d, _ = call(path, token)
+            ok += 1
+            meta_ids.extend(i.get('Id') for i in items_of(d) if i.get('Id'))
+        except Exception:
+            bad += 1
+            log('  FAIL row: %s' % path.split('?')[0] + '?IncludeItemTypes=' + itype)
 
     # dedupe, then warm item metadata in batches
     seen = set()
