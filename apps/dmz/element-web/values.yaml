@@ -121,7 +121,7 @@ extraVolumeMounts:
   subPath: default.conf
   readOnly: true
 image:
-  tag: v1.12.30
+  tag: v1.12.31
   repository: ghcr.io/element-hq/element-web
 resources:
   requests:
