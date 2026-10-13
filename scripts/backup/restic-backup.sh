@@ -42,7 +42,8 @@ DATE="$(date +%Y%m%d-%H%M%S)"
 echo "[$DATE] === RESTIC BACKUP START ===" >> "$LOG"
 
 # 1. Sealed-secrets key (CRITICAL — without it, all sealed secrets are undecryptable)
-kubectl get secrets -n kube-system -o name 2>/dev/null | grep sealed-secrets-key | while read s; do kubectl get "$s" -n kube-system -o yaml >> /tmp/sealed-secrets-key.yaml 2>/dev/null; done
+: > /tmp/sealed-secrets-key.yaml
+kubectl get secrets -n kube-system -o name 2>/dev/null | grep sealed-secrets-key | while read s; do kubectl get "$s" -n kube-system -o yaml >> /tmp/sealed-secrets-key.yaml 2>/dev/null; done || true
 if [ -s /tmp/sealed-secrets-key.yaml ]; then
   echo "[$DATE] sealed-secrets key captured" >> "$LOG"
 else
@@ -215,6 +216,20 @@ else
 fi
 
 # 4a. Restic backup to VPS (primary, off-site)
+# 3z. AIOStreams instance on the VPS + moonbase-lite data (added 2026-10-13)
+VPS_SSH="${VPS_SSH:-ubuntu@<VPS_HOST>}"   # set VPS_SSH on the master
+mkdir -p "$STAGE/aiostreams"
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_SSH" "sudo sh -c 'cd /opt/aiostreams && tar czf - compose.yaml .env data/db.sqlite*'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
+  echo "[$DATE] AIOStreams VPS snapshot: $(du -h "$STAGE/aiostreams/config.tar.gz" | cut -f1)" >> "$LOG"
+else
+  echo "[$DATE] AIOStreams VPS snapshot FAILED - continuing" >> "$LOG"
+fi
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_SSH" 'sudo tar czf - -C /opt/moonbase-lite config.json data' > "$STAGE/moonbase-lite.tar.gz" 2>>"$LOG" && [ -s "$STAGE/moonbase-lite.tar.gz" ]; then
+  echo "[$DATE] moonbase-lite snapshot: $(du -h "$STAGE/moonbase-lite.tar.gz" | cut -f1)" >> "$LOG"
+else
+  echo "[$DATE] moonbase-lite snapshot FAILED - continuing" >> "$LOG"
+fi
+
 export RESTIC_REPOSITORY="$VPS_REPO"
 restic unlock >/dev/null 2>&1 || true   # clear stale locks; repo-unreachable must NOT kill the set -e script (fixed 2026-09-22)
 if restic backup "$STAGE" --tag "$TAG" --exclude "*.log" >> "$LOG" 2>&1; then
