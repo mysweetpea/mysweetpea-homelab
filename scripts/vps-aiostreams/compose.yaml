@@ -1,0 +1,20 @@
+services:
+  aiostreams:
+    image: ghcr.io/viren070/aiostreams:v2.36.0   # pinned to match the proven cluster version
+    container_name: aiostreams
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"   # loopback only; nginx fronts it with TLS
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1536M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
