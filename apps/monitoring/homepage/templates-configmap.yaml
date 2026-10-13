@@ -810,6 +810,12 @@ data:
           description: Retro Game Library & Player
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/romm.svg
           server: ''
+      - Gopeed:
+          id: gopeed
+          href: https://github.com/GopeedLab/gopeed
+          description: Download Manager (HTTP/BT/Magnet)
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/gopeed.svg
+          server: ''
 
   settings.yaml: |
     title: SweetPea Homelab
