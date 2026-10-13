@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""AIOStreams PlaybackInfo browser filter (sidecar).
+"""AIOStreams browser H.264 source filter (sidecar).
 
-nginx routes /PlaybackInfo requests here; we forward to the AIOStreams app
-on 127.0.0.1:3000. For browser UAs (not Moonfin/Stremio/Dart/etc.) the JSON
-response keeps only H.264 sources when any exist, padded with spaces to the
-original byte length so Content-Length stays valid. Native clients and any
-parse problem pass through byte-for-byte.
+nginx routes PlaybackInfo + item detail/list responses here; we forward to the
+AIOStreams app on 127.0.0.1:3000. For browser UAs (not Moonfin/Stremio/Dart/etc.)
+every MediaSources array is reduced to H.264 entries only (when any exist), and
+the JSON is space-padded back to the original byte length so Content-Length
+stays valid. Native clients and any parse issue pass through byte-for-byte.
+
+Note: Moonfin sends mediaSourceId on EVERY PlaybackInfo call - never treat that
+as a "user picked a version" signal (v1 did, which made the filter a no-op).
 """
 import http.client
 import json
@@ -27,22 +30,42 @@ def _is_h264(src):
     return False
 
 
+def _filt_obj(obj):
+    if not isinstance(obj, dict):
+        return False
+    ms = obj.get("MediaSources")
+    if isinstance(ms, list) and ms:
+        keep = [s for s in ms if _is_h264(s)]
+        if 0 < len(keep) < len(ms):
+            obj["MediaSources"] = keep
+            return True
+    return False
+
+
 def _filter(data, ua):
     if not BROWSER.search(ua) or NATIVE.search(ua):
         return data, False
     try:
         j = json.loads(data)
-        srcs = j.get("MediaSources") or []
-        keep = [s for s in srcs if _is_h264(s)]
-        if 0 < len(keep) < len(srcs):
-            j["MediaSources"] = keep
-            out = json.dumps(j).encode()
-            if len(out) < len(data):
-                out += b" " * (len(data) - len(out))
-            return out, True
-    except Exception as e:
-        sys.stderr.write("pi-filter: parse fallback (%s)\n" % e)
-    return data, False
+    except Exception:
+        return data, False
+    changed = False
+    if isinstance(j, dict):
+        changed = _filt_obj(j)
+        for it in j.get("Items") or []:
+            if _filt_obj(it):
+                changed = True
+    elif isinstance(j, list):
+        for it in j:
+            if _filt_obj(it):
+                changed = True
+    if not changed:
+        return data, False
+    out = json.dumps(j, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(out) > len(data):
+        return data, False          # safety: never emit a mismatched Content-Length
+    out += b" " * (len(data) - len(out))
+    return out, True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -61,8 +84,7 @@ class Handler(BaseHTTPRequestHandler):
             resp = conn.getresponse()
             data = resp.read()
             conn.close()
-            filt = "/PlaybackInfo" in self.path and "mediaSourceId" not in self.path
-            if filt and resp.status == 200:
+            if resp.status == 200:
                 data, changed = _filter(data, self.headers.get("User-Agent", ""))
                 if changed:
                     sys.stderr.write("pi-filter: filtered %s\n" % self.path.split("?")[0])

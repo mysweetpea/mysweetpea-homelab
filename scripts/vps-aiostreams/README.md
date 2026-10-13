@@ -63,3 +63,11 @@ Filtered JSON is space-padded to the original byte length so Content-Length stay
 - Test: `AIOS_UUID=<uuid> AIOS_PW=<pw> bash test-playback-filter.sh` (prints PASS/CHECK).
 - Do NOT retry the njs js_body_filter route: holding response chunks deadlocks this
   nginx/njs build (r.ctx also unsupported). nginx backups must not live in sites-enabled.
+- v2 (2026-10-13 late): two real-client findings baked in - (1) Moonfin sends
+  mediaSourceId on EVERY PlaybackInfo call; never treat it as "user picked a version"
+  (v1's guard made the filter a no-op for the actual client); (2) the version list that
+  drives the client's default pick comes from the item-detail response, so item
+  detail/list responses are routed through the sidecar too (3 nginx locations via
+  snippets/aiostreams-pi-proxy.conf). Verified: browser PI+detail = 8 sources all H.264
+  vs native 19, byte-identical padding. Probe note: the app rate-limits jellyfin logins
+  per IP (~2 min window) - reuse one token and pace requests.
