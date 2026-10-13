@@ -692,11 +692,11 @@ data:
           href: ''
           description: Home Automation
           icon: mdi-home-assistant
-      - Sunshine VM:
+      - Sunshine + Moonlight:
           id: sunshine
           href: ''
-          description: Cloud Gaming (games via qBittorrent)
-          icon: mdi-sun-wireless-outline
+          description: Game Streaming (PC to any screen)
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sunshine.svg
           server: ''
       - Torrin:
           id: torrin
@@ -803,6 +803,12 @@ data:
           href: https://github.com/cenodude/CrossWatch
           description: Sync Watch History Across Trackers
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/crosswatch.svg
+          server: ''
+      - RomM:
+          id: romm
+          href: https://github.com/rommapp/romm
+          description: Retro Game Library & Player
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/romm.svg
           server: ''
 
   settings.yaml: |
