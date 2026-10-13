@@ -17,7 +17,11 @@ stubs. Everything else 404s — clients degrade gracefully (same as no plugin).
   Moonfin settings export: keeps the `global` scope, strips API keys, filters
   home rows to `resume,latestmedia`, pins the theme
 - `themes/` — theme JSONs served to clients (incl. `mysweetpea_obsidian`)
-- `moonbase-lite.service`, `nginx-moonbase-lite-proxy.snippet.conf`
+- `moonbase-lite.service`, `nginx-moonbase-lite-proxy.snippet.conf`,
+  `nginx-moonbase-lite-mount-route.snippet.conf` (mount-prefixed `/Moonfin/*`
+  routing), `moonbase-lite-cors.conf` (CORS headers, include in both locations)
+- `coerce_types.py` + `codec_map.json` — retype a profile (defaults.json /
+  users/*.json) to the shapes the client's strict applies expect
 - `test-moonbase-lite.sh` — smoke matrix (needs `TOKEN` = a real device token)
 
 ## Ops
@@ -79,3 +83,25 @@ served statically via nginx `location ^~ /avatars/`) and sets `persona.avatar`
 to `avatar_base/<persona>.png` (`https://aiostreams.mysweetpea.cc/avatars/...`).
 Existing personas without an avatar are backfilled on their next provision call;
 removal deletes the file. Config keys: `avatar_dir`, `avatar_base`.
+
+## Mount-prefixed clients, CORS, and value types (Oct 13 2026)
+Three requirements discovered the hard way when Moonfin web showed the plugin
+layer as dead (Ping 404s in client logs) despite the shim running:
+- **Mount-prefixed routing.** Clients store the server address *including* the
+  mount path (`/jellyfin/<uuid|alias>[/<encpw>]`), so every plugin call arrives
+  as `<mount>/Moonfin/...` — the root `location ^~ /Moonfin/` never sees them.
+  See `nginx-moonbase-lite-mount-route.snippet.conf`: a regex location placed
+  before `location /` rewrites to the shim. **Quote the regex** (`"{0,2}"`) —
+  unquoted braces make nginx refuse the whole config.
+- **CORS.** Moonfin web is served from media.mysweetpea.cc while the plugin API
+  lives on the AIOStreams vhost = cross-origin; without matching headers the
+  browser discards shim responses (they log 200 server-side but never apply).
+  `moonbase-lite-cors.conf` mirrors the AIOStreams app's headers and answers
+  OPTIONS with 204; include it in both locations (`proxy_hide_header` guards
+  the backup upstream against duplicate ACAO).
+- **Typed values are the contract.** The client's applies are strictly typed
+  (`value is bool / int / num / List` — flat strings are silently SKIPPED). A
+  profile can be 200-ing while every value is ignored. Fix with
+  `coerce_types.py <profile.json>`; `mediaBarLibraryIds` in particular must be
+  a JSON **list** (a CSV string never applies, and the media bar then walks
+  every library on every home load — ~8s of serial fetches).
