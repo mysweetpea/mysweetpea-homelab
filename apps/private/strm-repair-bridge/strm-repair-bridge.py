@@ -89,6 +89,7 @@ MAX_ACTIONS_PER_RUN = int(os.environ.get("MAX_ACTIONS_PER_RUN", "25"))
 ARR_SETTLE_HOURS = float(os.environ.get("ARR_SETTLE_HOURS", "6"))
 
 HTTP_TIMEOUT = 45
+MAX_MARKS_PER_RUN = 200  # ponytail: hard ceiling on history-mark calls per run (runaway scoping once starved the node)
 WEBDAV_MARKER = "/webdav/"
 
 
@@ -896,10 +897,15 @@ def main():
                     if r.get("eventType") == "grabbed":
                         movie_hist.add(r.get("id"))
         if "episode" in kinds:
-            sids = {f.get("seriesId") for _, (k, f) in matched if k == "episode"}
-            for sid in sids:
+            # Scope grabs to the AFFECTED episodes only. history_for_series returns the whole
+            # series history; marking every grabbed row blocklisted tens of thousands of
+            # unrelated grabs (megashows = 800+ eps) and hammered the arrs for hours
+            # (incident 2026-10-13: runaway repair loop wedged jellyfin on the shared node).
+            for sid in {f.get("seriesId") for _, (k, f) in matched if k == "episode"}:
+                want = {f.get("episodeId") for _, (k, f) in matched
+                        if k == "episode" and f.get("seriesId") == sid}
                 for r in sonarr.history_for_series(sid):
-                    if r.get("eventType") == "grabbed":
+                    if r.get("eventType") == "grabbed" and r.get("episodeId") in want:
                         ep_hist.add(r.get("id"))
 
         if execute:
@@ -922,10 +928,10 @@ def main():
         for fid in sorted(x for x in ep_files if x):
             ok = sonarr.delete_file("episode", fid)
             log(f"  sonarr DELETE episodefile/{fid} -> {ok}")
-        for hid in sorted(movie_hist):
+        for hid in sorted(movie_hist)[:MAX_MARKS_PER_RUN]:
             ok = radarr.mark_failed(hid)
             log(f"  radarr history/failed/{hid} -> {ok}")
-        for hid in sorted(ep_hist):
+        for hid in sorted(ep_hist)[:MAX_MARKS_PER_RUN]:
             ok = sonarr.mark_failed(hid)
             log(f"  sonarr history/failed/{hid} -> {ok}")
         if movie_ids:

@@ -90,7 +90,7 @@ configMaps:
         """
         strm-repair-bridge — connect Decypharr's strm health detections to
         Radarr/Sonarr blocklist + re-search.
-
+        
         Why this exists
         ---------------
         Our library is zero-storage .strm (Decypharr webdav pointers), NOT symlinks.
@@ -101,9 +101,9 @@ configMaps:
         never get Arr file IDs attached → no blocklist, no re-search. Dead strms then
         sit in the library 404ing at playback until manually fixed (this is exactly
         why ~60 dead YTS strms lingered).
-
+        
         This bridge supplies the missing link. It:
-
+        
           0. empirically sweeps EVERY strm (ranged GET on the exact webdav URL
              Jellyfin plays) - the only detection source that catches the legacy
              client_not_found class, which Decypharr's own probe reports healthy,
@@ -123,7 +123,7 @@ configMaps:
                Sonarr: DELETE /api/v3/episodefile/{id}
                        POST   /api/v3/history/failed/{histId}
                        POST   /api/v3/command EpisodeSearch {episodeIds:[...]}
-
+        
         Safety rails (all mandatory):
           * --dry-run is the DEFAULT; --execute performs actions.
           * PROVIDER-DOWN GUARD: when the freshest sweep probed ≥20 entries and
@@ -134,15 +134,15 @@ configMaps:
           * Cooldown ledger — an entry is not re-processed for ARR_SETTLE_HOURS
             (replacement needs time to land).
           * Only entries Decypharr independently marks `broken` are acted on.
-
+        
         Usage:
           strm-repair-bridge.py [--dry-run|--execute] [--limit N]
                                 [--strm-index /path/index.json]  # offline test mode
                                 [--scan-root /data/media]
-
+        
         Deployed as a CronJob after the nightly Decypharr sweep.
         """
-
+        
         import argparse
         import concurrent.futures
         import json
@@ -155,35 +155,36 @@ configMaps:
         import urllib.parse
         import urllib.request
         from datetime import datetime, timedelta, timezone
-
+        
         # ---------------------------------------------------------------- config
-
+        
         DECY_API = os.environ.get("DECY_API", "http://decypharr.private.svc.cluster.local:8282")
         RADARR_API = os.environ.get("RADARR_API", "http://radarr.private.svc.cluster.local:7878")
         SONARR_API = os.environ.get("SONARR_API", "http://sonarr.private.svc.cluster.local:8989")
         RADARR_KEY = os.environ.get("RADARR_API_KEY", "")
         SONARR_KEY = os.environ.get("SONARR_API_KEY", "")
         DECY_TOKEN = os.environ.get("DECY_API_TOKEN", "")
-
+        
         SCAN_ROOT = os.environ.get("SCAN_ROOT", "/data/media")
         TV_ROOT = os.environ.get("TV_ROOT", "/data/media/tv")
         STATE_FILE = os.environ.get("STATE_FILE", "/data/.strm-repair-ledger.json")
         SWEEP_DEADLINE_S = int(os.environ.get("SWEEP_DEADLINE_S", "1800"))
         JELLYFIN_API = os.environ.get("JELLYFIN_API", "http://jellyfin.private.svc.cluster.local:8096")
         JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "")
-
+        
         PROVIDER_DOWN_PCT = float(os.environ.get("PROVIDER_DOWN_PCT", "90"))
         MAX_ACTIONS_PER_RUN = int(os.environ.get("MAX_ACTIONS_PER_RUN", "25"))
         ARR_SETTLE_HOURS = float(os.environ.get("ARR_SETTLE_HOURS", "6"))
-
+        
         HTTP_TIMEOUT = 45
+        MAX_MARKS_PER_RUN = 200  # ponytail: hard ceiling on history-mark calls per run (runaway scoping once starved the node)
         WEBDAV_MARKER = "/webdav/"
-
-
+        
+        
         def log(msg: str) -> None:
             print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
-
-
+        
+        
         def parse_dt(s):
             """Parse Decypharr timestamps (nanosecond precision, tz offset) safely."""
             if not s:
@@ -206,8 +207,8 @@ configMaps:
                 return dt
             except Exception:  # noqa: BLE001
                 return None
-
-
+        
+        
         def http_json(url, method="GET", headers=None, body=None, timeout=HTTP_TIMEOUT):
             req = urllib.request.Request(url, method=method, headers=headers or {})
             data = None
@@ -227,11 +228,11 @@ configMaps:
                 return e.code, e.read().decode(errors="replace")
             except Exception as e:  # noqa: BLE001
                 return 0, str(e)
-
-
+        
+        
         def decy_token() -> str:
             """Read Decypharr's API token live.
-
+        
             Order: explicit env override, then the shared state PVC (the CronJob
             mounts decypharr-state-lh at DECY_STATE_DIR so it always sees the
             CURRENT token — Decypharr regenerates it if auth.json is ever wiped),
@@ -252,10 +253,10 @@ configMaps:
                 except Exception:  # noqa: BLE001
                     continue
             return ""
-
-
+        
+        
         # ---------------------------------------------------------------- strm scanning
-
+        
         def entry_from_strm_url(line: str):
             """Extract the Decypharr entry name from a strm's first line.
             Shapes seen in the wild:
@@ -275,8 +276,8 @@ configMaps:
             if len(parts) >= 2:
                 return urllib.parse.unquote(parts[1]), urllib.parse.unquote(parts[2]) if len(parts) > 2 else ""
             return None
-
-
+        
+        
         def scan_strm_index(root: str):
             """Walk root for *.strm, return {strm_path: entry_name}."""
             idx = {}
@@ -294,13 +295,13 @@ configMaps:
                     if got:
                         idx[p] = got[0]
             return idx
-
-
+        
+        
         def load_strm_index_file(path):
             with open(path) as f:
                 return json.load(f)
-
-
+        
+        
         def file_from_strm(strm_path):
             """Read a strm's first line and return the FILE component of its URL
             (needed for multi-file entries where file name != entry name)."""
@@ -318,26 +319,26 @@ configMaps:
             if len(parts) >= 3:
                 return urllib.parse.unquote(parts[2])
             return ""
-
-
+        
+        
         def _by_entry(raw_index):
             out = {}
             for sp, e in raw_index.items():
                 out.setdefault(e, []).append(sp)
             return out
-
-
+        
+        
         def sweep_dead_entries(raw_index, workers=None):
             """Empirically probe EVERY strm's webdav URL - the same endpoint Jellyfin
             plays from - because Decypharr's own health probe is blind to the legacy
             client_not_found class (entry reports healthy, playback 500s).
-
+        
             Dead results are double-probed so transients never trigger repairs.
             A wall-clock deadline fails safe: files not reached in time count as
             alive (no action). Returns ({entry_name: detection}, stats)."""
             workers = workers or int(os.environ.get("SWEEP_WORKERS", "6"))
             deadline = time.monotonic() + SWEEP_DEADLINE_S
-
+        
             def probe(item, guarded=True):
                 entry, sp = item
                 if guarded and time.monotonic() > deadline:
@@ -372,7 +373,7 @@ configMaps:
                     return sp, "offline"
                 except Exception:  # noqa: BLE001
                     return sp, "offline"
-
+        
             tasks = [(e, s) for e, ss in _by_entry(raw_index).items() for s in ss]
             dead1, offline1 = [], 0
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
@@ -414,14 +415,14 @@ configMaps:
                      "dead_files": len(still_dead), "dead_entries": len(dead_entries),
                      "offline": offline1, "aborted": False}
             return dead_entries, stats
-
-
+        
+        
         KUMA_PUSH_FILE = os.environ.get("KUMA_PUSH_FILE", "/decy-state/kuma-push-url.txt")
-
-
+        
+        
         def kuma_push(status, msg):
             """Beat the Kuma push monitor (dead-man's switch + anomaly alerts).
-
+        
             URL comes from KUMA_PUSH_URL or the state-PVC file - never from git
             (public repo; a leaked push token would allow only alert spam, but
             still)."""
@@ -442,16 +443,16 @@ configMaps:
                 log(f"kuma push: {status} - {msg[:120]}")
             except Exception as e:  # noqa: BLE001
                 log(f"WARN: kuma push failed: {e}")
-
-
+        
+        
         def jf_probe_failures(raw_index):
             """Probe-Provider failures from Jellyfin's own server log.
-
+        
             Files whose deep ffprobe keeps failing (truncated / sick usenet grabs)
             answer the sweep's 2 KB range read happily, so the sweep can't see them -
             but every playback pays a failed 30-45 s re-probe (PlaybackInfo timeout,
             app gives up at 30 s). Jellyfin literally logs the failures; harvest them.
-
+        
             Requires >= 2 failures within today's + yesterday's logs. Carries the
             LATEST failure timestamp as last_failed_at so the existing settle gate
             stops re-acting once a replacement has landed."""
@@ -466,12 +467,12 @@ configMaps:
                 return {}
             base = JELLYFIN_API.rstrip("/")
             auth = {"Authorization": f'MediaBrowser Token="{key}"'}
-
+        
             def fetch(path):
                 req = urllib.request.Request(f"{base}{path}", headers=auth)
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     return resp.read().decode("utf-8", "replace")
-
+        
             try:
                 logs = json.loads(fetch("/System/Logs"))
                 names = sorted(l["Name"] for l in logs if str(l.get("Name", "")).startswith("log_"))
@@ -496,7 +497,7 @@ configMaps:
                         continue
                     counts[p] = counts.get(p, 0) + 1
                     latest[p] = max(latest.get(p, ""), m.group(1))
-
+        
             norm_index = {}
             for sp in raw_index:
                 norm_index[sp[:-5] if sp.endswith(".strm") else sp] = sp
@@ -519,20 +520,20 @@ configMaps:
             log(f"jf-probe lane: failing paths={len(counts)} candidates={len(out)} "
                 f"(unmatched={unmatched}; need >=2 occurrences in 48h)")
             return out
-
-
+        
+        
         # ---------------------------------------------------------------- decypharr side
-
+        
         class Decypharr:
             def __init__(self, token: str):
                 self.h = {"Authorization": f"Bearer {token}"}
-
+        
             def repair_runs(self):
                 st, d = http_json(f"{DECY_API}/api/repair/runs", headers=self.h)
                 if st != 200:
                     raise RuntimeError(f"repair/runs failed: {st} {d}")
                 return d if isinstance(d, list) else d.get("runs", d.get("items", []))
-
+        
             def health_all(self):
                 broken = {}
                 offset = 0
@@ -554,10 +555,10 @@ configMaps:
                     if offset > 40000:
                         break
                 return list(broken.values())
-
+        
             def bad_flag_entries(self):
                 """Entries in Decypharr's internal __bad__ set (entry.Bad sticky flag).
-
+        
                 THE DEAD ZONE this bridge exists to close: when the link service marks
                 an entry bad, streaming short-circuits with 500 "can't repair <name>
                 since it's been marked as bad". The health PROBE can still report the
@@ -582,15 +583,15 @@ configMaps:
                             "failure_reason": "marked_as_bad",
                         }
                 return list(out.values())
-
+        
             def streamable(self, entry_name, file_name=None):
                 """Empirically test whether an entry actually streams.
-
+        
                 Hits the SAME webdav/stream endpoint Jellyfin plays from, with a
                 ranged GET. 200/206 proves bytes flow; anything else (412/451/500/
                 timeout) means the release is dead for playback. (browse/download
                 is the wrong endpoint here — it 302-redirects even for live entries.)
-
+        
                 This exists because the health PROBE's verdict can disagree with
                 real streamability (RD's /unrestrict/check passes while the real
                 unrestrict 451s). The bridge verifies before destructive action so
@@ -609,19 +610,19 @@ configMaps:
                     return False
                 except Exception:  # noqa: BLE001
                     return False
-
-
+        
+        
         # ---------------------------------------------------------------- arr side
-
+        
         class Arr:
             def __init__(self, base, key, name):
                 self.base, self.key, self.name = base, key, name
-
+        
             def api(self, path, method="GET", body=None):
                 return http_json(
                     f"{self.base}{path}", method=method, headers={"X-Api-Key": self.key}, body=body
                 )
-
+        
             def moviefiles(self):
                 st, movies = self.api("/api/v3/movie")
                 if st != 200 or not isinstance(movies, list):
@@ -633,7 +634,7 @@ configMaps:
                         mf["movieId"] = m.get("id")
                         out.append(mf)
                 return out
-
+        
             def api_retry(self, path, method="GET", body=None, attempts=3):
                 """Arr calls that survive Sonarr's slow windows (its /series list can
                 take >30s while the box grinds); loud, retried, never swallowed."""
@@ -646,10 +647,10 @@ configMaps:
                         time.sleep(5)
                 log(f"WARN: {self.name} {method} {path} failed after {attempts} attempts: {st} {str(d)[:90]}")
                 return st, d
-
+        
             def episodefiles_for(self, candidate_strms):
                 """TV index scoped to the series that own a candidate strm.
-
+        
                 The old full walk (every series x 2 calls) silently produced an EMPTY
                 index whenever /api/v3/series hiccuped during Sonarr's slow windows -
                 so TV repairs never happened at all. Scoped, retried, and loud now."""
@@ -689,15 +690,15 @@ configMaps:
                             f["episodeId"] = file_to_ep.get(f.get("id"))
                             out.append(f)
                 return out
-
+        
             def history_for_movie(self, movie_id):
                 st, d = self.api(f"/api/v3/history/movie?movieId={movie_id}")
                 return d if st == 200 and isinstance(d, list) else []
-
+        
             def history_for_series(self, series_id):
                 st, d = self.api(f"/api/v3/history/series?seriesId={series_id}")
                 return d if st == 200 and isinstance(d, list) else []
-
+        
             def delete_file(self, kind, file_id):
                 ep = "moviefile" if kind == "movie" else "episodefile"
                 req = urllib.request.Request(
@@ -710,26 +711,26 @@ configMaps:
                         return r.status in (200, 204)
                 except Exception:  # noqa: BLE001
                     return False
-
+        
             def mark_failed(self, history_id):
                 st, _ = self.api(f"/api/v3/history/failed/{history_id}", method="POST")
                 return st in (200, 201, 202, 204)
-
+        
             def search(self, body):
                 st, _ = self.api("/api/v3/command", method="POST", body=body)
                 return st in (200, 201)
-
-
+        
+        
         # ---------------------------------------------------------------- ledger
-
+        
         def load_ledger():
             try:
                 with open(STATE_FILE) as f:
                     return json.load(f)
             except Exception:  # noqa: BLE001
                 return {}
-
-
+        
+        
         def save_ledger(led):
             d = os.path.dirname(STATE_FILE)
             if d:
@@ -738,10 +739,10 @@ configMaps:
             with open(tmp, "w") as f:
                 json.dump(led, f, indent=1)
             os.replace(tmp, STATE_FILE)
-
-
+        
+        
         # ---------------------------------------------------------------- main
-
+        
         def main():
             ap = argparse.ArgumentParser()
             g = ap.add_mutually_exclusive_group()
@@ -754,16 +755,16 @@ configMaps:
                                  "skips the filesystem scan")
             args = ap.parse_args()
             execute = args.execute
-
+        
             log(f"mode={'EXECUTE' if execute else 'DRY-RUN'} limit={args.limit} "
                 f"provider_down_pct={PROVIDER_DOWN_PCT} settle={ARR_SETTLE_HOURS}h")
-
+        
             tok = decy_token()
             if not tok:
                 log("FATAL: no Decypharr API token")
                 return 2
             decy = Decypharr(tok)
-
+        
             # ---- provider-down guard
             sweep_stats = {}
             try:
@@ -795,7 +796,7 @@ configMaps:
                             return 0
             except Exception as e:  # noqa: BLE001
                 log(f"warn: sweep stats unavailable ({e}); continuing")
-
+        
             # ---- detections: broken (probe) + bad-flagged (sticky flag dead zone)
             try:
                 broken_entries = decy.health_all()
@@ -813,7 +814,7 @@ configMaps:
                 detections.setdefault(b["entry_name"], b)  # probe-broken takes precedence
             log(f"detections: probe-broken={len(detections) - len(bad_entries)} "
                 f"bad-flagged={len(bad_entries)} total={len(detections)}")
-
+        
             # ---- strm index: entry_name -> [strm paths]
             if args.strm_index:
                 raw = load_strm_index_file(args.strm_index)
@@ -822,7 +823,7 @@ configMaps:
                 raw = scan_strm_index(args.scan_root)
                 log(f"strm scan: {len(raw)} strms under {args.scan_root}")
             entry_to_strms = _by_entry(raw)
-
+        
             # ---- empirical sweep lane: Decypharr's health probe never flags the
             # legacy client_not_found class as broken, so this sweep is the detection
             # source for it. Skipped when Decypharr itself reports mass breakage
@@ -840,12 +841,12 @@ configMaps:
                         added += 1
                 log(f"sweep lane: probed={sw['probed']} alive={sw['alive']} "
                     f"dead_files={sw['dead_files']} dead_entries={added}")
-
+        
             # ---- JF probe-failure lane (truncated/sick grabs the sweep can't see).
             jf = jf_probe_failures(raw)
             for e, h in jf.items():
                 detections.setdefault(e, h)
-
+        
             broken_entries = list(detections.values())
             if not broken_entries:
                 log("nothing to repair")
@@ -855,7 +856,7 @@ configMaps:
                     return 0
                 kuma_push("up", f"clean: probed={sw.get('probed', 0)}")
                 return 0
-
+        
             # ---- arr indexes: strm path -> file record
             radarr = Arr(RADARR_API, RADARR_KEY, "radarr")
             sonarr = Arr(SONARR_API, SONARR_KEY, "sonarr")
@@ -870,7 +871,7 @@ configMaps:
                 path_index[f["path"]] = ("episode", f)
             log(f"arr index: {len(mfs)} movie files, {len(efs)} episode files; "
                 f"path joins={sum(1 for p in path_index if p in raw)}")
-
+        
             ledger = load_ledger()
             now = datetime.now(timezone.utc)
             actions = 0
@@ -878,19 +879,19 @@ configMaps:
             unmatched = []
             skipped_cooldown = 0
             skipped_settled = 0
-
+        
             # per-arr search batches (one command per arr per run)
             movie_ids, episode_ids = set(), set()
             movie_hist, ep_hist = set(), set()
             movie_files, ep_files = set(), set()
             acted_entries = []
-
+        
             sort_keys = {}
             for h in broken_entries:
                 ss = entry_to_strms.get(h.get("entry_name", ""), [])
                 sort_keys[h.get("entry_name", "")] = max(
                     (os.path.getmtime(s) for s in ss), default=0.0)
-
+        
             for h in sorted(broken_entries,
                             key=lambda x: sort_keys.get(x.get("entry_name", ""), 0.0),
                             reverse=True):
@@ -917,11 +918,11 @@ configMaps:
                         if failed_again is None or (acted and failed_again <= acted):
                             skipped_settled += 1
                             continue
-
+        
                 reason = h.get("failure_reason") or (
                     (h.get("broken_files") or [{}])[0].get("reason") if h.get("broken_files") else ""
                 )
-
+        
                 strms = entry_to_strms.get(name, [])
                 matched = [(p, path_index[p]) for p in strms if p in path_index]
                 if not matched:
@@ -930,7 +931,7 @@ configMaps:
                     continue
                 if actions >= args.limit:
                     continue
-
+        
                 # STREAMABILITY VERIFICATION (before any destructive action):
                 # the health probe can disagree with reality (RD check passes,
                 # unrestrict 451s), and the sticky Bad flag can outlive the real
@@ -959,14 +960,14 @@ configMaps:
                     log(f"  FALSE-ALARM: {name[:70]} all {len(strms_sorted)} files stream — skipping")
                     ledger[name] = {**led, "last_seen": now.isoformat(), "status": "false_alarm"}
                     continue
-
+        
                 kinds = {k for _, (k, _) in matched}
                 planned += 1
                 actions += 1
                 acted_entries.append(name)
                 log(f"  MATCH: {name[:70]} reason={reason} strms={len(strms)} "
                     f"arr_files={len(matched)} kinds={sorted(kinds)}")
-
+        
                 for _p, (kind, f) in matched:
                     if kind == "movie":
                         movie_files.add(f.get("id"))
@@ -975,7 +976,7 @@ configMaps:
                         ep_files.add(f.get("id"))
                         episode_ids.add(f.get("episodeId") or 0)
                     # gather history once per media id below
-
+        
                 # history lookups (dedup by media id)
                 if "movie" in kinds:
                     mids = {f.get("movieId") for _, (k, f) in matched if k == "movie"}
@@ -984,12 +985,17 @@ configMaps:
                             if r.get("eventType") == "grabbed":
                                 movie_hist.add(r.get("id"))
                 if "episode" in kinds:
-                    sids = {f.get("seriesId") for _, (k, f) in matched if k == "episode"}
-                    for sid in sids:
+                    # Scope grabs to the AFFECTED episodes only. history_for_series returns the whole
+                    # series history; marking every grabbed row blocklisted tens of thousands of
+                    # unrelated grabs (megashows = 800+ eps) and hammered the arrs for hours
+                    # (incident 2026-10-13: runaway repair loop wedged jellyfin on the shared node).
+                    for sid in {f.get("seriesId") for _, (k, f) in matched if k == "episode"}:
+                        want = {f.get("episodeId") for _, (k, f) in matched
+                                if k == "episode" and f.get("seriesId") == sid}
                         for r in sonarr.history_for_series(sid):
-                            if r.get("eventType") == "grabbed":
+                            if r.get("eventType") == "grabbed" and r.get("episodeId") in want:
                                 ep_hist.add(r.get("id"))
-
+        
                 if execute:
                     ledger[name] = {
                         "acted_at": now.isoformat(),
@@ -998,7 +1004,7 @@ configMaps:
                         "arr_files": len(matched),
                         "reason": reason,
                     }
-
+        
             # ---- execute batched actions
             if execute and (movie_files or ep_files):
                 log(f"EXECUTE: movieFiles={sorted(x for x in movie_files if x)} "
@@ -1010,10 +1016,10 @@ configMaps:
                 for fid in sorted(x for x in ep_files if x):
                     ok = sonarr.delete_file("episode", fid)
                     log(f"  sonarr DELETE episodefile/{fid} -> {ok}")
-                for hid in sorted(movie_hist):
+                for hid in sorted(movie_hist)[:MAX_MARKS_PER_RUN]:
                     ok = radarr.mark_failed(hid)
                     log(f"  radarr history/failed/{hid} -> {ok}")
-                for hid in sorted(ep_hist):
+                for hid in sorted(ep_hist)[:MAX_MARKS_PER_RUN]:
                     ok = sonarr.mark_failed(hid)
                     log(f"  sonarr history/failed/{hid} -> {ok}")
                 if movie_ids:
@@ -1023,16 +1029,16 @@ configMaps:
                     ok = sonarr.search({"name": "EpisodeSearch", "episodeIds": sorted(x for x in episode_ids if x)})
                     log(f"  sonarr EpisodeSearch {sorted(episode_ids)[:20]}... -> {ok}")
                 save_ledger(ledger)
-
+        
             if unmatched:
                 log(f"unmatched broken entries (no strm/arr linkage): {len(unmatched)}")
                 for name, reason, n in unmatched[:15]:
                     log(f"    {name[:70]} (reason={reason}, strms={n})")
-
+        
             log(f"done: entries_planned={planned} actions_used={actions}/{args.limit} "
                 f"cooldown_skips={skipped_cooldown} settled_skips={skipped_settled} "
                 f"({'EXECUTED' if execute else 'dry-run — nothing changed'})")
-
+        
             # ---- monitoring: dead-man's switch + anomaly detection.
             # Kuma alerts when the beat goes missing (bridge died) or on a
             # deliberate down-push (bulk content death / stalled repairs).
@@ -1064,8 +1070,8 @@ configMaps:
             if execute:
                 save_ledger(ledger)
             return 0
-
-
+        
+        
         if __name__ == "__main__":
             try:
                 sys.exit(main())
