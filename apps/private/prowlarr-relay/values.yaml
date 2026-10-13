@@ -24,8 +24,19 @@ configMaps:
     enabled: true
     data:
       relay.py: |
-        import base64, gzip, os, sys, urllib.parse, urllib.request
+        import gzip, os, sys, urllib.parse, urllib.request
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from urllib.error import HTTPError
+
+        class _Redirect(Exception):
+            def __init__(self, url):
+                self.url = url
+
+        class _CaptureRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                raise _Redirect(newurl)
+
+        _capture = urllib.request.build_opener(_CaptureRedirect)
 
         PROWLARR = os.environ.get("PROWLARR_URL", "http://prowlarr.private.svc.cluster.local:9696")
         SELF_HOST = os.environ.get("SELF_HOST", "192.168.20.235:9697")
@@ -70,12 +81,21 @@ configMaps:
                         code, rheaders, body = fetch(up, hdrs)
                         return self._send(code, body, rheaders.get("Content-Type", "application/json"))
                     if u.path.endswith("/download"):
-                        link = (q.get("link") or [""])[0]
-                        if not link:
-                            return self._send(400, b"missing link")
-                        raw = link.translate(str.maketrans("-_", "+/"))
-                        raw += "=" * (-len(raw) % 4)
-                        target = base64.b64decode(raw).decode()
+                        # Let Prowlarr do its own link decoding: forward the request and
+                        # capture the 301/302 it returns (it always redirects usenet),
+                        # then fetch that target ourselves from the home IP.
+                        up = PROWLARR + u.path + (("?" + u.query) if u.query else "")
+                        hdrs = {"Host": SELF_HOST}
+                        key = self.headers.get("X-Api-Key") or ""
+                        if key:
+                            hdrs["X-Api-Key"] = key
+                        try:
+                            _capture.open(urllib.request.Request(up, headers={"User-Agent": UA, **hdrs}), timeout=30)
+                            return self._send(502, b"prowlarr did not redirect")
+                        except _Redirect as r:
+                            target = r.url
+                        except HTTPError as he:
+                            return self._send(502, ("prowlarr error: %s" % he).encode())
                         host = (urllib.parse.urlsplit(target).hostname or "").lower()
                         if not any(host == h or host.endswith("." + h) for h in ALLOW):
                             return self._send(403, ("host not allowed: %s" % host).encode())

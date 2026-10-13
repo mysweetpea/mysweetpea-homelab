@@ -20,7 +20,7 @@ Cloudflare-protected and 403s Oracle datacenter IPs for both search and NZB fetc
 | Route | Behavior |
 |---|---|
 | `/api/v1/*` | Reverse-proxy to Prowlarr (`prowlarr.private.svc:9696`), with `Host` rewritten to `SELF_HOST` so Prowlarr's returned download URLs point back at this relay. |
-| `/{id}/download?...&link=<b64>` | Base64-decodes `link`, checks the target host against `FETCH_ALLOWLIST`, fetches the NZB **from the home IP**, returns the bytes. |
+| `/{id}/download?...&link=<b64>` | Asks Prowlarr to decode the link (forwards the request, captures its 302 "Location"), checks the target host against `FETCH_ALLOWLIST`, fetches the NZB **from the home IP**, returns the bytes. |
 | `/healthz` | `200 ok` |
 
 No public ingress: reachable on the home LAN / NetBird mesh only (MetalLB
