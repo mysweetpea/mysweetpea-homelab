@@ -26,6 +26,10 @@ Cloudflare-protected and 403s Oracle datacenter IPs for both search and NZB fetc
 No public ingress: reachable on the home LAN / NetBird mesh only (MetalLB
 `192.168.20.235:9697`). Allow-list keeps it from being a generic SSRF proxy.
 
+**Quirk discovered while building (2026-10-13):** NZBFinder's `getnzb` endpoint
+rejects unknown client user-agents with `<error code="203">Please update Prowlarr
+or NZBHydra...</error>` — the relay sends a normal browser UA, which is accepted.
+
 ## Consumer setup (AIOStreams, VPS)
 
 Addons → Add → **Prowlarr**:

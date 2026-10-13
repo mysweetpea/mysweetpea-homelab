@@ -41,7 +41,9 @@ configMaps:
         PROWLARR = os.environ.get("PROWLARR_URL", "http://prowlarr.private.svc.cluster.local:9696")
         SELF_HOST = os.environ.get("SELF_HOST", "192.168.20.235:9697")
         ALLOW = tuple(h.strip().lower() for h in os.environ.get("FETCH_ALLOWLIST", "nzbfinder.ws").split(",") if h.strip())
-        UA = "Mozilla/5.0 (X11; Linux x86_64) prowlarr-relay/1.0"
+        # NZBFinder's getnzb endpoint rejects unknown client UAs with an "update
+        # Prowlarr" XML error (code 203); a browser UA is accepted (measured 2026-10-13).
+        UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
 
         def fetch(url, headers=None, timeout=45):
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Encoding": "identity", **(headers or {})})
