@@ -10,17 +10,22 @@ configMaps:
       nginx.conf: |
         events { worker_connections 64; }
         http {
-          # one shared bucket for ALL callers: strictly 1 forwarded request per 600s (0.1r/m).
-          # burst=0 (default): anything inside the window is rejected -> @debounced -> 200.
-          limit_req_zone $host zone=scanrefresh:1m rate=0.1r/m;
+          # Coalesce: first POST in each 10-min window is forwarded and its 204 cached;
+          # every following POST is served from cache (HIT) without touching Jellyfin.
+          proxy_cache_path /tmp/scanrefresh levels=1:2 keys_zone=scanrefresh:1m max_size=1m inactive=1h use_temp_path=off;
           server {
             listen 8096;
             location = /Library/Refresh {
-              limit_req zone=scanrefresh;
+              proxy_cache scanrefresh;
+              proxy_cache_methods POST;
+              proxy_cache_key "$uri";
+              proxy_cache_valid 200 204 10m;
+              proxy_cache_lock on;
+              proxy_cache_lock_timeout 30s;
+              proxy_ignore_headers Cache-Control Expires Set-Cookie;
+              add_header X-Scan-Gate $upstream_cache_status always;
               proxy_pass http://jellyfin.private.svc.cluster.local:8096/Library/Refresh;
-              error_page 503 = @debounced;
             }
-            location @debounced { return 200 "debounced\n"; }
             location = /health { return 200 "ok\n"; }
             location / { return 404; }
           }
