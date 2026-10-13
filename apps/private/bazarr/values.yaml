@@ -1,5 +1,6 @@
 controllers:
   main:
+    replicas: 0  # PAUSED 2026-10-13 — AIOStreams test window (media pipeline hold)
     containers:
       main:
         image:

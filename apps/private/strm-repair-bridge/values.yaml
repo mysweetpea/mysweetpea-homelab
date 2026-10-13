@@ -20,6 +20,7 @@ controllers:
   main:
     type: cronjob
     cronjob:
+      suspend: true  # PAUSED 2026-10-13 — AIOStreams test window (media pipeline hold)
       schedule: "0 */6 * * *"    # 4x/day: sweep lane + capped repairs while the legacy backlog drains
       concurrencyPolicy: Forbid
       startingDeadlineSeconds: 900
