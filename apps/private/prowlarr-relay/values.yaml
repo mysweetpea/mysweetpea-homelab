@@ -17,7 +17,10 @@
 #    SSRF hole. Reachable on home LAN / NetBird only -- no public ingress.
 #
 # Consumer: AIOStreams "Prowlarr" preset with
-#   Prowlarr URL = http://192.168.20.235:9697 , tick ONLY NZBFinder.
+#   Prowlarr URL = http://192.168.20.235:9697 (preset returns every enabled
+#   home-Prowlarr indexer; grabs for the allow-listed hosts below are fetched
+#   from the home IP). Allow-list covers all enabled usenet indexers:
+#   NZBFinder + NZBGeek + NZBPlanet + NZBIndex (2026-10-13).
 # (NZBGeek / NZBPlanet keep their direct Newznab presets -- no home hop needed.)
 configMaps:
   relay:
@@ -128,7 +131,7 @@ controllers:
         - name: SELF_HOST
           value: "192.168.20.235:9697"
         - name: FETCH_ALLOWLIST
-          value: nzbfinder.ws
+          value: nzbfinder.ws,nzbgeek.info,nzbplanet.net,nzbindex.com
         - name: PORT
           value: "9697"
         ports:
