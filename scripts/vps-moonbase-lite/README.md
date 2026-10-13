@@ -62,11 +62,12 @@ Set Password it calls this endpoint and the Welcome Email gains a "Your media
 PIN" block (hidden when empty). Members sign in with their name + PIN on the
 picker address; wrong PIN = 401; 5 wrong = 15 min lockout.
 
-## AIOStreams OIDC SSO (operator/dashboard login)
-authentik provider "AIOStreams" (pk 30, app slug `aiostreams`) + custom `groups`
-scope mapping ("MySweetPea group membership"). VPS `.env`: AIOSTREAMS_OIDC_*
-(issuer `https://auth.mysweetpea.cc/application/o/aiostreams/`, scopes
-openid,profile,email,groups, `authentik Admins=admin`, linkByUsername=true,
-button "Sign in with MySweetPea"). Login start = `/api/v1/auth/oidc/start`.
-Members do NOT use this (client apps are headless) - their pairing is the
-provisioning bridge above.
+## OIDC SSO — removed (owner decision, Oct 13 2026)
+Wired then removed: the AIOStreams dashboard is operator-only and the owner
+prefers the local password there; members cannot use OIDC anyway (headless
+clients) — their pairing is the provisioning bridge above. Env lines stripped
++ authentik provider/application/scope-mapping deleted, verified
+(`/api/v1/auth/oidc/start` -> `login?error=oidc_disabled`). To restore: create
+an authentik OAuth2 provider (redirect `https://aiostreams.mysweetpea.cc/api/v1/auth/oidc/callback`,
+scopes incl. `groups` + a custom groups scope mapping), set the
+`AIOSTREAMS_OIDC_*` env vars, recreate the container.
