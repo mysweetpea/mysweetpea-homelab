@@ -36,9 +36,17 @@ def main():
     if a.theme:
         g["customThemeId"] = a.theme
         g["visualTheme"] = "custom"
-    # JF library GUIDs mean nothing on an AIOStreams server; empty = provider default.
+    # Media bar walks these catalogs one-by-one on every load; all 33 = ~8s of
+    # serial fetches. Point it at five hero-worthy catalogs instead (~1.3s).
+    # View ids are stable hashes of (catalog id, type) from the manifest.
     if "mediaBarLibraryIds" in g:
-        g["mediaBarLibraryIds"] = []
+        g["mediaBarLibraryIds"] = ",".join([
+            "a2b3d475a9842e952002bbf66ada706f",  # Trending Movies
+            "a26d1a33e2d56da6265981f9d902a374",  # Trending Shows
+            "a2170aa89ada673e50b5011031296a24",  # Popular Movies
+            "a20e1577e1543cd8707bba16912f48a4",  # Popular Shows
+            "a25ccf8702de5678f2c1a04ca104f30d",  # Netflix Movies
+        ])
     # No Moonbase plugin on the AIOStreams side: keep Seerr surfaces dark.
     g["seerrEnabled"] = False
     g["jellyseerrEnabled"] = False
