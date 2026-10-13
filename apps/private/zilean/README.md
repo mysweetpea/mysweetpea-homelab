@@ -46,3 +46,6 @@ be `http://zilean.private.svc.cluster.local:8181/torznab/api`.
 - Logs: `kubectl logs -n private deploy/zilean -f`
 - Data: `/app/data` (emptyDir — the Postgres DB is the durable store; the
   IMDB tsv re-downloads on restart)
+
+> **Removed from the cluster 2026-10-12** - debrid-era indexer (DMM hash caches), never used in the usenet-only pipeline. Manifest renamed `application.yaml.disabled` so the app-of-apps stops deploying it; charts kept for reference.
+> **Note:** the `zilean-secrets` sealed secret is NOT Zilean-specific - it holds the shared GitHub token used by the media engine, Jellyfin plugin checks and repo tooling. Keep it.

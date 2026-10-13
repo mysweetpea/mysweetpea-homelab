@@ -475,12 +475,6 @@ data:
             url: http://qbittorrent.private.svc.cluster.local:8080
             username: ${QBITTORRENT_USER}
             password: ${QBITTORRENT_PASS}
-      - Zilean:
-          id: zilean
-          href: http://192.168.20.231:8181
-          description: DMM Cached Indexer
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/prowlarr.svg
-          ping: http://192.168.20.231:8181
       - FlareSolverr:
           id: flaresolverr
           href: http://192.168.20.214:8191
