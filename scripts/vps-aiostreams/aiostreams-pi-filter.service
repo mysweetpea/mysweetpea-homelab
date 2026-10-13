@@ -1,0 +1,13 @@
+[Unit]
+Description=AIOStreams PlaybackInfo browser H.264 filter
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/aiostreams-pi-filter.py
+Restart=always
+RestartSec=2
+User=ubuntu
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
