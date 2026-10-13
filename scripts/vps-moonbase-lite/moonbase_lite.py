@@ -62,6 +62,8 @@ DEFAULT_CFG = {
     "mdblist_key": "",
     "server_url": "https://aiostreams.mysweetpea.cc/jellyfin",
     "version": "moonbase-lite-1.0",
+    "avatar_dir": "/var/www/aiostreams/avatars",
+    "avatar_base": "https://aiostreams.mysweetpea.cc/avatars",
 }
 CFG = dict(DEFAULT_CFG)
 if os.path.exists(CFG_PATH):
@@ -237,6 +239,80 @@ def mdblist_ratings(mtype: str, tmdb_id: str, api_key: str):
 
 
 # --------------------------------------------------------------------------
+# member avatars: deterministic identicon PNGs (stdlib only, no fonts)
+# --------------------------------------------------------------------------
+AVATAR_PALETTE = [
+    (139, 126, 246), (69, 214, 200), (122, 160, 215), (168, 140, 235),
+    (92, 190, 160), (215, 170, 110), (170, 150, 240), (100, 205, 190),
+]
+
+
+def _png_rgba(w: int, h: int, px: bytearray) -> bytes:
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + bytes(px[y * w * 4:(y + 1) * w * 4]) for y in range(h))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9))
+            + chunk(b"IEND", b""))
+
+
+def make_avatar_png(slug: str, display: str) -> str | None:
+    """Deterministic 5x5 identicon per member -> public URL, or None. Never raises."""
+    try:
+        d = str(CFG.get("avatar_dir") or "")
+        base = str(CFG.get("avatar_base") or "").rstrip("/")
+        if not d or not base:
+            return None
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, slug + ".png")
+        if not os.path.exists(path):
+            h = hashlib.sha256(("msp:" + (slug or display or "x")).encode()).digest()
+            color = bytes(AVATAR_PALETTE[h[0] % len(AVATAR_PALETTE)]) + b"\xff"
+            bg = bytes((12, 15, 20, 255))
+            size, slot, gap, pad = 256, 44, 3, 18
+            img = bytearray(size * size * 4)
+            for i in range(0, len(img), 4):
+                img[i:i + 4] = bg
+            bits = int.from_bytes(h[1:4], "big")
+            for gy in range(5):
+                for gx in range(5):
+                    col = gx if gx < 3 else 4 - gx
+                    if (bits >> (gy * 3 + col)) & 1:
+                        x0 = pad + gx * slot + gap
+                        y0 = pad + gy * slot + gap
+                        for yy in range(y0, y0 + slot - 2 * gap):
+                            rowbase = (yy * size + x0) * 4
+                            for xx in range(slot - 2 * gap):
+                                j = rowbase + xx * 4
+                                img[j:j + 4] = color
+            data = _png_rgba(size, size, img)
+            tmp = path + ".tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(data)
+            os.replace(tmp, path)
+        return base + "/" + slug + ".png"
+    except Exception as exc:  # cosmetic; provisioning must never break on it
+        print(f"avatar generation failed for {slug}: {exc}", flush=True)
+        return None
+
+
+def remove_avatar(slug: str) -> None:
+    try:
+        d = str(CFG.get("avatar_dir") or "")
+        if d:
+            os.remove(os.path.join(d, slug + ".png"))
+    except OSError:
+        pass
+
+
+# --------------------------------------------------------------------------
 # AIOStreams config API: personas
 # --------------------------------------------------------------------------
 def _aios_config_auth():
@@ -276,12 +352,23 @@ def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
             if existing is None:
                 return False, "persona not found"
             personas.remove(existing)
+            remove_avatar(pid)
             pin = None
         else:
             if existing is not None:
-                return True, {"success": True, "exists": True, "persona": pid, "pin": None}
+                if not existing.get("avatar"):
+                    avatar_url = make_avatar_png(pid, name or pid)
+                    if not avatar_url:
+                        return True, {"success": True, "exists": True, "persona": pid, "pin": None}
+                    existing["avatar"] = avatar_url
+                else:
+                    return True, {"success": True, "exists": True, "persona": pid, "pin": None}
             pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
-            personas.append({"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin})
+            entry = {"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin}
+            avatar_url = make_avatar_png(pid, name or pid)
+            if avatar_url:
+                entry["avatar"] = avatar_url
+            personas.append(entry)
         payload = json.dumps({"config": user_data}).encode("utf-8")
         last_exc = None
         for attempt in (1, 2):  # AIOStreams API bursts to 429; one retry covers household signup storms

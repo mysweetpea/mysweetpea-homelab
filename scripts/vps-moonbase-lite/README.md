@@ -71,3 +71,11 @@ clients) — their pairing is the provisioning bridge above. Env lines stripped
 an authentik OAuth2 provider (redirect `https://aiostreams.mysweetpea.cc/api/v1/auth/oidc/callback`,
 scopes incl. `groups` + a custom groups scope mapping), set the
 `AIOSTREAMS_OIDC_*` env vars, recreate the container.
+
+### Member avatars (auto)
+`POST /Moonfin/Admin/Provision` generates a unique 5x5 identicon PNG per member
+(stdlib, no deps) into `avatar_dir` (`/var/www/aiostreams/avatars/<persona>.png`,
+served statically via nginx `location ^~ /avatars/`) and sets `persona.avatar`
+to `avatar_base/<persona>.png` (`https://aiostreams.mysweetpea.cc/avatars/...`).
+Existing personas without an avatar are backfilled on their next provision call;
+removal deletes the file. Config keys: `avatar_dir`, `avatar_base`.
