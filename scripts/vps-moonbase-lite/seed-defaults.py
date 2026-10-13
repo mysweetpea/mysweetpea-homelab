@@ -15,17 +15,24 @@ def main():
     ap.add_argument("src")
     ap.add_argument("out")
     ap.add_argument("--theme", default="mysweetpea_obsidian")
-    ap.add_argument("--keep", default="resume,latestmedia")
+    ap.add_argument("--keep", default="resume,nextup,latestmedia")
     a = ap.parse_args()
     doc = json.load(open(a.src))
     g = dict(doc.get("global") or {})
     for k in STRIP:
         g.pop(k, None)
-    keep = {t.strip() for t in a.keep.split(",") if t.strip()}
+    keep = [t.strip() for t in a.keep.split(",") if t.strip()]
     hs = g.get("homeSections")
     if isinstance(hs, list):
-        g["homeSections"] = [h for h in hs
-                             if isinstance(h, dict) and h.get("type") in keep]
+        # keep-list order wins; order numbers normalize to 1..N (client sorts ascending).
+        by_type = {h.get("type"): h for h in hs if isinstance(h, dict)}
+        out = []
+        for i, t in enumerate(keep):
+            h = dict(by_type.get(t) or {"kind": "builtin", "type": t})
+            h["enabled"] = True
+            h["order"] = i + 1
+            out.append(h)
+        g["homeSections"] = out
     if a.theme:
         g["customThemeId"] = a.theme
         g["visualTheme"] = "custom"
