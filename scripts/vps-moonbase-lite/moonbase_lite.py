@@ -44,6 +44,8 @@ import hashlib
 import json
 import os
 import queue
+import re
+import secrets
 import sys
 import threading
 import time
@@ -235,6 +237,75 @@ def mdblist_ratings(mtype: str, tmdb_id: str, api_key: str):
 
 
 # --------------------------------------------------------------------------
+# AIOStreams config API: personas
+# --------------------------------------------------------------------------
+def _aios_config_auth():
+    import base64 as _b64
+    uuid = CFG.get("config_uuid")
+    pw = CFG.get("config_password")
+    if not uuid or not pw:
+        return None
+    return "Basic " + _b64.b64encode(f"{uuid}:{pw}".encode()).decode()
+
+
+def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
+    """Add or remove a persona in the AIOStreams user config. -> (ok, dict)"""
+    auth = _aios_config_auth()
+    if not auth:
+        return False, "config credentials not configured"
+    base = CFG["aios_url"].rstrip("/")
+    hdrs = {"Authorization": auth, "User-Agent": "moonbase-lite/1.0"}
+    try:
+        req = urllib.request.Request(base + "/api/v1/user", headers=hdrs)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        root = data.get("data") if isinstance(data, dict) else None
+        user_data = None
+        if isinstance(root, dict):
+            user_data = root.get("userData") or root.get("config")
+        if user_data is None and isinstance(data, dict):
+            user_data = data.get("userData") or data.get("config")
+        if not isinstance(user_data, dict):
+            return False, "unexpected config response shape"
+        jf = user_data.setdefault("jellyfin", {})
+        personas = jf.setdefault("personas", [])
+        if not isinstance(personas, list):
+            return False, "personas not a list"
+        existing = next((p for p in personas if isinstance(p, dict) and p.get("id") == pid), None)
+        if remove:
+            if existing is None:
+                return False, "persona not found"
+            personas.remove(existing)
+            pin = None
+        else:
+            if existing is not None:
+                return True, {"success": True, "exists": True, "persona": pid, "pin": None}
+            pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
+            personas.append({"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin})
+        payload = json.dumps({"config": user_data}).encode("utf-8")
+        last_exc = None
+        for attempt in (1, 2):  # AIOStreams API bursts to 429; one retry covers household signup storms
+            req = urllib.request.Request(base + "/api/v1/user", data=payload, method="PUT",
+                                         headers={**hdrs, "Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    resp.read()
+                last_exc = None
+                break
+            except urllib.error.HTTPError as exc:
+                last_exc = exc
+                if exc.code == 429:
+                    time.sleep(5)
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        return True, {"success": True, "persona": pid, "pin": pin}
+    except Exception as exc:
+        return False, f"config api failed: {exc}"
+
+
+# --------------------------------------------------------------------------
 # request handler
 # --------------------------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
@@ -306,6 +377,11 @@ class Handler(BaseHTTPRequestHandler):
         if rel == "/Web/config.json":
             self._send(200, {"defaultServerUrl": CFG["server_url"],
                              "forcedServerUrl": None})
+            return
+
+        # token-authenticated provisioning (called by n8n during account creation)
+        if rel == "/Admin/Provision":
+            self._provision(method)
             return
 
         caller, ok = self._caller()
@@ -553,6 +629,36 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._send(404, {"error": "not found"})
+
+    # -- provisioning ----------------------------------------------------------
+    def _provision(self, method):
+        if method != "POST":
+            self._send(405, {"error": "POST only"})
+            return
+        want = str(CFG.get("admin_token") or "")
+        got = self.headers.get("X-Admin-Token", "")
+        if not want or not secrets.compare_digest(got, want):
+            self._send(403, {"error": "admin token required"})
+            return
+        body = self._read_body()
+        username = str(body.get("username") or "").strip().lower()
+        name = str(body.get("name") or username).strip()
+        remove = bool(body.get("remove"))
+        pid = re.sub(r"[^a-z0-9_-]", "-", username).strip("-")[:32]
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", pid or ""):
+            self._send(400, {"error": "invalid username"})
+            return
+        pin = str(body.get("pin") or "").strip()
+        if pin and not re.fullmatch(r"[0-9]{4,12}", pin):
+            self._send(400, {"error": "pin must be 4-12 digits"})
+            return
+        tier = str(body.get("tier") or "").strip().lower()
+        allowed = [str(t).strip().lower() for t in CFG.get("provision_tiers", ["sweetpea"])]
+        if not remove and tier and tier not in allowed:
+            self._send(200, {"success": True, "skipped": "tier", "tier": tier})
+            return
+        ok, result = aios_persona_op(pid, name, remove, pin or None)
+        self._send(200 if ok else 502, result if isinstance(result, dict) else {"error": result})
 
     # -- SSE -----------------------------------------------------------------
     def _sse(self):

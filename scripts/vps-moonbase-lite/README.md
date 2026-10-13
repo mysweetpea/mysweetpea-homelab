@@ -46,3 +46,27 @@ on the unguessable config/address URLs — keep PINs long.
 - Messages are read-only from the file `data/messages.json`; no write API.
 - Seerr / Calendars / TMDb enrichment deliberately not ported (not needed on
   a catalog server; catalogs are curated in AIOStreams itself).
+
+## Provisioning bridge (Authentik account creation -> media persona)
+`POST /Moonfin/Admin/Provision` (header `X-Admin-Token: <config.admin_token>`), body
+`{username, name, tier?, pin?, remove?}`:
+- creates persona `{id: slug(username), name, history: own, lock: pin}` via the
+  AIOStreams config API (creds in config.json: `config_uuid`, `config_password`);
+  server bcrypt-hashes the PIN; returns `{success, persona, pin}` (pin once).
+- idempotent (`exists: true` on repeat), `remove: true` deletes; `tier` gated by
+  `config.provision_tiers` (default `["sweetpea"]`; other tiers get `skipped`).
+- one automatic retry on HTTP 429 (AIOStreams write burst limiter).
+
+Wired into n8n **Invite Code Redemption** (workflow 7MAu6rokN81F31kH): after
+Set Password it calls this endpoint and the Welcome Email gains a "Your media
+PIN" block (hidden when empty). Members sign in with their name + PIN on the
+picker address; wrong PIN = 401; 5 wrong = 15 min lockout.
+
+## AIOStreams OIDC SSO (operator/dashboard login)
+authentik provider "AIOStreams" (pk 30, app slug `aiostreams`) + custom `groups`
+scope mapping ("MySweetPea group membership"). VPS `.env`: AIOSTREAMS_OIDC_*
+(issuer `https://auth.mysweetpea.cc/application/o/aiostreams/`, scopes
+openid,profile,email,groups, `authentik Admins=admin`, linkByUsername=true,
+button "Sign in with MySweetPea"). Login start = `/api/v1/auth/oidc/start`.
+Members do NOT use this (client apps are headless) - their pairing is the
+provisioning bridge above.
