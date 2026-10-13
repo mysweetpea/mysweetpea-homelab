@@ -1,0 +1,13 @@
+[Unit]
+Description=moonbase-lite (Moonfin /Moonfin shim for AIOStreams media servers)
+After=network.target docker.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/moonbase-lite
+ExecStart=/usr/bin/python3 /opt/moonbase-lite/moonbase_lite.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+{
+  "port": 3002,
+  "aios_url": "http://127.0.0.1:3000",
+  "mdblist_key": "<mdblist api key - server-wide fallback>",
+  "server_url": "https://aiostreams.mysweetpea.cc/jellyfin",
+  "version": "moonbase-lite-1.0"
+}
