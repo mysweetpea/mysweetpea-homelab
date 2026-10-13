@@ -39,13 +39,12 @@ persistence:
     existingClaim: media-storage-lh
     globalMounts:
     - path: /data
-  # AIOStreams usenet engine share (strm import mode): reads completed/*.strm
-  # pointers from the NFS mount (port 12049; VPS host nfsd owns 2049).
+  # AIOStreams usenet engine share (strm import mode): RW - arr imports via
+  # move (copy + delete source); deletes allowed, creates not. port 12049.
   aio:
     existingClaim: aiostreams-nfs
     globalMounts:
     - path: /mnt/aiostreams
-      readOnly: true
 service:
   main:
     controller: main

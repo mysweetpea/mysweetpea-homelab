@@ -13,7 +13,7 @@ spec:
   capacity:
     storage: 1Gi
   accessModes:
-    - ReadOnlyMany
+    - ReadWriteMany
   persistentVolumeReclaimPolicy: Retain
   storageClassName: aiostreams-static
   mountOptions:
@@ -22,4 +22,4 @@ spec:
   nfs:
     server: 100.82.13.16
     path: /
-    readOnly: true
+    readOnly: false
