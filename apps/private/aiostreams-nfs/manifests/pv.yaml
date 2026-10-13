@@ -1,0 +1,25 @@
+---
+# Read-only NFS share served by the AIOStreams usenet engine on the VPS
+# (100.82.13.16:12049 -> container 2049, NetBird-only). The arrs read the
+# completed/*.strm pointer files from here; strm import mode means Jellyfin
+# needs no mount (library entries are .strm URLs, same as decypharr).
+# Host port 2049 is taken by the VPS's own nfsd (Longhorn backup exports),
+# hence 12049 + the port= mount option.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: aiostreams-nfs
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: aiostreams-static
+  mountOptions:
+    - nfsvers=4.0
+    - port=12049
+  nfs:
+    server: 100.82.13.16
+    path: /
+    readOnly: true

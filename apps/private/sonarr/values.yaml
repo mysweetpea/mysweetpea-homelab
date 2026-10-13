@@ -50,6 +50,14 @@ persistence:
     existingClaim: media-storage-lh
     globalMounts:
     - path: /data
+  # AIOStreams usenet engine share (strm import mode): the arr reads the
+  # completed/*.strm pointer files from this NFS mount; port 12049 because
+  # the VPS host's own nfsd owns 2049 (Longhorn backups).
+  aio:
+    existingClaim: aiostreams-nfs
+    globalMounts:
+    - path: /mnt/aiostreams
+      readOnly: true
 service:
   main:
     controller: main

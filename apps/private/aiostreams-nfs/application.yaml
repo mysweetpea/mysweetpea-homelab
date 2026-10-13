@@ -1,0 +1,23 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aiostreams-nfs
+  namespace: argocd
+  labels:
+    app: aiostreams-nfs
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+    targetRevision: HEAD
+    path: apps/private/aiostreams-nfs/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: private
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
