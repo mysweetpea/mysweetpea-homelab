@@ -19,17 +19,13 @@ configMaps:
           proxy_cache_path /tmp/scanrefresh levels=1:2 keys_zone=scanrefresh:1m max_size=1m inactive=1h use_temp_path=off;
           server {
             listen 8096;
-            location = /Library/Refresh {
-              proxy_cache scanrefresh;
-              proxy_cache_methods POST;
-              proxy_cache_key "$uri";
-              proxy_cache_valid 200 204 1h;
-              proxy_cache_lock on;
-              proxy_cache_lock_timeout 30s;
-              proxy_ignore_headers Cache-Control Expires Set-Cookie;
-              add_header X-Scan-Gate $upstream_cache_status always;
-              proxy_pass http://jellyfin.private.svc.cluster.local:8096/Library/Refresh;
-            }
+            # HELD 2026-10-13 ~12:58Z: all scan triggers answered 204 locally, no scan starts.
+            # Reason: strm-repair backlog left ~1k missing-file items; JF's reconcile removes
+            # them at 5-11s/item (vs 0.1s historically) while holding the library lock ->
+            # server wedges (/health, Kuma down) for the whole run. No scans until removals
+            # are fast again. RESTORE: git-history proxy_cache block (1h window, validated
+            # MISS->HIT->HIT) when reconcile is done: python deploy or manual re-enable.
+            location = /Library/Refresh { return 204; }
             location = /health { return 200 "ok\n"; }
             location / { return 404; }
           }
