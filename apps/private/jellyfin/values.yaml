@@ -22,11 +22,12 @@ controllers:
             memory: 1Gi
           limits:
             cpu: 6000m
-            # Raised 4Gi -> 6Gi after the Sep 13 OOMKill (hit 3.7GB anon-rss
-            # during thread-pool back-pressure from a runaway MdbList warmer;
-            # the warmer is fixed at the source, this is headroom against
-            # future startup-scan spikes).
-            memory: 6Gi
+            # Raised 4Gi -> 6Gi after the Sep 13 OOMKill, then 6Gi -> 8Gi after the
+            # Oct 13 11:07Z OOMKill: the scan cancel-restart loop (jf-scan-gate 10-min
+            # window vs 9-51min scans) kept /health timing out and memory climbed
+            # 1.3G -> 6G during the wedge. Loop root-caused + fixed at the gate
+            # (60-min cooldown, 2026-10-13); this is headroom for residual import spikes.
+            memory: 8Gi
         probes:
           readiness:
             custom: true

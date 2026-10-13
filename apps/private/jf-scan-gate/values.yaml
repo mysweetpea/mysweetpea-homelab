@@ -1,7 +1,11 @@
-# jf-scan-gate: coalesces arr /Library/Refresh webhooks into at most ~6 scans/hour.
+# jf-scan-gate: coalesces arr /Library/Refresh webhooks into at most ~1 scan/hour.
 # Why (measured 2026-10-12): bulk import waves (repair re-grabs, megashow seasons) fired one
 # full library scan PER IMPORT - 93 scan requests in 90 min, overlapping/cancelling scans and
 # near-continuous library locks -> every Moonfin browse call queued (p50 9-11s vs 0.9s baseline).
+# Why 60 min, not 10 (measured 2026-10-13): scans take 9-51 min (dead-strm probes), so the
+# 10-min window meant EVERY trigger cancelled the in-flight scan and started over - 63 scans
+# + 63 cancels in 12h, zero idle gaps, /health timing out (Kuma flapping all day) and one
+# 6Gi OOMKill at 11:07Z. 60 min lets scans actually complete; imports appear within <=1h.
 # Extras are swallowed with a 200 so the arr webhook sees success and keeps its retry quiet.
 configMaps:
   conf:
@@ -10,7 +14,7 @@ configMaps:
       nginx.conf: |
         events { worker_connections 64; }
         http {
-          # Coalesce: first POST in each 10-min window is forwarded and its 204 cached;
+          # Coalesce: first POST in each 60-min window is forwarded and its 204 cached;
           # every following POST is served from cache (HIT) without touching Jellyfin.
           proxy_cache_path /tmp/scanrefresh levels=1:2 keys_zone=scanrefresh:1m max_size=1m inactive=1h use_temp_path=off;
           server {
@@ -19,7 +23,7 @@ configMaps:
               proxy_cache scanrefresh;
               proxy_cache_methods POST;
               proxy_cache_key "$uri";
-              proxy_cache_valid 200 204 10m;
+              proxy_cache_valid 200 204 1h;
               proxy_cache_lock on;
               proxy_cache_lock_timeout 30s;
               proxy_ignore_headers Cache-Control Expires Set-Cookie;
