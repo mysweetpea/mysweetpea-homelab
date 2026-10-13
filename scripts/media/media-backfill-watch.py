@@ -419,6 +419,21 @@ for name, fn, prio, gating in checks:
         log('alerted: %s unresponsive x%d' % (name, health[ck]))
     if gating and not ok:
         sonarr_down = True
+# --- arr indexer health: alert when an indexer gets auto-disabled (failure streak -> 24h backoff) ---
+for _name, _base, _keyname in (('sonarr', SONARR, 'SONARR_API_KEY'), ('radarr', RADARR, 'RADARR_API_KEY')):
+    _ck = _name + '_ixhealth'
+    _bad = []
+    try:
+        _h = api('/api/v3/health', base=_base, key=secret(_keyname), timeout=20) or []
+        _bad = [str(m.get('message', '')) for m in _h if 'unavailable due to failures' in str(m.get('message', '')).lower()]
+    except Exception:
+        health[_ck] = 0
+        continue
+    health[_ck] = 0 if not _bad else health.get(_ck, 0) + 1
+    if _bad and health[_ck] >= 2 and now - alerts.get(_ck, 0) > HEALTH_ALERT_DEDUPE_H * 3600 and not DRY:
+        gotify('MEDIA: %s indexer(s) disabled' % _name, _bad[0][:200] + ' - auto-recovers after the backoff window; the Test button on the indexer clears it early.', 5)
+        alerts[_ck] = now
+        log('alerted: %s indexer-disabled x%d' % (_name, health[_ck]))
 if sonarr_down:
     log('sonarr /ping FAILED (x%d) - skipping run' % health.get('sonarr_fails', 0))
     if not DRY:
