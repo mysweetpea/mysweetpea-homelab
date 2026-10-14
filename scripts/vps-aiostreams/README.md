@@ -191,3 +191,17 @@ rows/kids unchanged (BYPASS); no-auth = 401 upstream. NOTE: nginx locations matc
 the query-string gate lives in maps, never in a location regex. Files:
 `nginx-aios-api-cache.zone.conf` + `nginx-aiostreams-bar-cache.snippet.conf`.
 Backup: `/root/aiostreams-site.bak-barcache{,-2}-20261014`.
+
+## Latest-items exclude injection (2026-10-14, perf)
+Moonfin's home fetches one `Items/Latest` per visible catalog view - the ~34-row boot
+wave that everything else (including the media-bar walk the user sees) queues behind.
+The client honours `LatestItemsExcludes` from `/Users/{id}/Configuration` (such views
+are skipped entirely: zero fetches, zero rows) but the aios server hardcodes the list
+empty. `nginx-aiostreams-config-excludes.snippet.conf` patches that response at the
+edge (sub_filter) with a 31-view exclude list, KEEPING six marquee rows: Trending
+Movies/Shows, Popular Movies/Shows, Netflix Movies/Shows. Libraries stay browsable;
+the media-bar pool, collections, genres and all other sections are untouched. Boot row
+wave: ~34 fetches -> 6. Adjust by editing the single sub_filter line in the snippet +
+reload; revert = remove the Configuration location from the vhost. Verified: patched
+response is valid JSON (31 excludes, works through gzip for browser clients) and the
+bar micro-cache still HITs. Backup: `/root/aiostreams-site.bak-excludes-20261014`.
