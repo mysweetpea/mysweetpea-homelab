@@ -153,6 +153,8 @@ PINS = {
     "homeImageTypeContinueWatching": "thumb",
     # "Since you watched" recs from the server's /Items/{id}/Similar (verified on aios).
     "sinceYouWatchedSource": "server",
+    # Classic Moonfin media bar style instead of the Aya style (owner directive).
+    "mediaBarMode": "moonfin",
 }
 
 

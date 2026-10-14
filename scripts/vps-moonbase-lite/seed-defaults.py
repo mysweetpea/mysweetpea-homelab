@@ -72,6 +72,7 @@ def main():
     g["homeImageUseSeriesImage"] = False
     g["homeImageTypeContinueWatching"] = "thumb"
     g["sinceYouWatchedSource"] = "server"
+    g["mediaBarMode"] = "moonfin"
     json.dump(g, open(a.out, "w"), ensure_ascii=False, separators=(",", ":"))
     print(f"wrote {a.out}: {len(g)} fields, "
           f"{len(g.get('homeSections', []))} home rows, theme={g.get('customThemeId')}")
