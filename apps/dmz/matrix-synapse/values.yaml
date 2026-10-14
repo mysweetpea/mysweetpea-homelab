@@ -212,5 +212,5 @@ synapse:
   - sed -i -e "s|@@REG_SECRET@@|${REG_SECRET:-}|" -e "s|@@MAS_SECRET@@|${MAS_SECRET:-}|" /synapse/config/conf.d/secrets.yaml
   - sed -i -e "s|@@SMTP_PASS@@|${SMTP_PASS:-}|" /synapse/config/conf.d/secrets.yaml
 image:
-  tag: v1.162.0
+  tag: v1.163.0
   repository: ghcr.io/element-hq/synapse
