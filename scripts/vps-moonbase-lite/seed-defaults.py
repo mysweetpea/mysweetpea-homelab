@@ -39,14 +39,24 @@ def main():
     # Media bar walks these catalogs one-by-one on every load; all 33 = ~8s of
     # serial fetches. Point it at five hero-worthy catalogs instead (~1.3s).
     # View ids are stable hashes of (catalog id, type) from the manifest.
+    # The media bar pools ~40 newest titles from each of these catalogs, filters,
+    # then shows a random cut. Keep this list high-signal (Netflix Top 10 = the
+    # actual current Netflix chart; Trending/Popular = broad buzz; Netflix = curated).
+    # Must be a JSON LIST (client applies strictly typed values; a CSV string is
+    # silently skipped). 7 catalogs, updated 2026-10-14.
     if "mediaBarLibraryIds" in g:
-        g["mediaBarLibraryIds"] = ",".join([
+        g["mediaBarLibraryIds"] = [
             "a2b3d475a9842e952002bbf66ada706f",  # Trending Movies
             "a26d1a33e2d56da6265981f9d902a374",  # Trending Shows
             "a2170aa89ada673e50b5011031296a24",  # Popular Movies
             "a20e1577e1543cd8707bba16912f48a4",  # Popular Shows
             "a25ccf8702de5678f2c1a04ca104f30d",  # Netflix Movies
-        ])
+            "a281c33fb3bb152e71a5d1442b634258",  # Netflix Top 10 Movies (Global)
+            "a2606deb6bee40c4b9566cf4edf03a96",  # Netflix Top 10 Shows (Global)
+        ]
+    # Keep broadcast junk out of the hero carousel.
+    if "mediaBarExcludedGenres" in g:
+        g["mediaBarExcludedGenres"] = ["Reality", "Talk Show", "Game Show", "Soap"]
     # Compact icon-only top navbar (client stock default; labels expand on demand).
     g["navbarAlwaysExpanded"] = False
     # One "Recently Added <catalog>" home row per library (Netflix/Hulu/... rows),

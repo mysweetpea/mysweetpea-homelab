@@ -123,3 +123,12 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   `upcomingEpisodeDate,year,parentalRating,runtimeAndSeasons,status,genres`.
 - Same key later unlocks `/Moonfin/Tmdb/EpisodeRating` + `SeasonRatings` +
   `ProductionCompanies` (client calls these today, currently 404) — same handler pattern.
+
+## Media bar pool (2026-10-14)
+- `mediaBarLibraryIds` = 7 catalogs as a JSON LIST: Trending M/S, Popular M/S,
+  Netflix Movies, Netflix Top 10 Movies/Shows (Global). `mediaBarExcludedGenres` =
+  Reality / Talk Show / Game Show / Soap. Both are SyncedFields — edit in defaults +
+  user files (seed-defaults.py pins them).
+- Client mechanics: pools ~40 newest per catalog (SERIAL fetches, ~0.3s each — keep the
+  list ≤7), filters (backdrop required, no BoxSets, genre filter, parental), shuffles,
+  shows `mediaBarItemCount` (10) slides; fresh random cut every app launch.
