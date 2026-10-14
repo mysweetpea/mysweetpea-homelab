@@ -113,3 +113,20 @@ Media-server browse catalogs (user-config, names via catalogModifications):
   uuid:config-password), then views update in seconds; mods renames also drive the
   client's per-catalog "Recently Added X" row titles. Preset save-time manifest
   fetch means tapframe's onrender hosts may need a warm curl first.
+
+## No-junk audit + accepted residuals (2026-10-14)
+Full sweep of the aios-via-Moonfin surface: 40 views clean (no duplicate/placeholder
+names, posters everywhere), root genres 27 clean on BOTH lanes (plain + persona mount
+`/jellyfin/<uuid>/<encpw>/Genres` runs through the same filter), Filters 27, search +
+item details complete, collection BoxSets drill to real members (Spider-Man MCU 4,
+Insidious 6, Fall 3, Social Network 2), Year/Language/Star Wars content correct.
+Two accepted residuals, documented so they don't get re-litigated:
+1. Moonfin composes one "Recently Added <view name>" row per non-playlist/boxsets/livetv
+   view, filtered only by `LatestItemsExcludes` from the user config. The aios hardcodes
+   `LatestItemsExcludes`/`MyMediaExcludes` to [] and its POST /Users/{id}/Configuration
+   whitelist persists playback prefs only, so view hiding never sticks -> the Year and
+   Language browse libraries each get a redundant "Recently Added Movies by Year" style
+   row. NOT suppressible server-side on v2.36. Cosmetic; leave it.
+2. 'Marvel Movies'/'Marvel Series' (marvel preset) include historical relics (1944
+   Captain America serial - TMDB typo "Captian America" - and the 1977 Hulk TV movie).
+   Addon data; drop those two catalogs if it ever bothers.
