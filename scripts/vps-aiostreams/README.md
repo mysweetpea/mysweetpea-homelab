@@ -43,6 +43,16 @@ was retired 2026-10-14 (both renamed, superseded by this script).
 - State: `/root/.aiostreams-warmer-state.json`  Log: `/var/log/aiostreams-warmer.log`
 - Quirk baked in: `/Items/Latest` returns a bare JSON array; `/Items` returns `{Items:[...]}`.
 
+## Item-image cache + HTTP/2 (2026-10-14)
+Item images (posters/backdrops/logos/thumbs) are cached at nginx on a dedicated
+zone (`aios_images`, 1g / 30d inactive — `nginx-aios-images-cache.zone.conf`)
+via a regex location scoped to `/Items/{id}/Images/` in `nginx-aiostreams-site.conf`
+(`nginx-aiostreams-images-cache.snippet.conf`). Images are public (no auth) and
+immutable per `tag=` param, so the cache cannot serve stale bytes; the relay
+upstream is hit once per image shape, then ~6ms HITs. Verified: MISS 33–148ms ->
+HIT ~6ms, byte-identical, non-image paths unaffected. The vhost's 443 listeners
+also gained HTTP/2 (multiplexes the clients' boot volley; was HTTP/1.1-only).
+
 ## Media-server metadata pipeline (2026-10-13 fix)
 Every item with an IMDb id needs an IMDb-capable META addon: the TMDB addon
 only serves `tmdb:` ids, so without Cinemeta any streaming-catalog/search item
