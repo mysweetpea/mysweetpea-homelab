@@ -176,3 +176,18 @@ image cache, which never matches gzip types). Biggest win is cellular clients.
 gz=$gzip_ratio` so client negotiation is visible in `/var/log/nginx/aiostreams.access.log`.
 Backups: `/root/aiostreams.bak-gzip-20261014`, `/root/nginx.conf.bak-gzip-20261014`.
 (The media.mysweetpea.cc lane already had per-location gzip blocks — untouched.)
+
+## Media-bar micro-cache (2026-10-14, perf)
+The media bar walks 7 catalog fetches per app launch (`/Users/*/Items?...MaxPremiereDate=<ts>`,
+the only request shape carrying MaxPremiereDate). Those responses are catalog metadata only -
+Moonfin's bar path reads NO user state (`MediaBarSlideItem` has no userData field, verified in
+Moonfin-Core) and the body is identical across timestamps (verified) - so nginx caches them for
+10 min: the key strips the per-request MaxPremiereDate (`$aios_args_nots` map), uid stays in the
+path (per-user entries), requests without an Authorization header bypass the cache, and every
+other `/Users/*/Items` call is BYPASS / never-stored (they carry live UserData). Upstream sends
+`Cache-Control: no-store`, so the snippet ignores Set-Cookie/Cache-Control/Expires/Vary.
+Measured: bar fetch 46ms -> 13ms HIT; Popular Shows (the chronic ~0.7s sort) 695ms -> 12ms;
+rows/kids unchanged (BYPASS); no-auth = 401 upstream. NOTE: nginx locations match the URI only -
+the query-string gate lives in maps, never in a location regex. Files:
+`nginx-aios-api-cache.zone.conf` + `nginx-aiostreams-bar-cache.snippet.conf`.
+Backup: `/root/aiostreams-site.bak-barcache{,-2}-20261014`.
