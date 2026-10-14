@@ -403,10 +403,10 @@ data:
             key: ${SEERR_API_KEY}
       - AIOStreams:
           id: aiostreams
-          href: http://192.168.20.222:3000
+          href: https://aiostreams.mysweetpea.cc
           description: Stream Anything
           icon: mdi-all-inclusive-box
-          ping: http://192.168.20.222:3000
+          ping: https://aiostreams.mysweetpea.cc
       - Decypharr:
           id: decypharr
           href: http://192.168.20.215:8282
@@ -424,36 +424,6 @@ data:
             - field: version
               label: API
     - Download Stack:
-      - Radarr:
-          id: radarr
-          href: http://192.168.20.218:7878
-          description: Movie Manager
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/radarr.svg
-          ping: http://192.168.20.218:7878
-          widget:
-            type: radarr
-            url: http://radarr.private.svc.cluster.local:7878
-            key: ${RADARR_API_KEY}
-      - Sonarr:
-          id: sonarr
-          href: http://192.168.20.219:8989
-          description: TV & Anime Manager
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sonarr.svg
-          ping: http://192.168.20.219:8989
-          widget:
-            type: sonarr
-            url: http://sonarr.private.svc.cluster.local:8989
-            key: ${SONARR_API_KEY}
-      - Bazarr:
-          id: bazarr
-          href: http://192.168.20.223:6767
-          description: Subtitle Manager
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/bazarr.svg
-          ping: http://192.168.20.223:6767
-          widget:
-            type: bazarr
-            url: http://bazarr.private.svc.cluster.local:6767
-            key: ${BAZARR_API_KEY}
       - Prowlarr:
           id: prowlarr
           href: http://192.168.20.224:9696
@@ -464,17 +434,6 @@ data:
             type: prowlarr
             url: http://prowlarr.private.svc.cluster.local:9696
             key: ${PROWLARR_API_KEY}
-      - qBittorrent:
-          id: qbittorrent
-          href: http://192.168.20.225:8080
-          description: Torrent Client (Games)
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/qbittorrent.svg
-          ping: http://192.168.20.225:8080
-          widget:
-            type: qbittorrent
-            url: http://qbittorrent.private.svc.cluster.local:8080
-            username: ${QBITTORRENT_USER}
-            password: ${QBITTORRENT_PASS}
       - FlareSolverr:
           id: flaresolverr
           href: http://192.168.20.214:8191
@@ -761,18 +720,6 @@ data:
           href: https://github.com/jorenn92/Maintainerr
           description: Auto-Remove Unwatched Media
           icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons@main/svg/maintainerr.svg
-          server: ''
-      - Cleanuparr:
-          id: cleanuparr
-          href: https://github.com/Cleanuparr/Cleanuparr
-          description: Auto-Cleanup Blocked Media
-          icon: mdi-broom
-          server: ''
-      - Wizarr:
-          id: wizarr
-          href: https://github.com/wizarrrr/wizarr
-          description: Guided Onboarding for New Users
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/wizarr.svg
           server: ''
       - Profilarr:
           id: profilarr
