@@ -196,10 +196,11 @@ Moonfin's home fetches one `Items/Latest` per visible catalog view - the ~37-fet
 wave that everything else (including the media-bar walk) queues behind. The client
 skips any view listed in `LatestItemsExcludes` (zero fetches, zero rows), which the
 aios server hardcodes empty. `nginx-aiostreams-config-excludes.snippet.conf` patches
-the response at the edge (sub_filter) with a 31-view exclude list, KEEPING six marquee
-rows: Trending Movies/Shows, Popular Movies/Shows, Netflix Movies/Top-10 Shows.
+the response at the edge (sub_filter) with a 25-view exclude list, KEEPING twelve marquee
+rows: Trending / Popular / Netflix / Hulu / Crunchyroll / Disney+ (movies + shows each —
+see the add-back note at the end of this section).
 Libraries stay browsable; the media-bar pool, collections, genres and all other
-sections are untouched. Boot row wave: ~37 fetches -> ~6.
+sections are untouched. Boot row wave: ~37 fetches -> ~12 (each kept row ~0.2s).
 
 TWO traps cost two failed builds - do not repeat:
 1. The config source is GET /Users/Me, NOT /Users/{id}/Configuration. Moonfin's
@@ -216,3 +217,20 @@ n=31 on bare AND mount lane (JSON-parse clean), MyMediaExcludes untouched [],
 gzip lane decodes to the patched body, unauth = 401, Items/bar micro-cache unaffected.
 Adjust kept rows via the single sub_filter line + reload; revert = remove the /Users/Me
 location from the vhost. Backup: /root/aiostreams-site.bak-usersme-20261014.
+
+Update (2026-10-14 late, owner request - add rows back + concise names):
+- Excludes 31 -> 25 (kept 12 rows: + Hulu, Crunchyroll, Disney+ movies+shows). Wave ~6 -> ~12.
+- Movie-row catalog names shortened via `catalogModifications` (Netflix Movies -> Netflix,
+  Trending Movies -> Trending, Popular Movies -> Popular, Hulu Movies -> Hulu, Crunchyroll
+  Movies -> Crunchyroll, Disney+ Movies -> Disney+; shows rows keep "X Shows"). Row titles
+  render as "Recently Added " + view name (`l10n.latestLibraryName`, client-side; the prefix
+  is NOT server-changeable - the view name is the only lever).
+- TRAP: `catalogModifications` edits propagate to /UserViews ONLY after
+  `sudo docker restart aiostreams` - the media-server views path caches the resolved catalog
+  list in-process; the Stremio manifest endpoint rebuilds fresh and shows new names instantly
+  (NOT a valid signal for /UserViews). Restart is cheap: stream caches live in the sqlite
+  `cache` table and survive.
+- TRAP: the sub_filter line contains the empty-array SEARCH pattern (`"LatestItemsExcludes":[]`)
+  on its LEFT side - when editing the id list, parse the REPLACEMENT (right-hand quoted segment).
+- Verified: /UserViews serves new names, excludes n=25 live, Hulu/Crunchyroll/Disney+ Latest
+  lists return items (12 each).
