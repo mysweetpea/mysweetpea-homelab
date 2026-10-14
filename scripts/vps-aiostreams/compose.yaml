@@ -5,16 +5,18 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"   # loopback only; nginx fronts it with TLS
+      - "100.82.13.16:12049:2049" # NFS share for the k3s arr pods (NetBird only)
     env_file: .env
     volumes:
       - ./data:/app/data
     deploy:
       resources:
         limits:
-          cpus: "1.5"
+          cpus: "2.0"
           memory: 1536M
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+

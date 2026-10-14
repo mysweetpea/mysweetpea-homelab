@@ -61,6 +61,16 @@ byte-identical anyway, at ~150–200ms/request of Python overhead). Measured:
 native single request 272ms -> 64ms; filter CPU +0.00s during a native storm
 (vs +0.02s for browsers). `X-Aios-Lane` header (debug) shows the chosen lane.
 
+**Concurrency ceiling + rt logging (2026-10-14, perf):** the container's 1.5-core
+CPU limit was CFS-throttling the client boot volley — 37 simultaneous
+`Items/Latest` calls drained in ~10s server-side (matching the multi-second
+stragglers visible in Moonfin's diagnostics). Raised to 2.0 cores live
+(`docker update --cpus=2.0`) and persisted in `compose.yaml`: the same burst
+now drains in ~1.1s (p90 884ms, nr_throttled=0). Also: the vhost now logs
+`rt=`/`ut=` to `/var/log/nginx/aiostreams.access.log` (the default combined
+format had no timings, which made this hunt slow — use it first for any
+future latency report).
+
 ## Media-server metadata pipeline (2026-10-13 fix)
 Every item with an IMDb id needs an IMDb-capable META addon: the TMDB addon
 only serves `tmdb:` ids, so without Cinemeta any streaming-catalog/search item
