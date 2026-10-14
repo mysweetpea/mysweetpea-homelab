@@ -105,3 +105,21 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   `[tmdb.search movie, tmdb.search series, collections search]`. Pre-change config backup:
   `/tmp/aios-ud-current-copy.json` on the VPS; patched copy `/tmp/aios-ud-patched.json`.
 - Do not disable search on the tmdb.search catalogs — they ARE the search sources.
+
+## Next-episode badge: /Moonfin/Tmdb/NextEpisode (2026-10-14)
+- Client feature: series pages show a "Next: Today/Tomorrow/<weekday>/<Mon D> (S2:E1)"
+  badge when the series item has `ProviderIds.Tmdb` (AIOStreams items do) and the
+  endpoint answers. The endpoint was unimplemented here, so the badge never appeared.
+- Implemented in moonbase_lite.py: GET `/Moonfin/Tmdb/NextEpisode?tmdbId=` → mirrors the
+  Moonbase plugin's TmdbNextEpisodeResponse: `{success, airDate, seasonNumber,
+  episodeNumber, name}` (from TMDB `next_episode_to_air`), 6h in-memory cache,
+  token-gated, reachable via root + mount routes.
+- TMDB key lookup order (per request, no restart): `/opt/moonbase-lite/tmdb.key`
+  (ubuntu:ubuntu, 600) → caller's resolved synced `tmdbApiKey` → `config.json`'s
+  `tmdb_key`. No key → `{"success": false, "error": "No TMDB API key configured on
+  the server."}` (client shows no badge; harmless).
+- `detailMetadataOrderDesktop/Mobile/Tv` pinned in defaults.json with
+  `upcomingEpisodeDate` first (client only renders the badge if it's in that order):
+  `upcomingEpisodeDate,year,parentalRating,runtimeAndSeasons,status,genres`.
+- Same key later unlocks `/Moonfin/Tmdb/EpisodeRating` + `SeasonRatings` +
+  `ProductionCompanies` (client calls these today, currently 404) — same handler pattern.

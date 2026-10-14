@@ -213,6 +213,43 @@ def broadcast(event: dict):
 # --------------------------------------------------------------------------
 # mdblist
 # --------------------------------------------------------------------------
+def tmdb_key():
+    """Server-side TMDB v3 key: /opt/moonbase-lite/tmdb.key (read per request so
+    it can be dropped in without a restart), else config.json tmdb_key."""
+    try:
+        with open(os.path.join(BASE, "tmdb.key"), "r") as fh:
+            return fh.read().strip()
+    except OSError:
+        return CFG.get("tmdb_key") or ""
+
+
+_TMDB_NEXT_CACHE = {}
+_TMDB_NEXT_TTL = 6 * 3600  # matches the Moonbase plugin's NextEpisode cache
+
+
+def tmdb_next_episode(tmdb_id: str, key: str) -> dict:
+    hit = _TMDB_NEXT_CACHE.get(tmdb_id)
+    now = time.time()
+    if hit and now - hit[0] < _TMDB_NEXT_TTL:
+        return hit[1]
+    url = ("https://api.themoviedb.org/3/tv/%s?api_key=%s"
+           % (urllib.parse.quote(tmdb_id, safe=""), urllib.parse.quote(key, safe="")))
+    try:
+        data = _http_get_json(url, {"User-Agent": "Moonfin/1.0"}, timeout=8)
+        nxt = data.get("next_episode_to_air") or None
+        if nxt:
+            result = {"success": True, "airDate": nxt.get("air_date"),
+                      "seasonNumber": nxt.get("season_number"),
+                      "episodeNumber": nxt.get("episode_number"),
+                      "name": nxt.get("name")}
+        else:
+            result = {"success": False, "error": "No upcoming episode"}
+    except Exception as exc:
+        result = {"success": False, "error": f"TMDB fetch failed: {exc}"}
+    _TMDB_NEXT_CACHE[tmdb_id] = (now, result)
+    return result
+
+
 def mdblist_ratings(mtype: str, tmdb_id: str, api_key: str):
     cache_path = os.path.join(DATA_DIR, "mdblist-cache.json")
     cache = _read_json(cache_path, {})
@@ -531,6 +568,21 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and rel == "/AnimeMarkers/Series":
             self._send(200, {"enabled": False, "matched": False,
                              "episodes": {}, "seasons": {}})
+            return
+
+        # ---- tmdb: next episode to air (needs tmdb.key or config tmdb_key) ---
+        if method == "GET" and rel == "/Tmdb/NextEpisode":
+            tmdb_id = (query.get("tmdbId") or [""])[0].strip()
+            if not tmdb_id:
+                self._send(400, {"error": "tmdbId required"})
+                return
+            resolved = resolve_profile(uid, "mobile")
+            key = (resolved.get("tmdbApiKey") or tmdb_key() or "").strip()
+            if not key:
+                self._send(200, {"success": False,
+                                 "error": "No TMDB API key configured on the server."})
+                return
+            self._send(200, tmdb_next_episode(tmdb_id, key))
             return
 
         # ---- settings -------------------------------------------------------
