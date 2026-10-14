@@ -141,6 +141,21 @@ def load_defaults() -> dict:
     return d if isinstance(d, dict) else {}
 
 
+# Fleet-wide policy pins: merged LAST, on top of defaults + user scopes, so a
+# device profile push can never revert them for anyone (owner directive
+# 2026-10-14: episode rows show the episode's own still/frame, not series art;
+# recommendations come from the server). Mirror of these values lives in
+# seed-defaults.py — keep both in sync.
+PINS = {
+    # Episodes show their own Primary image (a frame from that episode).
+    "homeImageUseSeriesImage": False,
+    # CW row must be thumb-type or the client substitutes series art for episodes.
+    "homeImageTypeContinueWatching": "thumb",
+    # "Since you watched" recs from the server's /Items/{id}/Similar (verified on aios).
+    "sinceYouWatchedSource": "server",
+}
+
+
 def resolve_profile(uid: str, scope: str) -> dict:
     out: dict = {}
     merge_flat(out, load_defaults())
@@ -148,6 +163,7 @@ def resolve_profile(uid: str, scope: str) -> dict:
     merge_flat(out, doc.get("global", {}))
     if scope in ("desktop", "mobile", "tv"):
         merge_flat(out, doc.get(scope, {}))
+    merge_flat(out, PINS)
     return out
 
 

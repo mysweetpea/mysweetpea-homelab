@@ -66,6 +66,12 @@ def main():
     g["seerrEnabled"] = False
     g["jellyseerrEnabled"] = False
     g["displaySeerrRows"] = False
+    # Owner fleet policy, 2026-10-14 (mirror of moonbase_lite.py PINS — keep in
+    # sync): episode rows show a frame from that episode, recommendations from
+    # the server, CW row landscape-thumb so the stills actually render.
+    g["homeImageUseSeriesImage"] = False
+    g["homeImageTypeContinueWatching"] = "thumb"
+    g["sinceYouWatchedSource"] = "server"
     json.dump(g, open(a.out, "w"), ensure_ascii=False, separators=(",", ":"))
     print(f"wrote {a.out}: {len(g)} fields, "
           f"{len(g.get('homeSections', []))} home rows, theme={g.get('customThemeId')}")
