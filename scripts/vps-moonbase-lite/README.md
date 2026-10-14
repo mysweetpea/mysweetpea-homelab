@@ -85,8 +85,11 @@ scopes incl. `groups` + a custom groups scope mapping), set the
 
 ## Fleet home rows (2026-10-14)
 Shim defaults enable 12 home rows (client sorts ascending by .order):
-1 resume, 2 nextup, 3-5 sinceyouwatched1-3, 6 genres, 7 rewatch, 8 collections,
-9 favoritemovies, 10 favoriteepisodes, 11 playlists, 12 latestmedia (catalog rows last).
+1 resume, 2 nextup, 3-5 sinceyouwatched1-3, 6 rewatch, 7 genres, 8 latestmedia,
+9 collections, 10 favoritemovies, 11 favoriteepisodes, 12 playlists.
+Inside the latestmedia section the rows follow catalogModifications order:
+Trending/Popular first, then streaming services (popularity order), then
+Collections/Marvel last (updated 2026-10-14 round 3).
 `navbarAlwaysExpanded=false` (compact icon-only navbar; stock client default).
 JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr_calendar, imdb_*, tmdb_*.
 
