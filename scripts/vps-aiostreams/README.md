@@ -154,11 +154,10 @@ item details complete, collection BoxSets drill to real members (Spider-Man MCU 
 Insidious 6, Fall 3, Social Network 2), Year/Language/Star Wars content correct.
 Two accepted residuals, documented so they don't get re-litigated:
 1. Moonfin composes one "Recently Added <view name>" row per non-playlist/boxsets/livetv
-   view, filtered only by `LatestItemsExcludes` from the user config. The aios hardcodes
-   `LatestItemsExcludes`/`MyMediaExcludes` to [] and its POST /Users/{id}/Configuration
-   whitelist persists playback prefs only, so view hiding never sticks -> the Year and
-   Language browse libraries each get a redundant "Recently Added Movies by Year" style
-   row. NOT suppressible server-side on v2.36. Cosmetic; leave it.
+   view, filtered only by `LatestItemsExcludes` from the user config. The home-row half of
+   this is now handled server-side by the exclude injection (below, 2026-10-14); the aios
+   still never persists view hiding (`POST /Users/{id}/Configuration` whitelists playback
+   prefs only), so Moonfin's own library-hiding toggle remains cosmetic. Leave it.
 2. 'Marvel Movies'/'Marvel Series' (marvel preset) include historical relics (1944
    Captain America serial - TMDB typo "Captian America" - and the 1977 Hulk TV movie).
    Addon data; drop those two catalogs if it ever bothers.
@@ -192,16 +191,28 @@ the query-string gate lives in maps, never in a location regex. Files:
 `nginx-aios-api-cache.zone.conf` + `nginx-aiostreams-bar-cache.snippet.conf`.
 Backup: `/root/aiostreams-site.bak-barcache{,-2}-20261014`.
 
-## Latest-items exclude injection (2026-10-14, perf)
-Moonfin's home fetches one `Items/Latest` per visible catalog view - the ~34-row boot
-wave that everything else (including the media-bar walk the user sees) queues behind.
-The client honours `LatestItemsExcludes` from `/Users/{id}/Configuration` (such views
-are skipped entirely: zero fetches, zero rows) but the aios server hardcodes the list
-empty. `nginx-aiostreams-config-excludes.snippet.conf` patches that response at the
-edge (sub_filter) with a 31-view exclude list, KEEPING six marquee rows: Trending
-Movies/Shows, Popular Movies/Shows, Netflix Movies/Shows. Libraries stay browsable;
-the media-bar pool, collections, genres and all other sections are untouched. Boot row
-wave: ~34 fetches -> 6. Adjust by editing the single sub_filter line in the snippet +
-reload; revert = remove the Configuration location from the vhost. Verified: patched
-response is valid JSON (31 excludes, works through gzip for browser clients) and the
-bar micro-cache still HITs. Backup: `/root/aiostreams-site.bak-excludes-20261014`.
+## Latest-items exclude injection (2026-10-14, perf; re-aimed + fixed 22:15 UTC)
+Moonfin's home fetches one `Items/Latest` per visible catalog view - the ~37-fetch boot
+wave that everything else (including the media-bar walk) queues behind. The client
+skips any view listed in `LatestItemsExcludes` (zero fetches, zero rows), which the
+aios server hardcodes empty. `nginx-aiostreams-config-excludes.snippet.conf` patches
+the response at the edge (sub_filter) with a 31-view exclude list, KEEPING six marquee
+rows: Trending Movies/Shows, Popular Movies/Shows, Netflix Movies/Top-10 Shows.
+Libraries stay browsable; the media-bar pool, collections, genres and all other
+sections are untouched. Boot row wave: ~37 fetches -> ~6.
+
+TWO traps cost two failed builds - do not repeat:
+1. The config source is GET /Users/Me, NOT /Users/{id}/Configuration. Moonfin's
+   JellyfinUsersApi.getUserConfiguration() reads `data['Configuration']` from /Users/Me
+   (code-verified in Moonfin-Core); the first build's /Users/{id}/Configuration location
+   never matched a client request and was inert. The location now matches
+   `~* "/Users/Me$"` (mount + bare lanes both hit it).
+2. `sub_filter_types application/json` silently never matches: aios sends
+   `application/json; charset=utf-8` and nginx does an exact hash lookup. Use
+   `sub_filter_types *;`.
+
+Verified (2026-10-14): /Users/Me through nginx 2249 -> 3363 bytes, `LatestItemsExcludes`
+n=31 on bare AND mount lane (JSON-parse clean), MyMediaExcludes untouched [],
+gzip lane decodes to the patched body, unauth = 401, Items/bar micro-cache unaffected.
+Adjust kept rows via the single sub_filter line + reload; revert = remove the /Users/Me
+location from the vhost. Backup: /root/aiostreams-site.bak-usersme-20261014.
