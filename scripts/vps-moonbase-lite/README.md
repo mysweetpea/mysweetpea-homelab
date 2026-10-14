@@ -89,3 +89,16 @@ Shim defaults enable 12 home rows (client sorts ascending by .order):
 9 favoritemovies, 10 favoriteepisodes, 11 playlists, 12 latestmedia (catalog rows last).
 `navbarAlwaysExpanded=false` (compact icon-only navbar; stock client default).
 JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr_calendar, imdb_*, tmdb_*.
+
+## Per-catalog rows + search fan-out trim (2026-10-14)
+- `mergeRecentRowsByType=false` pinned in fleet defaults + the user override (Resolved verified):
+  the client renders one "Recently Added <catalog>" row per library instead of merging them
+  into single Movies/TV rows. This is what makes the streaming-service rows (Netflix, Hulu,
+  Crunchyroll, HBO Max, ...) visible on the home page. Flip back to `true` to collapse them.
+- AIOStreams search fan-out trim (server-side; lives in the config's catalogModifications, not
+  here): 34 catalogs got `disableSearch: true` — all streaming-catalogs entries, Marvel,
+  collections, AniList and tmdb year/language. Cold full search dropped ~13s -> ~1s; the app's
+  8s request timeout was killing the first search of every new term. Searchable set kept:
+  `[tmdb.search movie, tmdb.search series, collections search]`. Pre-change config backup:
+  `/tmp/aios-ud-current-copy.json` on the VPS; patched copy `/tmp/aios-ud-patched.json`.
+- Do not disable search on the tmdb.search catalogs — they ARE the search sources.

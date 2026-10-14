@@ -49,6 +49,9 @@ def main():
         ])
     # Compact icon-only top navbar (client stock default; labels expand on demand).
     g["navbarAlwaysExpanded"] = False
+    # One "Recently Added <catalog>" home row per library (Netflix/Hulu/... rows),
+    # instead of merging them into single Movies/TV rows (owner request 2026-10-14).
+    g["mergeRecentRowsByType"] = False
     # No Moonbase plugin on the AIOStreams side: keep Seerr surfaces dark.
     g["seerrEnabled"] = False
     g["jellyseerrEnabled"] = False
