@@ -76,3 +76,40 @@ Filtered JSON is space-padded to the original byte length so Content-Length stay
   (continue-watching rows, show pages, lists, detail, PlaybackInfo). Classification is
   per-request by client UA: zero per-account or per-device config; any browser on any
   platform gets the best playable source first, native apps stay byte-identical.
+
+## Genre taxonomy filter + year/language browse (2026-10-14)
+`aiostreams-genre-filter.py` (this dir) runs as systemd unit `aiostreams-genre-filter`
+on 127.0.0.1:3003, `upstream aiostreams_genre` = :3003 primary + :3000 backup
+(fail-open twice; snippet `nginx-aiostreams-genre-proxy.snippet.conf`; vhost locations
+`^/jellyfin/(?:[^/]+/){0,2}Genres$` and `.../Items/Filters2?$`). It cleans the browse
+taxonomy Moonfin sees:
+- drops the Trending catalogs' 'Day'/'Week' pseudo-genres (their catalog genre-extra
+  is the trending WINDOW, not a genre);
+- de-dupes genre entries by name (the same genre arrives 3x: movie / series /
+  collections catalog copies) and sorts the root grid A-Z;
+- ROOT grid only: drops the year + language entries owned by the browse libraries -
+  resolved dynamically (cache 6h) by fetching `/Genres?ParentId=` for the views named
+  'Movies by Year' etc. with the caller's own token, so it never hardcodes entry ids.
+Root genres: 58 messy -> 27 clean. Per-library lists pass through intact (the year
+grid keeps its 21 years). Selftest: `python3 .../aiostreams-genre-filter.py --selftest`.
+
+Media-server browse catalogs (user-config, names via catalogModifications):
+- Movies by Year / Shows by Year (`tmdb.year`; was disabled, re-enabled + renamed):
+  genre grid = YEARS 2006-2026; picking one = a real TMDB discover query - verified
+  "2019" -> Avengers: Endgame / Parasite / Joker / Toy Story 4. This is the
+  browse-old-movies/shows mechanism (addon caps the year list at 21 back).
+- Movies by Language / Shows by Language (`tmdb.language`): language grid per type
+  (Korean etc.) - same discover mechanics.
+- Star Wars: Chronological / Star Wars: Release Order (`star-wars-universe` preset,
+  instance `swu`, wrapped ids `swue3b0.*`, type 'StarWars'; catalogs option = the 4
+  sw-* values - Skywalker Saga + Live-Action Series register in the manifest but
+  produce no browsable libraries). Marvel-style mods pattern: instanceId + 'e3b0.'
+  is the generated wrapper prefix for ALL preset instances.
+- DC Universe preset NOT added: its public addon (addon-dc-cq85.onrender.com) was
+  503ing at add time - aios VALIDATES new preset manifests on save, so a dead host
+  = USER_INVALID_CONFIG "Failed to fetch manifest". Retry when the host wakes;
+  alt URL from its README (addon-dc.vercel.app) is a stale 404.
+- Ops law: adding/removing catalogs or presets = PUT /api/v1/user (basic auth
+  uuid:config-password), then views update in seconds; mods renames also drive the
+  client's per-catalog "Recently Added X" row titles. Preset save-time manifest
+  fetch means tapframe's onrender hosts may need a warm curl first.

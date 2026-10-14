@@ -1,0 +1,13 @@
+[Unit]
+Description=AIOStreams genre-taxonomy filter (Jellyfin browse cleanup)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/aiostreams-genre-filter.py
+Restart=always
+RestartSec=2
+User=ubuntu
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
