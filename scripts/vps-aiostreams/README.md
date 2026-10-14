@@ -162,3 +162,17 @@ Two accepted residuals, documented so they don't get re-litigated:
 2. 'Marvel Movies'/'Marvel Series' (marvel preset) include historical relics (1944
    Captain America serial - TMDB typo "Captian America" - and the 1977 Hulk TV movie).
    Addon data; drop those two catalogs if it ever bothers.
+
+## Response compression (2026-10-14, perf)
+The app serves every JSON response uncompressed; the aios vhost now enables gzip at
+the server level (`nginx-aiostreams-site.conf`). Types: JSON/JS/CSS/SVG/text only —
+images, SSE (`text/event-stream`) and streams are excluded by type, so the image
+cache and the `/Moonfin/*` long-poll paths are untouched. Measured on real row
+shapes: `Items/Latest Limit=60` 50,873 -> 7,159 bytes (7.1x), `Limit=15`
+26,353 -> 6,493 (4.1x), browser-UA lane identical; plain-request clients still get
+uncompressed bytes (per-client negotiation; the only cache on this lane is the
+image cache, which never matches gzip types). Biggest win is cellular clients.
+`jellyfin_time` log_format in `nginx.conf` gained `ce=$sent_http_content_encoding
+gz=$gzip_ratio` so client negotiation is visible in `/var/log/nginx/aiostreams.access.log`.
+Backups: `/root/aiostreams.bak-gzip-20261014`, `/root/nginx.conf.bak-gzip-20261014`.
+(The media.mysweetpea.cc lane already had per-location gzip blocks — untouched.)
