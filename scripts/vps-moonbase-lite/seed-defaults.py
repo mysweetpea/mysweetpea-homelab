@@ -15,7 +15,7 @@ def main():
     ap.add_argument("src")
     ap.add_argument("out")
     ap.add_argument("--theme", default="mysweetpea_obsidian")
-    ap.add_argument("--keep", default="resume,nextup,sinceyouwatched1,sinceyouwatched2,sinceyouwatched3,genres,rewatch,latestmedia")
+    ap.add_argument("--keep", default="resume,nextup,sinceyouwatched1,sinceyouwatched2,sinceyouwatched3,genres,rewatch,collections,favoritemovies,favoriteepisodes,playlists,latestmedia")
     a = ap.parse_args()
     doc = json.load(open(a.src))
     g = dict(doc.get("global") or {})
@@ -47,6 +47,8 @@ def main():
             "a20e1577e1543cd8707bba16912f48a4",  # Popular Shows
             "a25ccf8702de5678f2c1a04ca104f30d",  # Netflix Movies
         ])
+    # Compact icon-only top navbar (client stock default; labels expand on demand).
+    g["navbarAlwaysExpanded"] = False
     # No Moonbase plugin on the AIOStreams side: keep Seerr surfaces dark.
     g["seerrEnabled"] = False
     g["jellyseerrEnabled"] = False
