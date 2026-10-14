@@ -53,6 +53,14 @@ upstream is hit once per image shape, then ~6ms HITs. Verified: MISS 33–148ms 
 HIT ~6ms, byte-identical, non-image paths unaffected. The vhost's 443 listeners
 also gained HTTP/2 (multiplexes the clients' boot volley; was HTTP/1.1-only).
 
+**Lane switch (2026-10-14, perf):** `$aios_pi_lane` map in the vhost routes
+browser-class UAs (Mozilla/5.0 without Moonfin|Stremio|Dart|okhttp|Dalvik|Lavf —
+mirrors `aiostreams-pi-filter.py`'s classifier exactly) through the H.264
+filter; native clients go straight to :3000 (the filter passes them through
+byte-identical anyway, at ~150–200ms/request of Python overhead). Measured:
+native single request 272ms -> 64ms; filter CPU +0.00s during a native storm
+(vs +0.02s for browsers). `X-Aios-Lane` header (debug) shows the chosen lane.
+
 ## Media-server metadata pipeline (2026-10-13 fix)
 Every item with an IMDb id needs an IMDb-capable META addon: the TMDB addon
 only serves `tmdb:` ids, so without Cinemeta any streaming-catalog/search item
