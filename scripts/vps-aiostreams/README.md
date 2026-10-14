@@ -220,11 +220,10 @@ location from the vhost. Backup: /root/aiostreams-site.bak-usersme-20261014.
 
 Update (2026-10-14 late, owner request - add rows back + concise names):
 - Excludes 31 -> 25 (kept 12 rows: + Hulu, Crunchyroll, Disney+ movies+shows). Wave ~6 -> ~12.
-- Movie-row catalog names shortened via `catalogModifications` (Netflix Movies -> Netflix,
-  Trending Movies -> Trending, Popular Movies -> Popular, Hulu Movies -> Hulu, Crunchyroll
-  Movies -> Crunchyroll, Disney+ Movies -> Disney+; shows rows keep "X Shows"). Row titles
-  render as "Recently Added " + view name (`l10n.latestLibraryName`, client-side; the prefix
-  is NOT server-changeable - the view name is the only lever).
+- Movie-row catalog names: briefly shortened to bare names (Netflix Movies -> Netflix etc.),
+  then REVERTED by owner the same night - final naming stays `X Movies` / `X Shows`.
+  Row titles render as "Recently Added " + view name (`l10n.latestLibraryName`, client-side;
+  the prefix is NOT server-changeable - the view name is the only lever).
 - TRAP: `catalogModifications` edits propagate to /UserViews ONLY after
   `sudo docker restart aiostreams` - the media-server views path caches the resolved catalog
   list in-process; the Stremio manifest endpoint rebuilds fresh and shows new names instantly
