@@ -29,12 +29,16 @@ Restore path: re-deploy from this compose + recreate `.env` + re-import the
 user config `.json` via the configure page.
 
 ## Pre-warmer (media-server clients)
-`aiostreams-warmer.py` (this dir) runs on the VPS from root cron every 3h
-(`13 */3 * * *`, flock-guarded) and keeps the hot client surface warm:
-per-view item rows, `/Items/Latest` rails, and batched `/Items?Ids=` metadata
-(921 ids/run; ~6s warm, ~1-5 min after a full restart). Media cache TTLs are
-6h (catalog/meta) / 24h (stream/pipeline), so clients never pay the cold
-fetch (measured 3.3s -> 0.9s on rows, 2.6s -> 0.9s on 40-item meta batches).
+`aiostreams-warmer.py` (this dir) runs on the VPS from root cron every 2h
+(`13 */2 * * *`, flock-guarded) and keeps the hot client surface warm by
+replaying the EXACT query shapes Moonfin + the apps send (ground truth from
+client traffic): per-view `/Users/{uid}/Items/Latest` rows (Limit 15 + 60,
+full Fields list), media-bar `recentlyReleased` windows + SortName count
+probes over the 7 curated bar catalogs, Resume/NextUp/Upcoming + common home
+rows, and batched `/Items?Ids=` metadata for detail pages (~1635 ids/run,
+~24s warm). Catalog/meta TTLs are 6h, so no client ever pays a cold fetch.
+The old basic warner (`/usr/local/bin/aios-warm.py` + cron.d `aios-warm`)
+was retired 2026-10-14 (both renamed, superseded by this script).
 - Creds: `/root/.aiostreams-warmer-creds.json` (chmod 600, config uuid+password)
 - State: `/root/.aiostreams-warmer-state.json`  Log: `/var/log/aiostreams-warmer.log`
 - Quirk baked in: `/Items/Latest` returns a bare JSON array; `/Items` returns `{Items:[...]}`.

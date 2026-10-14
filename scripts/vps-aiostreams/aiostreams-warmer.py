@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """AIOStreams media-server pre-warmer.
 
-Keeps the /jellyfin endpoints that Moonfin/Jellyfin clients hit hot:
-per-view item rows, Items/Latest rows, and batched item metadata
-(meta TTL is 6h; this runs every 3h so nothing ever goes cold on a client).
+Keeps the /jellyfin endpoints Moonfin + the apps actually hit hot, replaying
+their EXACT query shapes (ground truth from real client traffic):
+  - per-view Items/Latest rows (Limit 15 + 60, full Fields list, user-scoped)
+  - media-bar recentlyReleased windows + SortName count probes over the 7
+    curated bar catalogs (moonbase-lite seed-defaults.py mediaBarLibraryIds)
+  - Resume / NextUp / Upcoming + common home rows (BoxSet, DatePlayed, history)
+  - batched per-item metadata (/Items?Ids=) for detail pages
+Catalog pages live 6h; this runs every 2h so nothing goes cold on a client.
 
-Root cron (see crontab): 13 */3 * * * flock -n /tmp/aiostreams-warmer.lock python3 /root/aiostreams-warmer.py
+Root cron: 13 */2 * * * flock -n /tmp/aiostreams-warmer.lock python3 /root/aiostreams-warmer.py >> /var/log/aiostreams-warmer.log 2>&1
 """
 import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 BASE = 'https://aiostreams.mysweetpea.cc/jellyfin'
 CREDS = '/root/.aiostreams-warmer-creds.json'
@@ -19,10 +26,33 @@ STATE = '/root/.aiostreams-warmer-state.json'
 LOGFILE = '/var/log/aiostreams-warmer.log'
 
 BUDGET_S = 600          # hard cap for the whole run
-VIEW_LIMIT = 25         # never more than this many views
-IDS_PER_VIEW = 60       # top item ids per view queued for meta warm
+VIEW_LIMIT = 60         # never more than this many views
 META_BATCH = 40         # ids per /Items?Ids= call
 MAX_META_BATCHES = 30   # hard cap on meta batches per run
+
+# exact field/image strings Moonfin sends (from its source + access log)
+F_LONG = ('DateCreated,Type,UserData,Overview,Genres,CommunityRating,CriticRating,'
+          'OfficialRating,RunTimeTicks,ProductionYear,SeriesName,ParentIndexNumber,'
+          'IndexNumber,Status,ImageTags,BackdropImageTags,ParentBackdropItemId,'
+          'ParentBackdropImageTags,ParentThumbItemId,ParentThumbImageTag,SeriesId,'
+          'SeriesPrimaryImageTag,ParentLogoItemId,ParentLogoImageTag,PrimaryImageTag,'
+          'PrimaryImageAspectRatio')
+F_BAR = ('Type,Genres,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,'
+         'ProductionYear,ImageTags,BackdropImageTags,Overview,ProviderIds')
+IMG_LONG = 'Primary,Backdrop,Thumb,Banner'
+IMG_BAR = 'Backdrop,Logo'
+
+BAR_CATALOGS = [
+    'a2b3d475a9842e952002bbf66ada706f',  # Trending Movies
+    'a26d1a33e2d56da6265981f9d902a374',  # Trending Shows
+    'a2170aa89ada673e50b5011031296a24',  # Popular Movies
+    'a20e1577e1543cd8707bba16912f48a4',  # Popular Shows
+    'a25ccf8702de5678f2c1a04ca104f30d',  # Netflix Movies
+    'a281c33fb3bb152e71a5d1442b634258',  # Netflix Top 10 Movies (Global)
+    'a2606deb6bee40c4b9566cf4edf03a96',  # Netflix Top 10 Shows (Global)
+]
+
+q = lambda s: urllib.parse.quote(s, safe='')
 
 
 def log(msg):
@@ -61,7 +91,6 @@ def auth():
 
 
 def _get_uid(token):
-    """The current user's id, for user-scoped row URLs. One cheap call."""
     d, _ = call('/Users/Me', token)
     return d.get('Id')
 
@@ -78,7 +107,6 @@ def main():
 
     if not token:
         token, _ = auth()
-
     try:
         views, _ = call('/UserViews', token)
     except Exception:
@@ -87,6 +115,19 @@ def main():
 
     items = views.get('Items', [])[:VIEW_LIMIT]
     log('warm start: %d views, budget %ds' % (len(items), BUDGET_S))
+    uid = _get_uid(token)
+
+    def warm(path, label):
+        nonlocal ok, bad
+        try:
+            d, _ = call(path, token)
+            ok += 1
+            for i in items_of(d):
+                if i.get('Id'):
+                    meta_ids.append(i.get('Id'))
+        except Exception as exc:
+            bad += 1
+            log('  FAIL %s: %s (%s)' % (label, path.split('?')[0], type(exc).__name__))
 
     meta_ids = []
     for v in items:
@@ -94,37 +135,35 @@ def main():
             log('budget hit during rows')
             break
         vid, name = v.get('Id'), v.get('Name', '?')
-        for path in ('/Items?ParentId=%s&Limit=60&Recursive=false' % vid,
-                     '/Items/Latest?ParentId=%s&Limit=30' % vid):
-            try:
-                d, _ = call(path, token)
-                ok += 1
-                meta_ids.extend(i.get('Id') for i in items_of(d) if i.get('Id'))
-            except Exception as exc:
-                bad += 1
-                log('  FAIL %s: %s (%s)' % (name, path.split('?')[0], type(exc).__name__))
+        for lim in (15, 60):
+            warm('/Users/%s/Items/Latest?ParentId=%s&Limit=%d&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1'
+                 % (uid, vid, lim, q(F_LONG), q(IMG_LONG)), name)
 
-    # global latest rail
-    try:
-        d, _ = call('/Items/Latest?Limit=40', token)
-        ok += 1
-        meta_ids.extend(i.get('Id') for i in items_of(d) if i.get('Id'))
-    except Exception:
-        bad += 1
+    # media-bar pool: recentlyReleased windows + SortName count probes
+    maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+    for vid in BAR_CATALOGS:
+        warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&Limit=40&Fields=%s'
+             '&EnableImageTypes=%s&SortBy=PremiereDate&SortOrder=Descending&MaxPremiereDate=%s'
+             % (uid, vid, q('Movie,Series'), q(F_BAR), q(IMG_BAR), maxpremiere), 'bar %s' % vid[:12])
+        warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&SortBy=SortName'
+             '&SortOrder=Ascending&Limit=1&EnableTotalRecordCount=true'
+             % (uid, vid, q('Movie,Series')), 'bar-count %s' % vid[:12])
 
-    # Moonfin home row shapes (sorted lists, no ParentId) — warm the exact
-    # variants the client requests (observed in real boot traffic).
-    uid = _get_uid(token)
-    for itype in ('Movie', 'Series'):
-        path = ('/Users/%s/Items?IncludeItemTypes=%s&SortBy=ProductionYear%%2CSortName'
-                '&SortOrder=Descending&Limit=30&Recursive=true' % (uid, itype))
-        try:
-            d, _ = call(path, token)
-            ok += 1
-            meta_ids.extend(i.get('Id') for i in items_of(d) if i.get('Id'))
-        except Exception:
-            bad += 1
-            log('  FAIL row: %s' % path.split('?')[0] + '?IncludeItemTypes=' + itype)
+    # Resume / NextUp / Upcoming + common home rows (exact client shapes)
+    cutoff = q((datetime.now(timezone.utc) - timedelta(days=90)).isoformat().replace('+00:00', 'Z'))
+    extras = (
+        '/UserItems/Resume?MediaTypes=Video&Limit=15&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1' % (q(F_LONG), q(IMG_LONG)),
+        '/Shows/NextUp?UserId=%s&Limit=15&Fields=%s&EnableResumable=false&NextUpDateCutoff=%s&EnableImageTypes=%s&ImageTypeLimit=1' % (uid, q(F_LONG), cutoff, q(IMG_LONG)),
+        '/Shows/Upcoming?userId=%s&Limit=24' % uid,
+        '/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s' % (uid, q(F_LONG)),
+        '/Users/%s/Items?IncludeItemTypes=%s&SortBy=DatePlayed&SortOrder=Descending&Limit=30&Recursive=true&Fields=%s' % (uid, q('Movie,Episode'), q(F_LONG)),
+        '/Users/%s/Items?IncludeItemTypes=Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Recursive=true&Fields=%s&Filters=IsPlayed' % (uid, q('SeriesId,UserData')),
+        '/Items/Latest?Limit=40',
+        '/Users/%s/Items?IncludeItemTypes=Movie&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
+        '/Users/%s/Items?IncludeItemTypes=Series&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
+    )
+    for path in extras:
+        warm(path, 'extra')
 
     # dedupe, then warm item metadata in batches
     seen = set()
