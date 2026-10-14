@@ -105,3 +105,17 @@ layer as dead (Ping 404s in client logs) despite the shim running:
   `coerce_types.py <profile.json>`; `mediaBarLibraryIds` in particular must be
   a JSON **list** (a CSV string never applies, and the media bar then walks
   every library on every home load — ~8s of serial fetches).
+
+## Client-compat stubs + SSE cadence (added 2026-10-14)
+- Stub endpoints (answer the Moonbase plugin's own "feature off" shapes, so Moonfin
+  stops logging 404s / probe loops on a server that has no such features):
+  `GET Games/Libraries` -> `[]`;
+  `GET Seerr/Status` -> `{enabled:false,authenticated:false,url:null}`;
+  `GET Seerr/Config` -> `{enabled:false,url:null,displayName:"Seerr",variant:"seerr",userEnabled:true}`;
+  `GET AnimeMarkers/Items` -> `{enabled:false,items:{}}`;
+  `GET AnimeMarkers/Series` -> `{enabled:false,matched:false,episodes:{},seasons:{}}`.
+  These are feature-OFF answers, not implementations (no Seerr/requests on this server by owner decision).
+- `Settings/Stream` (SSE) holds ~22s then closes CLEANLY; clients reconnect
+  immediately (same cadence the Moonbase plugin produces on Jellyfin). Do NOT hold
+  it open indefinitely: the Moonfin web build (2.7.0) cannot read a stream past its
+  30s receiveTimeout, so an unbounded stream produced client receiveTimeout loops.

@@ -512,6 +512,27 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, load_defaults())
             return
 
+        # ---- graceful stubs: no AIOStreams-side backing --------------------
+        # Same "feature off" shapes the Moonbase plugin returns when a feature
+        # is disabled; stops client error logs and probe loops on this server.
+        if method == "GET" and rel == "/Games/Libraries":
+            self._send(200, [])
+            return
+        if method == "GET" and rel == "/Seerr/Status":
+            self._send(200, {"enabled": False, "authenticated": False, "url": None})
+            return
+        if method == "GET" and rel == "/Seerr/Config":
+            self._send(200, {"enabled": False, "url": None, "displayName": "Seerr",
+                             "variant": "seerr", "userEnabled": True})
+            return
+        if method == "GET" and rel == "/AnimeMarkers/Items":
+            self._send(200, {"enabled": False, "items": {}})
+            return
+        if method == "GET" and rel == "/AnimeMarkers/Series":
+            self._send(200, {"enabled": False, "matched": False,
+                             "episodes": {}, "seasons": {}})
+            return
+
         # ---- settings -------------------------------------------------------
         if rel == "/Settings/Stream" and method == "GET":
             self._sse()
@@ -759,17 +780,19 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'data: {"type":"connected"}\n\n')
             self.wfile.flush()
-            last_hb = time.time()
-            while True:
+            # Bounded hold (~22s), then a clean close; clients reconnect on
+            # finish (same cadence the Moonbase plugin produces on Jellyfin).
+            # Client stream transports that cap a connection below their 30s
+            # receive timeout get a clean end-of-stream instead of timeout
+            # errors when the server closes first.
+            deadline = time.time() + 22
+            while time.time() < deadline:
                 try:
-                    frame = q.get(timeout=5)
+                    frame = q.get(timeout=max(0.1, min(5.0, deadline - time.time())))
                     self.wfile.write(frame.encode("utf-8"))
                     self.wfile.flush()
                 except queue.Empty:
-                    if time.time() - last_hb >= 20:
-                        self.wfile.write(b": hb\n\n")
-                        self.wfile.flush()
-                        last_hb = time.time()
+                    pass
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
