@@ -21,6 +21,8 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 BASE = 'https://aiostreams.mysweetpea.cc/jellyfin'
+MOUNT = ''  # per-run '/<uuid>/<encpw>' (set in main) so edge-cache keys
+            # match the apps: nginx strips the per-device encpw but keeps uuid.
 CREDS = '/root/.aiostreams-warmer-creds.json'
 STATE = '/root/.aiostreams-warmer-state.json'
 LOGFILE = '/var/log/aiostreams-warmer.log'
@@ -70,7 +72,7 @@ def call(path, token=None, timeout=90, method='GET', body=None):
     data = json.dumps(body).encode() if body is not None else None
     if data:
         hdr['Content-Type'] = 'application/json'
-    req = urllib.request.Request(BASE + path, data=data, headers=hdr, method=method)
+    req = urllib.request.Request(BASE + MOUNT + path, data=data, headers=hdr, method=method)
     t0 = time.time()
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode('utf-8', 'replace')
@@ -116,6 +118,17 @@ def main():
     items = views.get('Items', [])[:VIEW_LIMIT]
     log('warm start: %d views, budget %ds' % (len(items), BUDGET_S))
     uid = _get_uid(token)
+    global MOUNT
+    try:
+        creds = json.load(open(CREDS))
+        cuuid = creds.get('uuid') or creds.get('config_uuid') or \
+                json.load(open('/opt/moonbase-lite/config.json')).get('config_uuid')
+        encpw = open('/opt/aiostreams/.warm-encpw').read().strip()
+        if cuuid and encpw:
+            MOUNT = '/%s/%s' % (cuuid, encpw)
+    except Exception as exc:
+        log('  WARN: mount path unavailable (%s) - warming bare paths' % type(exc).__name__)
+    log('  mount: %s' % (MOUNT[:40] + '...' if MOUNT else '(bare)'))
 
     def warm(path, label):
         nonlocal ok, bad

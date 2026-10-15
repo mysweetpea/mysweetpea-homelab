@@ -390,3 +390,15 @@ boot is always a HIT with worst-case staleness 1h (rows/children carry UserData;
 <=1h accepted, the live CW/NextUp rows are uncached anyway). Verified: cold MISS 45-1233ms ->
 post-warm HIT 11-15ms on every shape; warmer run ~195s (was ~100s).
 Backups on VPS: `*.bak-hotrows-20261015` + `/root/crontab.bak-hotrows-20261015`.
+
+### 2026-10-15 late — cache-key token normalization (the real "still slow" root cause)
+Each device/persona mints its OWN mount token (encpw) for the same config: same content, different
+URL. Cache keys included it, so warmers/other devices filled caches nobody read (client boots kept
+showing cs=EXPIRED/MISS). FIX: `map $uri $aios_key_uri` in aios-api-cache.zone.conf strips the encpw
+segment from cache keys (uuid kept); rows/bar/images snippets key on it. The warmer additionally now
+calls via a MOUNT path (`/<uuid>/<encpw>` read from .warm-encpw) — it used to call bare
+`/jellyfin/Users/...`, which normalized to yet another key space. VERIFY ALWAYS WITH THE CLIENT'S
+REAL TOKEN (most-frequent mount token in /var/log/nginx/aiostreams.access.log) - never the warmer's
+or a fresh login's; same-token checks once "verified" a phantom cache.
+`test-cache-hit-client-token.py` does exactly that. E2E: rows/bar/children/images all HIT ~12ms
+under the client token; cross-token store/read proven in both directions.
