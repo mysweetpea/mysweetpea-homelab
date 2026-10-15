@@ -8,6 +8,36 @@
 controllers:
   acestream:
     containers:
+      # VPN killswitch (gluetun): provides the tun device + iptables in the pod
+      # netns so ALL pod egress exits via Privado -> the Ace swarm sees the VPN
+      # IP, not the home IP. Inbound (LB/JF -> acexy) is unaffected.
+      gluetun:
+        image:
+          repository: qmcgaw/gluetun
+          tag: latest
+        env:
+        - name: VPN_SERVICE_PROVIDER
+          value: privado
+        - name: TZ
+          value: America/New_York
+        # Only cluster + LAN subnets bypass the tunnel (kube-dns, probes);
+        # everything else must exit via the VPN.
+        - name: FIREWALL_OUTBOUND_SUBNETS
+          value: 10.42.0.0/16,10.43.0.0/16,192.168.0.0/16
+        envFrom:
+        - secretRef:
+            name: acestream-vpn
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
       engine:
         image:
           repository: wafy80/acestream
@@ -65,3 +95,12 @@ service:
       proxy:
         port: 8080
         targetPort: 8080
+# /dev/net/tun for the gluetun tunnel (only mounted into that container).
+persistence:
+  tun:
+    type: hostPath
+    hostPath: /dev/net/tun
+    advancedMounts:
+      acestream:
+        gluetun:
+        - path: /dev/net/tun
