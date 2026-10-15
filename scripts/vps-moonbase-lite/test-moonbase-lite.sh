@@ -33,8 +33,10 @@ def get(u, hdr=True):
     h = {"Authorization": 'MediaBrowser Token="%s"' % tok} if hdr else {}
     return urllib.request.urlopen(urllib.request.Request(u, headers=h), timeout=15).read()
 d = json.loads(get(base + "/Moonfin/Tmdb/ProductionCompanies?tmdbId=1228834&type=movie"))
-ids = [7899, c["id"] for c in d.get("companies", []) if c.get("hasLogo") and c["id"] > 0][:4]
+ids = [c["id"] for c in d.get("companies", []) if c.get("hasLogo") and c["id"] > 0][:4]
 assert d.get("success") and ids, d
+svg = get(base + "/Moonfin/Tmdb/StudioImage/7899?ApiKey=" + tok, hdr=False)
+assert svg[:4] == b"\x89PNG", "7899 (svg-sourced logo) regressed"
 for i in ids:
     try:
         if get(base + "/Moonfin/Tmdb/StudioImage/%d?ApiKey=%s" % (i, tok), hdr=False)[:4] == b"\x89PNG":
