@@ -397,6 +397,18 @@ data:
           description: Stream Anything
           icon: mdi-all-inclusive-box
           ping: https://aiostreams.mysweetpea.cc
+      - AceStream:
+          id: acestream
+          href: ''
+          description: P2P Live TV (engine + acexy, Privado VPN)
+          icon: mdi-broadcast
+          server: ''
+      - JF Scan Gate:
+          id: jf-scan-gate
+          href: ''
+          description: Jellyfin scan coalescer
+          icon: mdi-gate
+          server: ''
     - Download Stack:
       - Prowlarr:
           id: prowlarr
@@ -414,6 +426,12 @@ data:
           description: Cloudflare Bypass
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/flaresolverr.svg
           ping: http://192.168.20.214:8191
+      - Prowlarr Relay:
+          id: prowlarr-relay
+          href: ''
+          description: NZB proxy for the VPS engine
+          icon: mdi-swap-horizontal
+          server: ''
     - AI & Assistants:
       - Open WebUI:
           id: open-webui
@@ -548,6 +566,12 @@ data:
           description: Matrix Auth Service
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/matrix.svg
           ping: https://mas.mysweetpea.cc
+      - LiveKit:
+          id: livekit
+          href: ''
+          description: Calls / Matrix RTC
+          icon: mdi-video-account
+          server: ''
     - Infrastructure:
       - Authentik:
           id: authentik
@@ -614,6 +638,42 @@ data:
           description: Storage Management
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/longhorn.svg
           ping: http://192.168.20.221
+      - igotify-assist:
+          id: igotify-assist
+          href: ''
+          description: Gotify -> iOS push bridge
+          icon: mdi-bell-ring-outline
+          server: ''
+      - Loki:
+          id: loki
+          href: ''
+          description: Log aggregation (Grafana)
+          icon: mdi-math-log
+          server: ''
+      - Cloudflared:
+          id: cloudflared
+          href: ''
+          description: Cloudflare tunnel
+          icon: mdi-cloud-braces
+          server: ''
+      - MetalLB:
+          id: metallb
+          href: ''
+          description: Load balancer IPs
+          icon: mdi-ip-network
+          server: ''
+      - cert-manager:
+          id: cert-manager
+          href: ''
+          description: TLS certificates
+          icon: mdi-certificate-outline
+          server: ''
+      - PostgreSQL:
+          id: postgresql-shared
+          href: ''
+          description: Shared database server
+          icon: mdi-database
+          server: ''
     - Coming Soon:
       - ComfyUI:
           id: comfyui
@@ -737,7 +797,6 @@ data:
           description: Download Manager (HTTP/BT/Magnet)
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/gopeed.svg
           server: ''
-
       - Sportarr:
           id: sportarr
           href: https://sportarr.net/
@@ -749,6 +808,104 @@ data:
           href: https://github.com/Dispatcharr/Dispatcharr
           description: IPTV Channel Manager (Live TV)
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/dispatcharr.svg
+          server: ''
+
+    - Retired:
+      - Decypharr:
+          id: decypharr-r
+          href: ''
+          description: STRM bridge (debrid/usenet) — retired Oct 2026
+          icon: mdi-archive-outline
+          server: ''
+      - Seerr:
+          id: seerr-r
+          href: ''
+          description: Media requests — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/overseerr.svg
+          server: ''
+      - qBittorrent:
+          id: qbittorrent-r
+          href: ''
+          description: Torrent client — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/qbittorrent.svg
+          server: ''
+      - Radarr:
+          id: radarr-r
+          href: ''
+          description: Movie automation — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/radarr.svg
+          server: ''
+      - Sonarr:
+          id: sonarr-r
+          href: ''
+          description: TV automation — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sonarr.svg
+          server: ''
+      - Bazarr:
+          id: bazarr-r
+          href: ''
+          description: Subtitle automation — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/bazarr.svg
+          server: ''
+      - Cleanuparr:
+          id: cleanuparr-r
+          href: ''
+          description: Queue cleanup — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/cleanuparr.svg
+          server: ''
+      - STRM Repair Bridge:
+          id: strm-repair-r
+          href: ''
+          description: STRM repair job — retired Oct 2026
+          icon: mdi-archive-outline
+          server: ''
+      - Arr Missing Search:
+          id: arr-missing-r
+          href: ''
+          description: Missing-media search job — retired Oct 2026
+          icon: mdi-archive-outline
+          server: ''
+      - AIOStreams (cluster):
+          id: aiostreams-r
+          href: ''
+          description: Streaming engine (cluster instance) — moved to VPS
+          icon: mdi-all-inclusive-box
+          server: ''
+      - Zilean:
+          id: zilean-r
+          href: ''
+          description: Debrid hash indexer — retired Oct 2026
+          icon: mdi-archive-outline
+          server: ''
+      - Wizarr:
+          id: wizarr-r
+          href: ''
+          description: Media invites — retired Oct 2026
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/wizarr.svg
+          server: ''
+      - Ollama:
+          id: ollama-r
+          href: ''
+          description: Cluster LLM runner — moved to PC
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/ollama.svg
+          server: ''
+      - Hindsight:
+          id: hindsight-r
+          href: ''
+          description: Agent memory (cluster instance) — moved to PC
+          icon: mdi-archive-outline
+          server: ''
+      - NZBDAV:
+          id: nzbdav-r
+          href: ''
+          description: Debrid WebDAV gateway — retired Sep 2026
+          icon: mdi-archive-outline
+          server: ''
+      - OpenClaw:
+          id: openclaw-r
+          href: ''
+          description: Agent gateway — retired Sep 2026
+          icon: mdi-archive-outline
           server: ''
   settings.yaml: |
     title: SweetPea Homelab
