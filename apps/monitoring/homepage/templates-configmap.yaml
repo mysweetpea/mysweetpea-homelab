@@ -761,12 +761,6 @@ data:
           description: AI Transcription (Whisper API)
           icon: mdi-microphone-message-outline
           server: ''
-      - CrossWatch:
-          id: crosswatch
-          href: https://github.com/cenodude/CrossWatch
-          description: Sync Watch History Across Trackers
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/crosswatch.svg
-          server: ''
       - RomM:
           id: romm
           href: https://github.com/rommapp/romm
