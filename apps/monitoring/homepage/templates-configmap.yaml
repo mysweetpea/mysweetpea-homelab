@@ -760,6 +760,12 @@ data:
           description: Retro Game Library & Player
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/romm.svg
           server: ''
+      - Yamtrack:
+          id: yamtrack
+          href: https://github.com/FuzzyGrim/Yamtrack
+          description: Game & Media Tracker
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/yamtrack.svg
+          server: ''
       - Sportarr:
           id: sportarr
           href: https://sportarr.net/
