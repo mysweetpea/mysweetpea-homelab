@@ -402,3 +402,30 @@ REAL TOKEN (most-frequent mount token in /var/log/nginx/aiostreams.access.log) -
 or a fresh login's; same-token checks once "verified" a phantom cache.
 `test-cache-hit-client-token.py` does exactly that. E2E: rows/bar/children/images all HIT ~12ms
 under the client token; cross-token store/read proven in both directions.
+
+### 2026-10-15 v2: cross-lane canonical keys + uid-less rows + dynamic per-user warmer
+Two gaps still made certain devices/platforms slow even after token normalization:
+1. **Bare lane**: older builds (the owner's iOS 2.5.x) stored the bare server URL
+   `.../jellyfin` - requests without a `<uuid>/<encpw>` prefix normalized to a DIFFERENT key
+   space and never matched warmed entries (rows cs=MISS/-, ~412 uid-less `/Items/Latest`
+   calls/day). `$aios_key_uri` now canonicalizes BOTH lanes to `/jellyfin/<config-uuid>/<rest>`.
+2. **UID-less row shape**: 2.5.x fetches rows as `/Items/Latest?ParentId=...` (no
+   `/Users/<uid>/` segment); no location matched it, so it was never cached (cs=-). New
+   location `~* "/Items/Latest"` gives it the rows cache; the warmer warms that shape too
+   (owner only).
+
+Warmer v3 (dynamic users): users discovered from the media server's own `/Users` list every
+run (owner + personas as they are provisioned - nothing to configure), plus per-user PINs from
+`/opt/moonbase-lite/data/pins.json` (written by the moonbase-lite provision API; see that
+README). LAW: the media server scopes UserData by TOKEN, not by the uid in the path - warming a
+persona's paths with the owner's token bakes the OWNER's progress into the personas entries
+(proved: persona path + owner token returned the owner's 39s resume position). Each persona is
+warmed with ITS OWN token (login with its stored PIN); personas without a stored pin are skipped
+with a log line. Children prewarm now hydrates ALL BoxSets (83 today) in BOTH client shapes
+(`Recursive=true&Fields=UserData` + `Fields=BasicSyncInfo`), not the first 50. Meta `/Items?Ids=`
+batches stay owner-token (uncached; primes the apps internal meta cache for the owner).
+Verified: cached bytes == fresh compute for both users; per-shape HITs with each users own token;
+bare/mount lanes share entries; one-off `too big header` 502 on a 150-id meta batch (Oct 15
+16:08Z) not reproducible (same batch replays 200, ~680B headers) - lane has 16k header buffers.
+Backups on VPS: `aios-api-cache.conf.bak-keyv2-20261015`, `/root/aiostreams-site.bak-uidless-20261015`,
+`/root/aiostreams-warmer.py.bak-v1-20261015` / `.bak-v2-20261015`.

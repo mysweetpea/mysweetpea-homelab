@@ -168,3 +168,14 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
 - PINS += `recommendationSystemSource: "server"` (enum local|server|online; client default = local).
 - Detail-page Similar fork: server -> `/Items/{id}/Similar` (shim Similar+, 60 items); local -> client-side genre/people algorithm hard-capped at 20 (the queries seen in client logs); online -> TMDB (needs Seerr; dormant). Episodes always use /Similar.
 - Mirrored into data/defaults.json, all four user-file scopes (global/desktop/mobile/tv), and seed-defaults.py. Devices adopt at app boot (~5s in); the user's own Settings toggle snaps back on next boot by design.
+
+## 2026-10-15 late: persona PIN persistence (media-warmer support)
+- `POST /Moonfin/Admin/Provision` now persists `data/pins.json` (0600): `{slug: {name, pin}}` -
+  written on create (server-generated or supplied pin), removed on remove. Failure to persist
+  never fails provisioning.
+- Why: the media server scopes UserData by TOKEN (not by the uid in the path). The media warmer
+  pre-warms each persona with its OWN token (login with this stored PIN); using any other
+  account's token would bake the wrong progress into that persona's cache entries.
+- A missing entry = persona not pre-warmed (graceful skip, logged by the warmer). If a member
+  changes their PIN in-app, the stored pin goes stale and the warmer logs a skip for that user -
+  refresh by re-provisioning the persona.

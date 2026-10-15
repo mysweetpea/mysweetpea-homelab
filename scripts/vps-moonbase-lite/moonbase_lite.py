@@ -594,6 +594,33 @@ def remove_avatar(slug: str) -> None:
 # --------------------------------------------------------------------------
 # AIOStreams config API: personas
 # --------------------------------------------------------------------------
+def pins_update(pid, name, pin):
+    """Best-effort persistence of persona PINs for the media warmer (0600).
+
+    The warmer (root cron on this host) logs in as each persona and primes
+    that persona's edge-cache entries with ITS OWN token - the media server
+    scopes UserData by token, so warming a persona's paths with any other
+    account's token bakes the wrong progress into the cache. Never fails
+    provisioning; a persona without a stored pin is simply not pre-warmed.
+    """
+    try:
+        path = os.path.join(DATA_DIR, "pins.json")
+        pins = _read_json(path, {})
+        if not isinstance(pins, dict):
+            pins = {}
+        if pin:
+            pins[pid] = {"name": name or pid, "pin": str(pin)}
+        else:
+            pins.pop(pid, None)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(pins, fh, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except Exception as exc:
+        print(f"pins persistence failed ({exc})", flush=True)
+
+
 def _aios_config_auth():
     import base64 as _b64
     uuid = CFG.get("config_uuid")
@@ -1158,6 +1185,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"success": True, "skipped": "tier", "tier": tier})
             return
         ok, result = aios_persona_op(pid, name, remove, pin or None)
+        if ok and isinstance(result, dict):
+            if remove:
+                pins_update(pid, None, None)
+            elif result.get("pin"):
+                pins_update(pid, name, result["pin"])
         self._send(200 if ok else 502, result if isinstance(result, dict) else {"error": result})
 
     # -- SSE -----------------------------------------------------------------

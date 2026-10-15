@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""AIOStreams media-server pre-warmer.
+"""AIOStreams media-server pre-warmer (v3: dynamic users, per-user tokens).
 
 Keeps the /jellyfin endpoints Moonfin + the apps actually hit hot, replaying
 their EXACT query shapes (ground truth from real client traffic):
-  - per-view Items/Latest rows (Limit 15 + 60, full Fields list, user-scoped)
+  - per-view Items/Latest rows (Limit 15 + 60, full Fields list, user-scoped),
+    plus the UID-LESS variant older builds send (owner only; token-scoped)
   - media-bar recentlyReleased windows + SortName count probes over the 7
     curated bar catalogs (moonbase-lite seed-defaults.py mediaBarLibraryIds)
   - Resume / NextUp / Upcoming + common home rows (BoxSet, DatePlayed, history)
   - batched per-item metadata (/Items?Ids=) for detail pages
-Catalog pages live 6h; this runs every 2h so nothing goes cold on a client.
+  - NextUp/Resume detail pages (the cold ~2s open) and EVERY BoxSet's children
+    in BOTH client shapes (Recursive=true&Fields=UserData + Fields=BasicSyncInfo)
 
-Root cron: 13 */2 * * * flock -n /tmp/aiostreams-warmer.lock python3 /root/aiostreams-warmer.py >> /var/log/aiostreams-warmer.log 2>&1
+v3: users are auto-discovered from the media server's /Users list, and each
+user is warmed with THEIR OWN token. The server scopes UserData by token, not
+by the uid in the path - warming a persona's paths with the owner's token
+would bake the owner's progress into the persona's cache entries, so personas
+log in with the PIN stored at provisioning (moonbase-lite data/pins.json).
+
+nginx keys are lane- and token-normalized (conf.d/aios-api-cache.conf), so
+one warm pass covers every device/platform of a user.
+
+Root cron: 13 * * * * flock -n /tmp/aiostreams-warmer.lock python3 /root/aiostreams-warmer.py >> /var/log/aiostreams-warmer.log 2>&1
 """
 import json
 import os
@@ -21,16 +32,19 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 BASE = 'https://aiostreams.mysweetpea.cc/jellyfin'
-MOUNT = ''  # per-run '/<uuid>/<encpw>' (set in main) so edge-cache keys
-            # match the apps: nginx strips the per-device encpw but keeps uuid.
+MOUNT = ''  # per-run '/<uuid>/<encpw>' (set first in main) so edge-cache keys
+            # match the apps: nginx canonicalizes mount+bare lanes to the uuid.
 CREDS = '/root/.aiostreams-warmer-creds.json'
 STATE = '/root/.aiostreams-warmer-state.json'
 LOGFILE = '/var/log/aiostreams-warmer.log'
+PINS = '/opt/moonbase-lite/data/pins.json'  # {slug: {name, pin}} written at provisioning
 
 BUDGET_S = 600          # hard cap for the whole run
 VIEW_LIMIT = 60         # never more than this many views
 META_BATCH = 40         # ids per /Items?Ids= call
 MAX_META_BATCHES = 30   # hard cap on meta batches per run
+MAX_USERS = 6           # users warmed per run (owner first)
+CHILD_CAP = 200         # BoxSets hydrated per user (83 live at 2026-10-15)
 
 # exact field/image strings Moonfin sends (from its source + access log)
 F_LONG = ('DateCreated,Type,UserData,Overview,Genres,CommunityRating,CriticRating,'
@@ -97,27 +111,30 @@ def _get_uid(token):
     return d.get('Id')
 
 
+def discover_users(token, owner_uid):
+    """Owner + every persona the media server knows (personas appear in
+    /Users as soon as they are provisioned - no config to touch)."""
+    users = [{'id': owner_uid, 'name': 'owner'}]
+    try:
+        d, _ = call('/Users', token, timeout=30)
+        for u in items_of(d):
+            u2 = u.get('Id')
+            if u2 and u2 != owner_uid and not any(x['id'] == u2 for x in users):
+                users.append({'id': u2, 'name': u.get('Name') or u2})
+    except Exception as exc:
+        log('  WARN: /Users discovery failed (%s)' % type(exc).__name__)
+    return users[:MAX_USERS]
+
+
+def login_persona(slug, pin):
+    d, _ = call('/Users/AuthenticateByName', method='POST',
+                body={'Username': slug, 'Pw': pin})
+    return d['AccessToken']
+
+
 def main():
     t_start = time.time()
     ok = bad = meta_ok = meta_bad = 0
-    token = None
-    if os.path.exists(STATE):
-        try:
-            token = json.load(open(STATE)).get('token')
-        except (ValueError, OSError):
-            token = None
-
-    if not token:
-        token, _ = auth()
-    try:
-        views, _ = call('/UserViews', token)
-    except Exception:
-        token, _ = auth()  # token likely stale
-        views, _ = call('/UserViews', token)
-
-    items = views.get('Items', [])[:VIEW_LIMIT]
-    log('warm start: %d views, budget %ds' % (len(items), BUDGET_S))
-    uid = _get_uid(token)
     global MOUNT
     try:
         creds = json.load(open(CREDS))
@@ -130,10 +147,53 @@ def main():
         log('  WARN: mount path unavailable (%s) - warming bare paths' % type(exc).__name__)
     log('  mount: %s' % (MOUNT[:40] + '...' if MOUNT else '(bare)'))
 
-    def warm(path, label):
+    token = None
+    if os.path.exists(STATE):
+        try:
+            token = json.load(open(STATE)).get('token')
+        except (ValueError, OSError):
+            token = None
+    if not token:
+        token, _ = auth()
+    try:
+        views, _ = call('/UserViews', token)
+    except Exception:
+        token, _ = auth()  # token likely stale
+        views, _ = call('/UserViews', token)
+
+    items = views.get('Items', [])[:VIEW_LIMIT]
+    uid = _get_uid(token)
+    users = discover_users(token, uid)
+    try:
+        pins = json.load(open(PINS))
+        if not isinstance(pins, dict):
+            pins = {}
+    except Exception:
+        pins = {}
+
+    # owner first, then each persona logged in with the PIN stored at
+    # provisioning (UserData is token-scoped; never warm a persona with
+    # someone else's token).
+    targets = [(uid, token, 'owner')]
+    for u in users[1:]:
+        slug = next((s for s, e in pins.items()
+                     if isinstance(e, dict) and e.get('name') == u.get('name')), None)
+        if not slug or not pins[slug].get('pin'):
+            log('  skip %s (%s): no stored pin' % ((u.get('id') or '?')[:8], u.get('name')))
+            continue
+        try:
+            targets.append((u['id'], login_persona(slug, pins[slug]['pin']), u.get('name')))
+        except Exception as exc:
+            log('  skip %s (%s): login failed (%s)' % ((u.get('id') or '?')[:8], u.get('name'), type(exc).__name__))
+    log('warm start: %d views, %d user(s) to warm of %d found, budget %ds'
+        % (len(items), len(targets), len(users), BUDGET_S))
+
+    meta_ids = []
+
+    def warm(utok, path, label):
         nonlocal ok, bad
         try:
-            d, _ = call(path, token)
+            d, _ = call(path, utok)
             ok += 1
             for i in items_of(d):
                 if i.get('Id'):
@@ -142,87 +202,114 @@ def main():
             bad += 1
             log('  FAIL %s: %s (%s)' % (label, path.split('?')[0], type(exc).__name__))
 
-    meta_ids = []
-    for v in items:
+    for uix, (uid, utok, uname) in enumerate(targets):
         if time.time() - t_start > BUDGET_S:
-            log('budget hit during rows')
+            log('budget hit before user %s' % uid[:8])
             break
-        vid, name = v.get('Id'), v.get('Name', '?')
-        for lim in (15, 60):
-            warm('/Users/%s/Items/Latest?ParentId=%s&Limit=%d&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1'
-                 % (uid, vid, lim, q(F_LONG), q(IMG_LONG)), name)
+        owner = (uix == 0)
+        log('  user %s%s' % (uid[:8], ' (owner)' if owner else ' (%s)' % uname))
+        t_user = time.time()
 
-    # media-bar pool: recentlyReleased windows + SortName count probes
-    maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
-    for vid in BAR_CATALOGS:
-        for itypes in ('Movie', 'Series'):
-            warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&Limit=40&Fields=%s'
-                 '&EnableImageTypes=%s&SortBy=PremiereDate&SortOrder=Descending&MaxPremiereDate=%s'
-                 % (uid, vid, q(itypes), q(F_BAR), q(IMG_BAR), maxpremiere), 'bar %s %s' % (vid[:12], itypes))
-        warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&SortBy=SortName'
-             '&SortOrder=Ascending&Limit=1&EnableTotalRecordCount=true'
-             % (uid, vid, q('Movie,Series')), 'bar-count %s' % vid[:12])
+        # per-view rows: /Users/<uid>/Items/Latest (current clients)
+        for v in items:
+            if time.time() - t_start > BUDGET_S:
+                break
+            vid, name = v.get('Id'), v.get('Name', '?')
+            if not vid:
+                continue
+            for lim in (15, 60):
+                warm(utok, '/Users/%s/Items/Latest?ParentId=%s&Limit=%d&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1'
+                     % (uid, vid, lim, q(F_LONG), q(IMG_LONG)), name)
 
-    # Resume / NextUp / Upcoming + common home rows (exact client shapes)
-    cutoff = q((datetime.now(timezone.utc) - timedelta(days=90)).isoformat().replace('+00:00', 'Z'))
-    extras = (
-        '/UserItems/Resume?MediaTypes=Video&Limit=15&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1' % (q(F_LONG), q(IMG_LONG)),
-        '/Shows/NextUp?UserId=%s&Limit=15&Fields=%s&EnableResumable=false&NextUpDateCutoff=%s&EnableImageTypes=%s&ImageTypeLimit=1' % (uid, q(F_LONG), cutoff, q(IMG_LONG)),
-        '/Shows/Upcoming?userId=%s&Limit=24' % uid,
-        '/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s' % (uid, q(F_LONG)),
-        '/Users/%s/Items?IncludeItemTypes=%s&SortBy=DatePlayed&SortOrder=Descending&Limit=30&Recursive=true&Fields=%s' % (uid, q('Movie,Episode'), q(F_LONG)),
-        '/Users/%s/Items?IncludeItemTypes=Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Recursive=true&Fields=%s&Filters=IsPlayed' % (uid, q('SeriesId,UserData')),
-        '/Items/Latest?Limit=40',
-        '/Users/%s/Items?IncludeItemTypes=Movie&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
-        '/Users/%s/Items?IncludeItemTypes=Series&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
-    )
-    for path in extras:
-        warm(path, 'extra')
+        # UID-LESS row variant (owner only): older builds (iOS 2.5.x) fetch
+        # /Items/Latest?ParentId=... without the /Users/<uid>/ segment; the
+        # response is token-scoped, so only the owner's pass can fill it.
+        if owner:
+            for v in items:
+                if time.time() - t_start > BUDGET_S:
+                    break
+                vid = v.get('Id')
+                if not vid:
+                    continue
+                for lim in (15, 60):
+                    warm(utok, '/Items/Latest?ParentId=%s&Limit=%d&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1'
+                         % (vid, lim, q(F_LONG), q(IMG_LONG)), 'row-uidless %s' % vid[:12])
+
+        # media-bar pool: recentlyReleased windows + SortName count probes
+        maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+        for vid in BAR_CATALOGS:
+            for itypes in ('Movie', 'Series'):
+                warm(utok, '/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&Limit=40&Fields=%s'
+                     '&EnableImageTypes=%s&SortBy=PremiereDate&SortOrder=Descending&MaxPremiereDate=%s'
+                     % (uid, vid, q(itypes), q(F_BAR), q(IMG_BAR), maxpremiere), 'bar %s %s' % (vid[:12], itypes))
+            warm(utok, '/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&SortBy=SortName'
+                 '&SortOrder=Ascending&Limit=1&EnableTotalRecordCount=true'
+                 % (uid, vid, q('Movie,Series')), 'bar-count %s' % vid[:12])
+
+        # Resume / NextUp / Upcoming + common home rows (exact client shapes)
+        cutoff = q((datetime.now(timezone.utc) - timedelta(days=90)).isoformat().replace('+00:00', 'Z'))
+        extras = (
+            '/UserItems/Resume?MediaTypes=Video&Limit=15&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1' % (q(F_LONG), q(IMG_LONG)),
+            '/Shows/NextUp?UserId=%s&Limit=15&Fields=%s&EnableResumable=false&NextUpDateCutoff=%s&EnableImageTypes=%s&ImageTypeLimit=1' % (uid, q(F_LONG), cutoff, q(IMG_LONG)),
+            '/Shows/Upcoming?userId=%s&Limit=24' % uid,
+            '/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s' % (uid, q(F_LONG)),
+            '/Users/%s/Items?IncludeItemTypes=%s&SortBy=DatePlayed&SortOrder=Descending&Limit=30&Recursive=true&Fields=%s' % (uid, q('Movie,Episode'), q(F_LONG)),
+            '/Users/%s/Items?IncludeItemTypes=Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Recursive=true&Fields=%s&Filters=IsPlayed' % (uid, q('SeriesId,UserData')),
+            '/Items/Latest?Limit=40',
+            '/Users/%s/Items?IncludeItemTypes=Movie&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
+            '/Users/%s/Items?IncludeItemTypes=Series&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
+        )
+        for path in extras:
+            warm(utok, path, 'extra')
 
         # detail-page prewarm: the items the user most likely opens next
-    # (NextUp + Resume) in the EXACT Moonfin detail shape = the cold 2s call
-    detail_fields = ('Chapters,MediaSources,MediaStreams,People,Overview,Genres,UserData,'
-                     'RecursiveItemCount,ChildCount,ParentLogoItemId,ParentLogoImageTag,DateCreated')
-    detail_ids = []
-    for dp in ('/Shows/NextUp?UserId=%s&Limit=10&Fields=UserData' % uid,
-               '/UserItems/Resume?MediaTypes=Video&Limit=10'):
-        try:
-            dd, _ = call(dp, token, timeout=60)
-            detail_ids += [i.get('Id') for i in items_of(dd) if i.get('Id')]
-        except Exception as exc:
-            log('  FAIL detail-seed %s: %s' % (dp.split('?')[0], type(exc).__name__))
-    seen_d = set()
-    detail_ids = [i for i in detail_ids if not (i in seen_d or seen_d.add(i))][:20]
-    det_ok = det_bad = 0
-    for iid in detail_ids:
-        if time.time() - t_start > BUDGET_S:
-            break
-        try:
-            call('/Users/%s/Items/%s?Fields=%s' % (uid, iid, q(detail_fields)), token, timeout=60)
-            det_ok += 1
-        except Exception:
-            det_bad += 1
-    log('  detail prewarm: ok=%d fail=%d' % (det_ok, det_bad))
+        # (NextUp + Resume) in the EXACT Moonfin detail shape = the cold ~2s call
+        detail_fields = ('Chapters,MediaSources,MediaStreams,People,Overview,Genres,UserData,'
+                         'RecursiveItemCount,ChildCount,ParentLogoItemId,ParentLogoImageTag,DateCreated')
+        detail_ids = []
+        for dp in ('/Shows/NextUp?UserId=%s&Limit=10&Fields=UserData' % uid,
+                   '/UserItems/Resume?MediaTypes=Video&Limit=10'):
+            try:
+                dd, _ = call(dp, utok, timeout=60)
+                detail_ids += [i.get('Id') for i in items_of(dd) if i.get('Id')]
+            except Exception as exc:
+                log('  FAIL detail-seed %s: %s' % (dp.split('?')[0], type(exc).__name__))
+        seen_d = set()
+        detail_ids = [i for i in detail_ids if not (i in seen_d or seen_d.add(i))][:20]
+        det_ok = det_bad = 0
+        for iid in detail_ids:
+            if time.time() - t_start > BUDGET_S:
+                break
+            try:
+                call('/Users/%s/Items/%s?Fields=%s' % (uid, iid, q(detail_fields)), utok, timeout=60)
+                det_ok += 1
+            except Exception:
+                det_bad += 1
+        log('  detail prewarm: ok=%d fail=%d' % (det_ok, det_bad))
 
-    # collections-row children prewarm: exact client shape per BoxSet
-    try:
-        bx, _ = call('/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s'
-                     % (uid, q(F_LONG)), token, timeout=120)
-        box_ids = [i.get('Id') for i in items_of(bx) if i.get('Id')][:60]
-    except Exception:
-        box_ids = []
-    ch_ok = ch_bad = 0
-    for bid in box_ids:
-        if time.time() - t_start > BUDGET_S:
-            break
+        # collections-row children: EVERY BoxSet in BOTH client shapes
+        # (collections row hydration + the light BasicSyncInfo re-sync pass)
         try:
-            call('/Users/%s/Items?ParentId=%s&Recursive=true&Fields=UserData' % (uid, bid), token, timeout=60)
-            ch_ok += 1
+            bx, _ = call('/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=500&Recursive=true&Fields=%s'
+                         % (uid, q(F_LONG)), utok, timeout=120)
+            box_ids = [i.get('Id') for i in items_of(bx) if i.get('Id')][:CHILD_CAP]
         except Exception:
-            ch_bad += 1
-    log('  children prewarm: ok=%d fail=%d' % (ch_ok, ch_bad))
+            box_ids = []
+        ch_ok = ch_bad = 0
+        for bid in box_ids:
+            if time.time() - t_start > BUDGET_S:
+                break
+            for cargs in ('Recursive=true&Fields=UserData', 'Fields=BasicSyncInfo'):
+                try:
+                    call('/Users/%s/Items?ParentId=%s&%s' % (uid, bid, cargs), utok, timeout=60)
+                    ch_ok += 1
+                except Exception:
+                    ch_bad += 1
+        log('  children prewarm: ok=%d fail=%d (%d BoxSets x2 shapes)' % (ch_ok, ch_bad, len(box_ids)))
+        log('  user %s done in %ds' % (uid[:8], time.time() - t_user))
 
-# dedupe, then warm item metadata in batches
+    # dedupe, then warm item metadata in batches (owner token; /Items?Ids= is
+    # uncached - this only primes the app's internal meta cache for the owner)
     seen = set()
     uniq = [i for i in meta_ids if not (i in seen or seen.add(i))]
     batches = 0
@@ -238,11 +325,11 @@ def main():
         batches += 1
 
     dur = time.time() - t_start
-    log('warm done in %.0fs: rows ok=%d fail=%d | meta batches ok=%d fail=%d | unique ids=%d'
-        % (dur, ok, bad, meta_ok, meta_bad, len(uniq)))
+    log('warm done in %.0fs: users=%d rows ok=%d fail=%d | meta batches ok=%d fail=%d | unique ids=%d'
+        % (dur, len(targets), ok, bad, meta_ok, meta_bad, len(uniq)))
     json.dump({'token': token,
                'last': time.strftime('%Y-%m-%dT%H:%M:%S'),
-               'views': len(items), 'ids': len(uniq), 'dur': round(dur, 1)},
+               'views': len(items), 'users': len(targets), 'ids': len(uniq), 'dur': round(dur, 1)},
               open(STATE, 'w'))
 
     if ok == 0:
