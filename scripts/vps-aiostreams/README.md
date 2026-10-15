@@ -374,3 +374,19 @@ addon's returns exactly).
 
 ### 2026-10-15 warmer: detail-page prewarm
 The warmer now also pre-fetches the per-item DETAIL shape (Items/{id}?Fields=Chapters,MediaSources,...) for each user's NextUp + Resume items (cap 20/run). First open of a likely-next item: ~2s cold -> ~10ms warm.
+
+### 2026-10-15 late — cache TTL alignment (cold boot waves fixed)
+Symptom: after idle, the home boot wave (~24 `/Items/Latest` rows + ~14 bar fetches + ~50 BoxSet
+children) hit the single-threaded app all at once -> 3-15s tail (last row 14.7s, bar catalog #2 14.6s
+measured); media bar's serial client-side walk is worst-hit.
+Root causes: edge TTLs were 120s while the warmer ran every 2h (everything expired between runs);
+the warmer warmed bar shapes as `IncludeItemTypes=Movie,Series` but the client fetches `Movie` and
+`Series` SEPARATELY (bar was never actually edge-cached); BoxSet children were never warmed; zone
+`inactive=30m` < warm gap so even fresh entries could be swept.
+Fix: warmer cron `13 */2` -> `13 *` (hourly); rows/bar/children `proxy_cache_valid 120s -> 10800s`;
+`proxy_cache_path inactive=30m -> 4h`; warmer warms per-type bar shapes + all BoxSet children
+(`children prewarm ok=50`). LAW: edge TTL must be >= warmer cadence — hourly warm + 3h TTL means a
+boot is always a HIT with worst-case staleness 1h (rows/children carry UserData; browse-row staleness
+<=1h accepted, the live CW/NextUp rows are uncached anyway). Verified: cold MISS 45-1233ms ->
+post-warm HIT 11-15ms on every shape; warmer run ~195s (was ~100s).
+Backups on VPS: `*.bak-hotrows-20261015` + `/root/crontab.bak-hotrows-20261015`.

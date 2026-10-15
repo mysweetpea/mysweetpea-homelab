@@ -142,9 +142,10 @@ def main():
     # media-bar pool: recentlyReleased windows + SortName count probes
     maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
     for vid in BAR_CATALOGS:
-        warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&Limit=40&Fields=%s'
-             '&EnableImageTypes=%s&SortBy=PremiereDate&SortOrder=Descending&MaxPremiereDate=%s'
-             % (uid, vid, q('Movie,Series'), q(F_BAR), q(IMG_BAR), maxpremiere), 'bar %s' % vid[:12])
+        for itypes in ('Movie', 'Series'):
+            warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&Limit=40&Fields=%s'
+                 '&EnableImageTypes=%s&SortBy=PremiereDate&SortOrder=Descending&MaxPremiereDate=%s'
+                 % (uid, vid, q(itypes), q(F_BAR), q(IMG_BAR), maxpremiere), 'bar %s %s' % (vid[:12], itypes))
         warm('/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=%s&SortBy=SortName'
              '&SortOrder=Ascending&Limit=1&EnableTotalRecordCount=true'
              % (uid, vid, q('Movie,Series')), 'bar-count %s' % vid[:12])
@@ -189,6 +190,24 @@ def main():
         except Exception:
             det_bad += 1
     log('  detail prewarm: ok=%d fail=%d' % (det_ok, det_bad))
+
+    # collections-row children prewarm: exact client shape per BoxSet
+    try:
+        bx, _ = call('/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s'
+                     % (uid, q(F_LONG)), token, timeout=120)
+        box_ids = [i.get('Id') for i in items_of(bx) if i.get('Id')][:60]
+    except Exception:
+        box_ids = []
+    ch_ok = ch_bad = 0
+    for bid in box_ids:
+        if time.time() - t_start > BUDGET_S:
+            break
+        try:
+            call('/Users/%s/Items?ParentId=%s&Recursive=true&Fields=UserData' % (uid, bid), token, timeout=60)
+            ch_ok += 1
+        except Exception:
+            ch_bad += 1
+    log('  children prewarm: ok=%d fail=%d' % (ch_ok, ch_bad))
 
 # dedupe, then warm item metadata in batches
     seen = set()
