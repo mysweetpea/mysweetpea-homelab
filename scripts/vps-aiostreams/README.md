@@ -262,3 +262,34 @@ Update (2026-10-14 late, owner request - add rows back + concise names):
   nginx now serves `/var/www/aiostreams/avatar.png` for that exact shape
   (`root /var/www/aiostreams; try_files /avatar.png =404;` + 1d cache). Mounted
   user-image requests are untouched (AIOStreams answers those 200 itself).
+
+
+## Artwork placeholder armor (2026-10-15)
+
+Kills the "all artwork dies mid-session" class on Moonfin builds older than the
+Oct 7 fix (tag 2.7.0 = Oct 5; fix = commit a40ef7ba, upstream issue #1766).
+
+- Mechanism: the artwork HttpClient keeps `maxConnectionsPerHost = 4`; unread
+  404 bodies hold connections. FOUR artwork 404s exhausted all four slots and
+  every later image died inside dart:io's queue. Log signature: `art in flight:
+  156`, `headerTimeout` at exactly 20.005s, and ZERO image requests in nginx.
+- The four 404s were items with no poster (bogus `w500null` Primary tags) whose
+  relayed TMDB 404 page (1957B HTML) even POISONED the image cache: TMDB's
+  cache headers made nginx cache the relayed 404, and cache hits skip
+  error_page. Layer 1 below closes that.
+- Fix layers (all in this dir's nginx files):
+  1. `proxy_ignore_headers Cache-Control Expires X-Accel-Expires;` in the
+     images cache snippet -> only 200s may cache (`proxy_cache_valid 200 30d`).
+  2. Armor: `proxy_intercept_errors on; error_page 404 500 502 503 504 =200
+     /artwork-missing.png;` -> clients never see 4xx/5xx for item artwork.
+  3. `location = /artwork-missing.png` serving a 68B transparent 1x1
+     (`/var/www/aiostreams/artwork-missing.png`, 1d client cache).
+  4. One-time purge of poisoned entries:
+     `find /var/cache/nginx/aios-images -type f -delete`
+     NOTE path is `aios-images` (hyphen); zone name is `aios_images` (underscore).
+- Real client-side fix: rebuild Moonfin at >= a40ef7ba (any build since Oct 7;
+  HEAD as of Oct 14 includes it).
+- Verified 2026-10-15: all four formerly-404 items -> 200/68B PNG; repeats
+  stay un-poisoned (no cache entry for 404s); normal images MISS then HIT.
+- Backups: /root/aios-images-snippet.bak-artworkarmor-20261015,
+  /root/aiostreams.bak-artworkarmor-20261015.
