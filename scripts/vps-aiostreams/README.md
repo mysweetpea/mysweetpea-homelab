@@ -371,3 +371,6 @@ addon's returns exactly).
 - `.env` += `JELLYFIN_MAX_CATALOG_ITEMS=1000` (upstream default 250 caps every catalog-backed library walk; per-request Limit clamp = min(500, max(100, V)); walk guard <=60 pages/request; 0 disables).
 - Env change needs a container recreate: `cd /opt/aiostreams && docker compose up -d`.
 - Verified: Prime Movies deep pages served to exactly 1000 items (start=240 -> 60 items; start=995 -> 5 items, total 1000; ~1s deep fetch warm).
+
+### 2026-10-15 warmer: detail-page prewarm
+The warmer now also pre-fetches the per-item DETAIL shape (Items/{id}?Fields=Chapters,MediaSources,...) for each user's NextUp + Resume items (cap 20/run). First open of a likely-next item: ~2s cold -> ~10ms warm.

@@ -165,7 +165,32 @@ def main():
     for path in extras:
         warm(path, 'extra')
 
-    # dedupe, then warm item metadata in batches
+        # detail-page prewarm: the items the user most likely opens next
+    # (NextUp + Resume) in the EXACT Moonfin detail shape = the cold 2s call
+    detail_fields = ('Chapters,MediaSources,MediaStreams,People,Overview,Genres,UserData,'
+                     'RecursiveItemCount,ChildCount,ParentLogoItemId,ParentLogoImageTag,DateCreated')
+    detail_ids = []
+    for dp in ('/Shows/NextUp?UserId=%s&Limit=10&Fields=UserData' % uid,
+               '/UserItems/Resume?MediaTypes=Video&Limit=10'):
+        try:
+            dd, _ = call(dp, token, timeout=60)
+            detail_ids += [i.get('Id') for i in items_of(dd) if i.get('Id')]
+        except Exception as exc:
+            log('  FAIL detail-seed %s: %s' % (dp.split('?')[0], type(exc).__name__))
+    seen_d = set()
+    detail_ids = [i for i in detail_ids if not (i in seen_d or seen_d.add(i))][:20]
+    det_ok = det_bad = 0
+    for iid in detail_ids:
+        if time.time() - t_start > BUDGET_S:
+            break
+        try:
+            call('/Users/%s/Items/%s?Fields=%s' % (uid, iid, q(detail_fields)), token, timeout=60)
+            det_ok += 1
+        except Exception:
+            det_bad += 1
+    log('  detail prewarm: ok=%d fail=%d' % (det_ok, det_bad))
+
+# dedupe, then warm item metadata in batches
     seen = set()
     uniq = [i for i in meta_ids if not (i in seen or seen.add(i))]
     batches = 0
