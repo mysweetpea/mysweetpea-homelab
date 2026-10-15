@@ -20,3 +20,13 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  tmdb-search:
+    image: python:3.12-alpine
+    container_name: tmdb-search
+    restart: unless-stopped
+    command: ["python", "/app/aiostreams-tmdb-search.py"]
+    volumes:
+      - ./tmdb-search.py:/app/aiostreams-tmdb-search.py:ro
+      - /opt/moonbase-lite/tmdb.key:/opt/moonbase-lite/tmdb.key:ro
+    ports:
+      - "127.0.0.1:3010:3010"

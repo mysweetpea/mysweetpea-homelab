@@ -293,3 +293,52 @@ Oct 7 fix (tag 2.7.0 = Oct 5; fix = commit a40ef7ba, upstream issue #1766).
   stay un-poisoned (no cache entry for 404s); normal images MISS then HIT.
 - Backups: /root/aios-images-snippet.bak-artworkarmor-20261015,
   /root/aiostreams.bak-artworkarmor-20261015.
+
+
+## TMDB Search addon (tmdb-search.py) — added 2026-10-15
+
+**Why:** searches waited on the TMDB addon's per-result enrichment: 0.7–12s typical, a
+30s stall class (the "quince" incident). TMDB's own API answers the same queries in
+0.04–0.12s. This addon is a ~120-line stdlib service querying TMDB directly, returning
+Stremio-catalog previews with the SAME `tmdb:<id>` ids the library uses (zero
+watch-state split; details/streams pipelines unchanged).
+
+**Measured:** cold search 5–30s → 0.10–0.21s; repeats 0.04–0.07s. (2026-10-15:
+zero-result floor 3.77s→0.10s; salak 33 items = 0.13s; old path: mulberry 10.6s,
+huckleberry 13.9s, quince 30s stall.)
+
+**Architecture / deployment:**
+- Runs as a SECOND SERVICE in /opt/aiostreams/compose.yaml (`tmdb-search`,
+  python:3.12-alpine, `command: python /app/aiostreams-tmdb-search.py`) — NOT systemd,
+  because the aios container reaches it as a compose-network sibling via DNS
+  (`http://tmdb-search:3010`). Host-sidecar setups CANNOT work here: this VPS's Oracle
+  iptables REJECTs container→host connections (INPUT rule 10), and the aios rewrites
+  any URL on its own BASE_URL origin to loopback BEFORE fetching (rewriteRequestUrl,
+  core/src/utils/http.ts) — same-origin addon URLs are unreachable by design. A
+  distinct origin (sibling DNS) dodges both.
+- Files: script /opt/aiostreams/tmdb-search.py (mounted ro into the container);
+  TMDB key = /opt/moonbase-lite/tmdb.key (mounted ro); publishes 127.0.0.1:3010 for
+  the smoke suite + public debug lane.
+- nginx: `location ^~ /searchaddon/ -> 127.0.0.1:3010` on the aiostreams vhost
+  (debug/verification lane; the aios itself never uses it).
+- aios config: preset `tsf` {name: TMDB Search, manifestUrl:
+  http://tmdb-search:3010/manifest.json, resources: [catalog], timeout: 4000}.
+
+**disableSearch TRAP:** `disableSearch: true` is a NO-OP when the catalog's search
+extra is `isRequired: true` (setup.ts:645 `canDisableSearch`). Search-only catalogs
+can only be removed from the search fan-out with **`enabled: false`**. Currently
+disabled via enabled:false: `f87e3b0.tmdb.search` ×2 + `tcle3b0.ctmdb.search` —
+search fan-out is now ONLY the tsf addon (verified: response item counts match the
+addon's returns exactly).
+
+**Ops:**
+- Smoke: `bash test-tmdb-search.sh` (8 asserts, hits 127.0.0.1:3010).
+- Addon logs: `sudo docker logs tmdb-search`.
+- Restart: `cd /opt/aiostreams && sudo -S -p '' docker compose up -d --force-recreate tmdb-search`.
+- Rollback to old search: enabled:true + remove disableSearch on those three mods
+  via the config API, restart aiostreams.
+- Config API: GET/PUT https://aiostreams.mysweetpea.cc/api/v1/user, Basic auth =
+  config_uuid:config_password from /opt/moonbase-lite/config.json.
+- Backups: /opt/aiostreams/{.env,compose.yaml}.bak-*, /root/aiostreams.bak-tmdbsearch-20261015.
+- After ANY API-side config edit: hard-refresh any open configure tab (stale tabs
+  revert changes on save).
