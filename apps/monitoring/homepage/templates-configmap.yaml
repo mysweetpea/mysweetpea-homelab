@@ -391,38 +391,12 @@ data:
             type: jellyfin
             url: http://jellyfin.private.svc.cluster.local:8096
             key: ${JELLYFIN_API_KEY}
-      - Seerr:
-          id: seerr
-          href: https://request.mysweetpea.cc
-          description: Request Movies & Shows
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/overseerr.svg
-          ping: https://request.mysweetpea.cc
-          widget:
-            type: seerr
-            url: http://seerr.dmz.svc.cluster.local:5055
-            key: ${SEERR_API_KEY}
       - AIOStreams:
           id: aiostreams
           href: https://aiostreams.mysweetpea.cc
           description: Stream Anything
           icon: mdi-all-inclusive-box
           ping: https://aiostreams.mysweetpea.cc
-      - Decypharr:
-          id: decypharr
-          href: http://192.168.20.215:8282
-          description: Debrid to STRM Gateway
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/qbittorrent.svg
-          ping: http://192.168.20.215:8282
-          widget:
-            type: customapi
-            url: http://decypharr.private.svc.cluster.local:8282/sabnzbd/api?mode=queue&output=json&ma_username=http%3A%2F%2Fsonarr%3A8989&ma_password=${SONARR_API_KEY}&category=Sonarr
-            method: GET
-            mappings:
-            - field: queue.slots
-              label: Usenet Queue
-              format: size
-            - field: version
-              label: API
     - Download Stack:
       - Prowlarr:
           id: prowlarr
