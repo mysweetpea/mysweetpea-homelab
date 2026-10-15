@@ -24,8 +24,11 @@ Endpoints (all under /Moonfin/):
   GET  Tmdb/NextEpisode           -> TMDB next_episode_to_air (needs tmdb.key)
   GET  Tmdb/EpisodeRating         -> TMDB episode vote_average (needs tmdb.key)
   POST/DELETE Notifications/Register -> accepted no-op (no push delivery here)
+  GET  Tmdb/ProductionCompanies   -> companies+networks [{id,name,hasLogo}] (needs tmdb.key)
+  GET  Tmdb/StudioImage/{id}      -> PNG logo bytes (negative id = TV network)
 
-Auth: the client's Authorization header is validated against the AIOStreams
+Auth: the client's Authorization header (or ?ApiKey= query token, for image
+widgets that cannot set headers) is validated against the AIOStreams
 server's /Users/Me (loopback). Results cached 10 min. Network failure to
 AIOStreams = fail open (single-user homelab; nginx fronts this anyway).
 
@@ -300,6 +303,71 @@ def tmdb_episode_rating(tmdb_id: str, season: int, episode: int, key: str) -> di
     return result
 
 
+_TMDB_CO_CACHE = {}
+_TMDB_CO_TTL = 6 * 3600
+_TMDB_LOGO_CACHE = {}  # companyId -> (ts, bytes|None); logos are tiny
+# ponytail: in-memory logo cache; a restart just re-fetches once per company.
+
+
+def tmdb_production_companies(tmdb_id: str, mtype: str, key: str) -> dict:
+    ck = "%s:%s" % (mtype, tmdb_id)
+    hit = _TMDB_CO_CACHE.get(ck)
+    now = time.time()
+    if hit and now - hit[0] < _TMDB_CO_TTL:
+        return hit[1]
+    url = ("https://api.themoviedb.org/3/%s/%s?api_key=%s"
+           % (mtype, urllib.parse.quote(tmdb_id, safe=""),
+              urllib.parse.quote(key, safe="")))
+    try:
+        data = _http_get_json(url, {"User-Agent": "Moonfin/1.0"}, timeout=8)
+        companies = []
+        for c in (data.get("production_companies") or []):
+            if c.get("id") and (c.get("name") or "").strip():
+                companies.append({"id": c["id"], "name": c["name"],
+                                  "hasLogo": bool(c.get("logo_path"))})
+        for n in (data.get("networks") or []):  # networks ride along (C# uses -id)
+            if n.get("id") and (n.get("name") or "").strip():
+                companies.append({"id": -n["id"], "name": n["name"],
+                                  "hasLogo": bool(n.get("logo_path"))})
+        result = {"success": True, "companies": companies}
+    except Exception as exc:
+        result = {"success": False, "error": f"TMDB fetch failed: {exc}"}
+    _TMDB_CO_CACHE[ck] = (now, result)
+    return result
+
+
+def tmdb_studio_image(company_id: int, key: str):
+    """-> PNG bytes or None. Resolves the logo via TMDB /images (stateless; the
+    C# plugin instead carries logo_path from the title's detail response)."""
+    now = time.time()
+    hit = _TMDB_LOGO_CACHE.get(company_id)
+    if hit and now - hit[0] < (12 * 3600 if hit[1] else 3600):
+        return hit[1]
+    real = -company_id if company_id < 0 else company_id
+    kind = "network" if company_id < 0 else "company"
+    payload = None
+    try:
+        data = _http_get_json(
+            "https://api.themoviedb.org/3/%s/%d/images?api_key=%s"
+            % (kind, real, urllib.parse.quote(key, safe="")),
+            {"User-Agent": "Moonfin/1.0"}, timeout=8)
+        logos = [l for l in (data.get("logos") or [])
+                 if l.get("file_path") and l.get("file_type") == ".png"]
+        logos.sort(key=lambda l: l.get("iso_639_1") is not None)  # neutral first
+        if logos:
+            req = urllib.request.Request(
+                "https://image.tmdb.org/t/p/w500" + logos[0]["file_path"],
+                headers={"User-Agent": "Moonfin/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = resp.read()
+            if body:
+                payload = body
+    except Exception as exc:
+        print(f"studio image fetch failed for {company_id}: {exc}", flush=True)
+    _TMDB_LOGO_CACHE[company_id] = (now, payload)
+    return payload
+
+
 def mdblist_ratings(mtype: str, tmdb_id: str, api_key: str):
     cache_path = os.path.join(DATA_DIR, "mdblist-cache.json")
     cache = _read_json(cache_path, {})
@@ -489,13 +557,13 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
     # -- plumbing ----------------------------------------------------------
-    def _send(self, code: int, obj, ctype="application/json"):
+    def _send(self, code: int, obj, ctype="application/json", cache="no-store"):
         body = obj if isinstance(obj, bytes) else json.dumps(
             obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -516,7 +584,14 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _caller(self):
-        user, ok = whoami(self.headers.get("Authorization", ""))
+        auth = self.headers.get("Authorization", "")
+        if not auth:
+            # image widgets cannot set headers; clients append the token in the query
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            tok = (q.get("ApiKey") or q.get("api_key") or [""])[0].strip()
+            if tok:
+                auth = 'MediaBrowser Token="%s"' % tok
+        user, ok = whoami(auth)
         if not ok:
             self._send(401, {"error": "A valid user token is required"})
             return None, False
@@ -650,6 +725,39 @@ class Handler(BaseHTTPRequestHandler):
                                  "error": "No TMDB API key configured on the server."})
                 return
             self._send(200, tmdb_episode_rating(tmdb_id, int(season), int(episode), key))
+            return
+
+        # ---- tmdb: production companies + studio logo images ---------------
+        if method == "GET" and rel == "/Tmdb/ProductionCompanies":
+            tmdb_id = (query.get("tmdbId") or [""])[0].strip()
+            mtype = ("tv" if (query.get("type") or [""])[0].strip().lower() == "tv"
+                     else "movie")
+            if not tmdb_id:
+                self._send(400, {"error": "tmdbId required"})
+                return
+            resolved = resolve_profile(uid, "mobile")
+            key = (resolved.get("tmdbApiKey") or tmdb_key() or "").strip()
+            if not key:
+                self._send(200, {"success": False,
+                                 "error": "No TMDB API key configured on the server."})
+                return
+            self._send(200, tmdb_production_companies(tmdb_id, mtype, key))
+            return
+
+        if method == "GET" and rel.startswith("/Tmdb/StudioImage/"):
+            try:
+                company_id = int(rel.split("/", 3)[-1])
+            except ValueError:
+                self._send(400, {"error": "companyId required"})
+                return
+            resolved = resolve_profile(uid, "mobile")
+            key = (resolved.get("tmdbApiKey") or tmdb_key() or "").strip()
+            logo = tmdb_studio_image(company_id, key) if key else None
+            if logo:
+                self._send(200, logo, ctype="image/png",
+                           cache="public, max-age=31536000, immutable")
+            else:
+                self._send(404, {"error": "no logo"})
             return
 
         # ---- settings -------------------------------------------------------

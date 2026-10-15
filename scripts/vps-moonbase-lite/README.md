@@ -124,8 +124,14 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
 - `Tmdb/EpisodeRating` is WIRED (2026-10-15): per-episode `vote_average` from TMDB,
   response mirrors the Moonbase plugin exactly (`success, voteAverage, voteCount, name,
   airDate, seasonNumber, episodeNumber, stillPath`), 6h in-memory cache. Client reads
-  only `voteAverage`. `SeasonRatings` / `ProductionCompanies` stay unwired (zero call
-  demand recorded — same handler pattern if the client ever asks).
+  only `voteAverage`. `SeasonRatings` stays unwired (zero call demand recorded).
+- `Tmdb/ProductionCompanies` + `Tmdb/StudioImage/{id}` are WIRED (2026-10-15 night):
+  companies + TV networks ride one list (`{id, name, hasLogo}`; networks use NEGATIVE
+  ids — C# `NetworkCacheId => -id`). `hasLogo` is optimistic (logo_path present, not a
+  download check). StudioImage resolves the logo via TMDB `/company|network/{id}/images`
+  (png-only, language-neutral first, w500), served `image/png` w/ immutable cache;
+  in-memory logo dict (restart = refetch once per company). `_caller` now also accepts
+  `?ApiKey=` / `?api_key=` query tokens — image widgets cannot set headers.
 - `Notifications/Register` (POST/DELETE) is an accepted no-op: the client only checks
   the HTTP status and this stack has no push delivery path (in-app Messages is the
   channel). Kills the retry queue that produced ~41 404s/day.
