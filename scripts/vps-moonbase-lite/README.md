@@ -144,3 +144,7 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
 - Client mechanics: pools ~40 newest per catalog (SERIAL fetches, ~0.3s each — keep the
   list ≤7), filters (backdrop required, no BoxSets, genre filter, parental), shuffles,
   shows `mediaBarItemCount` (10) slides; fresh random cut every app launch.
+
+## 2026-10-15 — Since-you-watched rows 4/5 fleet-wide
+- `sinceYouWatchedNumRows=5` + `sinceYouWatched4/5Enabled` + the full 67-entry row list are now **PINS** entries (merged last = push-proof; devices re-push their own homeSections which otherwise shadow defaults.json). Row list source of truth: `moonbase_lite.py` PINS.
+- `seed-defaults.py --keep` updated to keep `sinceyouwatched4,sinceyouwatched5`.

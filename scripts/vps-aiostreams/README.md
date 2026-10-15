@@ -342,3 +342,6 @@ addon's returns exactly).
 - Backups: /opt/aiostreams/{.env,compose.yaml}.bak-*, /root/aiostreams.bak-tmdbsearch-20261015.
 - After ANY API-side config edit: hard-refresh any open configure tab (stale tabs
   revert changes on save).
+
+## 2026-10-15 — pi-lane response buffers + fleet rows update
+- snippets/aiostreams-pi-proxy.conf: added `proxy_buffer_size 16k; proxy_buffers 8 16k; proxy_busy_buffers_size 32k;` — fixes intermittent 502 ("upstream sent too big header") on large `/Items?Ids=` batch calls.

@@ -15,7 +15,7 @@ def main():
     ap.add_argument("src")
     ap.add_argument("out")
     ap.add_argument("--theme", default="mysweetpea_obsidian")
-    ap.add_argument("--keep", default="resume,nextup,sinceyouwatched1,sinceyouwatched2,sinceyouwatched3,rewatch,genres,latestmedia,collections,favoritemovies,favoriteepisodes,playlists")
+    ap.add_argument("--keep", default="resume,nextup,sinceyouwatched1,sinceyouwatched2,sinceyouwatched3,sinceyouwatched4,sinceyouwatched5,rewatch,genres,latestmedia,collections,favoritemovies,favoriteepisodes,playlists")
     a = ap.parse_args()
     doc = json.load(open(a.src))
     g = dict(doc.get("global") or {})
