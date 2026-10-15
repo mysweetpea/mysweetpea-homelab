@@ -198,3 +198,27 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   relaxed 40 -> 20 (18/18 pass).
 - ponytail: fixed thresholds (`_SIM_MIN_VOTES=30`, sim_min_ov) - loosen if a whole genre
   class ever vanishes.
+
+## 2026-10-15 late: Similar+ posters - minted image tags (fixes random blank posters)
+- Symptom: some Similar-grid items showed NO poster (blank card), randomly per item; a few
+  ids stayed blank while others recovered. Root cause: the app's image route resolves the
+  echoed `tag` FIRST (`decodeImageTag` -> URL -> relay) and only falls back to a slow, flaky
+  item-rebuild + metahub when the tag is invalid. Our minted entries shipped
+  `ImageTags.Primary: "tmdb"` (a literal, not a tag) -> every poster depended on the rebuild
+  path, which intermittently 404s per item (observed ut~0.005s; one id stayed 404 for hours
+  while other ids in the same burst served fine). The edge armor turns the 404 into a
+  68-byte transparent PNG -> invisible blank card (never cached; cs=MISS every time).
+- Fix: mint real tags in the shim (`image_tag(poster_path)`) using the app's own codec
+  (`packages/core/src/jellyfin/images.ts`): `tag = HMAC-SHA256(secret, "jellyfin-image:"+body)[:11] + body`,
+  `body = "2" + b64url("w500" + poster_path)` ("2" = the image.tmdb.org host prefix). The app
+  then relays the poster bytes directly, no rebuild. Items without a TMDB `poster_path` get
+  NO Primary tag (client skips the fetch instead of hitting the armor).
+- Provisioning: `SECRET_KEY` from `/opt/aiostreams/.env` is copied to
+  `/opt/moonbase-lite/tag.key` (ubuntu:ubuntu 600) because the shim runs as ubuntu and the
+  .env is root:600. **If the aios SECRET_KEY rotates, re-copy to tag.key and restart
+  moonbase-lite** or tags silently stop validating (blanks return). One-liner in git history
+  of this file; smoke now asserts tags != "tmdb".
+- Verified: forged tag on the then-broken id -> 200 + real JPEG; after deploy all 46 items of
+  a live list carry valid tags (0 missing / 0 stale) and all 5 target posters stream through
+  the public lane (JPEG magic checked). Smoke: 19 asserts.
+

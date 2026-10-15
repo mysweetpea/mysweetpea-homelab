@@ -59,5 +59,8 @@ else echo "FAIL similarplus-series"; fail=$((fail+1)); fi
 if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/b2c6748f54b619ae8c19750fe3840b87" | python3 -c "import json,sys; d=json.load(sys.stdin); n=len(d.get('Items',[])); assert n>=20, n" 2>/dev/null; then
   echo "PASS similarplus-episode-series-fallback (>=20)"; pass=$((pass+1));
 else echo "FAIL similarplus-episode-series-fallback"; fail=$((fail+1)); fi
+if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/b2c6748f54b619ae8c19750fe3840b87" | python3 -c "import json,sys; ts=[(i.get('ImageTags') or {}).get('Primary','') for i in json.load(sys.stdin).get('Items',[])]; assert ts and all(t and t!='tmdb' for t in ts), ts[:3]" 2>/dev/null; then
+  echo "PASS similarplus-image-tags"; pass=$((pass+1));
+else echo "FAIL similarplus-image-tags"; fail=$((fail+1)); fi
 echo "== $pass passed, $fail failed =="
 [ $fail -eq 0 ]

@@ -46,7 +46,9 @@ State lives in DATA_DIR (default /opt/moonbase-lite/data):
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import os
 import queue
@@ -441,6 +443,40 @@ def _mint_item_id(tmdb_id: int, mtype: str):
     return "a1" + tag + "000000" + ("%06x" % tmdb_id) + "ffffffff000000"
 
 
+_TAG_KEY_PATH = "/opt/moonbase-lite/tag.key"
+_TAG_KEY = None
+
+
+def _tag_signing_key():
+    """aios SECRET_KEY (copied to tag.key at deploy; see README) used to sign image tags."""
+    global _TAG_KEY
+    if _TAG_KEY is None:
+        try:
+            with open(_TAG_KEY_PATH, "r", encoding="utf-8") as fh:
+                _TAG_KEY = fh.read().strip()
+        except OSError:
+            _TAG_KEY = ""
+    return _TAG_KEY
+
+
+def image_tag(poster_path, size="w500"):
+    """Mint an AIOStreams image tag carrying the TMDB poster URL.
+
+    The app's image route returns decodeImageTag(tag) verbatim (relayed, no
+    item rebuild), so grid posters never depend on the flaky rebuild/metahub
+    path. Mirrors core/src/jellyfin/images.ts: body = code ('2' = tmdb) +
+    b64url(rest); tag = HMAC-SHA256(secret, 'jellyfin-image:'+body)[:11] + body.
+    """
+    if not poster_path or not _tag_signing_key():
+        return None
+    rest = "%s%s" % (size, poster_path)
+    body = "2" + base64.urlsafe_b64encode(rest.encode()).rstrip(b"=").decode()
+    sig = base64.urlsafe_b64encode(
+        hmac.new(_tag_signing_key().encode(), ("jellyfin-image:" + body).encode(),
+                 hashlib.sha256).digest()).rstrip(b"=").decode()[:11]
+    return sig + body
+
+
 def _tmdb_results(mtype: str, tmdb_id: int, kind: str, page: int, key: str):
     url = "%s/%s/%d/%s?%s" % (_SIM_TMDB, mtype, tmdb_id, kind,
                               urllib.parse.urlencode({"page": page, "api_key": key}))
@@ -530,10 +566,11 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
         if not name or not minted:
             continue
         rel = str(m.get("release_date") or m.get("first_air_date") or "")
+        tag = image_tag(m.get("poster_path"))
         entry = {"Id": minted, "Name": name, "SortName": name,
                  "ServerId": item.get("ServerId") or "",
                  "Type": "Movie" if mtype == "movie" else "Series",
-                 "ImageTags": {"Primary": "tmdb"},
+                 "ImageTags": ({"Primary": tag} if tag else {}),
                  "BackdropImageTags": [],
                  "PrimaryImageAspectRatio": 0.6666667,
                  "ProviderIds": {"Tmdb": str(m.get("id"))},
