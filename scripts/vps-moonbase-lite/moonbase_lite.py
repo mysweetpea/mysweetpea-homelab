@@ -352,7 +352,7 @@ def tmdb_studio_image(company_id: int, key: str):
             % (kind, real, urllib.parse.quote(key, safe="")),
             {"User-Agent": "Moonfin/1.0"}, timeout=8)
         logos = [l for l in (data.get("logos") or [])
-                 if l.get("file_path") and l.get("file_type") == ".png"]
+                 if str(l.get("file_path") or "").lower().endswith(".png")]
         logos.sort(key=lambda l: l.get("iso_639_1") is not None)  # neutral first
         if logos:
             req = urllib.request.Request(
