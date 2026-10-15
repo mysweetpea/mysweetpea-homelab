@@ -1,0 +1,10 @@
+#EXTM3U
+# AceStream test channels for the Jellyfin Live TV try-out (2026-10-15).
+# Streams flow: Jellyfin -> acexy (acestream.private.svc:8080) -> ace engine -> P2P swarm.
+# NOTE: live Ace infohashes rotate per broadcast; this file is a snapshot. Refresh = replace hashes.
+#EXTINF:-1 group-title="AceStream",Sky Sports Cricket [UK]
+http://acestream.private.svc:8080/ace/getstream?infohash=610eefafd6602c094e8e89c249a11d635cb6fe29
+#EXTINF:-1 group-title="AceStream",BBC Earth
+http://acestream.private.svc:8080/ace/getstream?infohash=d2dc4bbd0b3faa5e0ded76a644965324907238ea
+#EXTINF:-1 group-title="AceStream",NBA TV [US]
+http://acestream.private.svc:8080/ace/getstream?infohash=42832fbf9a1d3bdcca043e09951d6769fbbe04e7
