@@ -913,3 +913,50 @@ spec:
       protocol: TCP
   policyTypes:
   - Egress
+---
+# AceStream (Live TV/Sports try-out 2026-10-14): Jellyfin (plugin or M3U tuner)
+# -> acexy :8080 and engine :6878. LAN/LB ingress via allow-lan-vpn-ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-jellyfin-acestream-ingress
+  namespace: private
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: acestream
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: jellyfin
+    ports:
+    - port: 6878
+      protocol: TCP
+    - port: 8080
+      protocol: TCP
+  policyTypes:
+  - Ingress
+---
+# Ace P2P swarms: arbitrary UDP/TCP ports to internet peers. Private egress is
+# allow-listed (cluster-internal + selected ports only), which would starve the
+# swarm -> open all ports, RFC1918 excluded (house allow-internet-egress style).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-acestream-egress
+  namespace: private
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: acestream
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+  policyTypes:
+  - Egress

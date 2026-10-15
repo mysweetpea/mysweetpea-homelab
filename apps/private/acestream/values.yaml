@@ -1,0 +1,67 @@
+# acestream: P2P live-stream engine (Ace Stream) + acexy multiplexing proxy.
+# Try-out 2026-10-14 for the Jellyfin Live TV/Sports role: Jellyfin (or its
+# AceStream plugin / an M3U tuner) talks to acexy on :8080; acexy fans out
+# (per-client PID + multiplexing) to the engine on 127.0.0.1:6878 (same pod).
+# LAN-only: no public ingress route; JF reach is covered by netpol
+# allow-jellyfin-acestream-ingress. The engine needs arbitrary-port P2P egress
+# to internet peers -> netpol allow-acestream-egress (RFC1918 excluded).
+controllers:
+  acestream:
+    containers:
+      engine:
+        image:
+          repository: wafy80/acestream
+          # upstream publishes a single rolling tag; pin by digest if it churns
+          tag: latest
+        args: ["--client-console", "--bind-all"]
+        env:
+        - name: TZ
+          value: America/New_York
+        ports:
+        - name: engine
+          containerPort: 6878
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 2000m
+            memory: 1Gi
+      acexy:
+        image:
+          repository: ghcr.io/javinator9889/acexy
+          tag: latest
+        env:
+        - name: ACEXY_HOST
+          value: 127.0.0.1
+        - name: ACEXY_PORT
+          value: "6878"
+        - name: ACEXY_LISTEN_ADDR
+          value: ":8080"
+        - name: TZ
+          value: America/New_York
+        ports:
+        - name: proxy
+          containerPort: 8080
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+service:
+  main:
+    controller: acestream
+    type: LoadBalancer
+    loadBalancerIP: 192.168.20.212
+    allocateLoadBalancerNodePorts: false
+    ports:
+      engine:
+        port: 6878
+        targetPort: 6878
+      proxy:
+        port: 8080
+        targetPort: 8080
