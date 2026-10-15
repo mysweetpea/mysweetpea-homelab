@@ -764,6 +764,18 @@ data:
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/gopeed.svg
           server: ''
 
+      - Sportarr:
+          id: sportarr
+          href: https://sportarr.net/
+          description: Sports PVR (Matches & Replays)
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sportarr.svg
+          server: ''
+      - Dispatcharr:
+          id: dispatcharr
+          href: https://github.com/Dispatcharr/Dispatcharr
+          description: IPTV Channel Manager (Live TV)
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/dispatcharr.svg
+          server: ''
   settings.yaml: |
     title: SweetPea Homelab
     description: Your private command center
