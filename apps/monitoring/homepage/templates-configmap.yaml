@@ -386,7 +386,6 @@ data:
           href: https://media.mysweetpea.cc
           description: Movies, TV & Music
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/jellyfin.svg
-          ping: https://media.mysweetpea.cc
           widget:
             type: jellyfin
             url: http://jellyfin.private.svc.cluster.local:8096
@@ -415,7 +414,6 @@ data:
           href: http://192.168.20.224:9696
           description: Indexer Manager
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/prowlarr.svg
-          ping: http://192.168.20.224:9696
           widget:
             type: prowlarr
             url: http://prowlarr.private.svc.cluster.local:9696
@@ -425,12 +423,17 @@ data:
           href: http://192.168.20.214:8191
           description: Cloudflare Bypass
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/flaresolverr.svg
-          ping: http://192.168.20.214:8191
       - Prowlarr Relay:
           id: prowlarr-relay
           href: ''
           description: NZB proxy for the VPS engine
           icon: mdi-swap-horizontal
+          server: ''
+      - Gopeed:
+          id: gopeed
+          href: 'http://192.168.1.153:9999'
+          description: Download Manager (PC · Privado VPN)
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/gopeed.svg
           server: ''
     - AI & Assistants:
       - Open WebUI:
@@ -445,25 +448,21 @@ data:
           href: http://192.168.20.234:5001
           description: Document Conversion
           icon: mdi-file-convert-outline
-          ping: http://192.168.20.234:5001
       - Firecrawl:
           id: firecrawl
           href: http://192.168.20.237:3002
           description: Web Scraper API
           icon: mdi-spider-web
-          ping: http://192.168.20.237:3002
       - MCP Server:
           id: mcp-server
           href: http://192.168.20.238:8080
           description: Kubernetes MCP
           icon: mdi-cube-outline
-          ping: http://192.168.20.238:8080
       - Open Terminal:
           id: open-terminal
-          href: http://192.168.20.236:8000
+          href: 'http://192.168.20.236:8000/docs'
           description: AI Terminal Server
           icon: mdi-console-line
-          ping: http://192.168.20.236:8000
     - Personal Cloud:
       - Vaultwarden:
           id: vaultwarden
@@ -544,7 +543,7 @@ data:
               format: number
       - RustDesk:
           id: rustdesk
-          href: http://192.168.20.216:21115
+          href: ''
           description: Remote Desktop
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/rustdesk.svg
     - Chat:
@@ -586,10 +585,9 @@ data:
             key: ${AUTHENTIK_API_TOKEN}
       - Traefik:
           id: traefik
-          href: http://192.168.20.210:8080
+          href: 'http://192.168.20.210:8080/dashboard/'
           description: Reverse Proxy
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/traefik.svg
-          ping: http://192.168.20.210:8080
           widget:
             type: traefik
             url: http://192.168.20.210:8080
@@ -599,14 +597,12 @@ data:
           id: argocd
           href: http://192.168.20.220
           description: GitOps Console
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/argocd.svg
-          ping: http://192.168.20.220
+          icon: 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/argo-cd.svg'
       - SearXNG:
           id: searxng
           href: http://192.168.20.230:8080
           description: Private Search
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/searxng.svg
-          ping: http://192.168.20.230:8080
       - Uptime Kuma:
           id: uptime-kuma
           href: https://status.mysweetpea.cc/status/homelab
@@ -622,13 +618,11 @@ data:
           href: http://192.168.20.226:3000
           description: Dashboards & Logs
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/grafana.svg
-          ping: http://192.168.20.226:3000
       - Netdata:
           id: netdata
           href: http://192.168.20.229:19999
           description: Real-time Node Monitoring
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/netdata.svg
-          ping: http://192.168.20.229:19999
           widget:
             type: netdata
             url: http://netdata.monitoring.svc.cluster.local:19999
@@ -637,7 +631,6 @@ data:
           href: http://192.168.20.221
           description: Storage Management
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/longhorn.svg
-          ping: http://192.168.20.221
       - igotify-assist:
           id: igotify-assist
           href: ''
@@ -693,12 +686,12 @@ data:
           server: ''
       - Torrin:
           id: torrin
-          href: https://torrin.mysweetpea.cc
+          href: ''
           description: Debrid Service
           icon: mdi-link-variant
       - Neko:
           id: neko
-          href: https://neko.mysweetpea.cc
+          href: 'https://github.com/m1k1o/neko'
           description: Virtual Browser
           icon: mdi-cat
       - Syncthing:
@@ -767,12 +760,6 @@ data:
           description: Retro Game Library & Player
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/romm.svg
           server: ''
-      - Gopeed:
-          id: gopeed
-          href: https://github.com/GopeedLab/gopeed
-          description: Download Manager (HTTP/BT/Magnet)
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/gopeed.svg
-          server: ''
       - Sportarr:
           id: sportarr
           href: https://sportarr.net/
@@ -833,7 +820,7 @@ data:
           id: cleanuparr-r
           href: ''
           description: Queue cleanup — retired Oct 2026
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/cleanuparr.svg
+          icon: 'mdi-archive-outline'
           server: ''
       - STRM Repair Bridge:
           id: strm-repair-r
