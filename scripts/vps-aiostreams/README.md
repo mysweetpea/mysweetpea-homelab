@@ -186,10 +186,32 @@ path (per-user entries), requests without an Authorization header bypass the cac
 other `/Users/*/Items` call is BYPASS / never-stored (they carry live UserData). Upstream sends
 `Cache-Control: no-store`, so the snippet ignores Set-Cookie/Cache-Control/Expires/Vary.
 Measured: bar fetch 46ms -> 13ms HIT; Popular Shows (the chronic ~0.7s sort) 695ms -> 12ms;
-rows/kids unchanged (BYPASS); no-auth = 401 upstream. NOTE: nginx locations match the URI only -
+rows/kids unchanged (BYPASS); no-auth = 401 upstream. Re-proven 2026-10-15: two fetches with different fresh MaxPremiereDate ts -> same entry HIT. NOTE: nginx locations match the URI only -
 the query-string gate lives in maps, never in a location regex. Files:
 `nginx-aios-api-cache.zone.conf` + `nginx-aiostreams-bar-cache.snippet.conf`.
 Backup: `/root/aiostreams-site.bak-barcache{,-2}-20261014`.
+
+## Items/Latest row micro-cache (2026-10-15, perf)
+The 12 marquee "Recently Added <catalog>" rows were the last uncached class - and the one
+real server cost per render: the aios Node app serves them effectively SERIALLY on its
+single event loop (~60-80ms each; a 12-parallel burst ramps 0.32 -> 1.02s; a quiet isolated
+fetch ~20ms), stretching to 0.8-1.7s each under a full render burst (measured from a real
+client diagnostic + live thread-pool probes). New vhost location
+`location ~* "/Users/[^/]+/Items/Latest"` (inserted BEFORE the generic
+`/Users/[^/]+/(Items|Shows)` block - first regex match wins) includes the pi-proxy snippet
+plus `nginx-aios-rows-cache.snippet.conf`: zone `aios_api` reused; key = the full URL
+(`"$scheme$host$uri?$args"` - row args are stable, no ts params); TTL 120s; cache_lock on;
+ignores Cache-Control/Set-Cookie/Expires/Vary (upstream sends `no-store`); no-auth bypass via
+the shared `$aios_bar_bypass` map; `X-Aios-Cache` header for debugging. Every other shape in
+the generic location still BYPASS / never-stored (they carry live UserData). TTL=120s is
+deliberate: rows carry live UserData (progress badges) - short enough to be invisible, long
+enough to absorb refresh-taps and second-device loads within a session; per-item detail/state
+reads stay uncached (favourite-revert class). First cold render of the day is unchanged -
+this kills repeats and shrinks the burst's event-loop occupancy.
+Verified (2026-10-15): rows MISS -> HIT (`rt=0.000`, `x-aios-cache: HIT`, lane header intact);
+children/SWY probes still BYPASS; nginx -t + reload clean; error.log silent since reload.
+Backup: `/root/aiostreams.bak-rowcache-20261015`; rollback = restore it, drop the include +
+snippet, reload.
 
 ## Latest-items exclude injection (2026-10-14, perf; re-aimed + fixed 22:15 UTC)
 Moonfin's home fetches one `Items/Latest` per visible catalog view - the ~37-fetch boot
