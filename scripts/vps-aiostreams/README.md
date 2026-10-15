@@ -429,3 +429,24 @@ bare/mount lanes share entries; one-off `too big header` 502 on a 150-id meta ba
 16:08Z) not reproducible (same batch replays 200, ~680B headers) - lane has 16k header buffers.
 Backups on VPS: `aios-api-cache.conf.bak-keyv2-20261015`, `/root/aiostreams-site.bak-uidless-20261015`,
 `/root/aiostreams-warmer.py.bak-v1-20261015` / `.bak-v2-20261015`.
+
+### 2026-10-15 late — playback failover depth 12 (the "[AIOStreams] Failed to Download" card)
+User report chain: "AIOStreams error download during playback" -> the app's notice card
+(`/static/download_failed.mp4`, 307-redirected from the stream URL when a release fails usenet
+availability verification) -> "still got the same error" -> deep audit.
+Root cause: the failover chain = clicked + same-release variants + the NEXT N items of the ranked
+list. Old shows front-load the SAME dead families on every episode (Adventure Time: EPSiLON/iVy
+2010-era posts — gone or RAR-corrupt), and the chain depth was 4-6 — it exhausted INSIDE the dead
+block, right before the live mid-band (Smad/PoF/DEiMOS sit at slots ~5-8).
+Not a regression: zero engine lines for the show before the first card (the card had never been
+served before), provider streaming fine — new content + shallow rescue, not a broken system.
+FIX: `.env` += `MAX_FAILOVER_ATTEMPTS=12` (container recreate needed) + user config
+`failover.maxAttempts: 12` (PUT /api/v1/user, readback verified). Chain = 13 slots.
+E2E: replaying the user's exact clicks (S01E01 Slumber Party Panic + S01E04 Tree Trunks):
+307 -> /api/v1/usenet/stream in <1s, real MKV bytes; member path proven with a throwaway persona
+(same list, same resolve + bytes; persona removed after). Timing: <1s when dead candidates are
+verdict-cached, ~5-10s on a first-ever click of a graveyard episode.
+Self-heal context: dead verdicts (release blocklist) drop releases from FRESH list builds — Tree
+Trunks' list went 25 -> 11 versions after verdicts + restart; the list cache is 24h
+(`STREAM_CACHE_TTL`/`PIPELINE_CACHE_TTL=86400`), so failover carries the lag.
+Backup on VPS: `.env.bak-deepfailover-20261015`.
