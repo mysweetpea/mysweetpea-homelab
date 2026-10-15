@@ -749,18 +749,6 @@ data:
           description: Local AI Model Training
           icon: https://avatars.githubusercontent.com/u/150920049?v=4
           server: ''
-      - Maintainerr:
-          id: maintainerr
-          href: https://github.com/jorenn92/Maintainerr
-          description: Auto-Remove Unwatched Media
-          icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons@main/svg/maintainerr.svg
-          server: ''
-      - Profilarr:
-          id: profilarr
-          href: https://profilarr.com
-          description: Sync Arr Quality Profiles
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/profilarr.svg
-          server: ''
       - Paperless AI:
           id: paperless-ai
           href: https://github.com/clusterzx/paperless-ai
@@ -772,12 +760,6 @@ data:
           href: https://github.com/speaches-ai/speaches
           description: AI Transcription (Whisper API)
           icon: mdi-microphone-message-outline
-          server: ''
-      - Watcharr:
-          id: watcharr
-          href: https://github.com/sbondCo/Watcharr
-          description: Watched List & Ratings
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/watcharr.svg
           server: ''
       - CrossWatch:
           id: crosswatch
@@ -810,6 +792,12 @@ data:
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/dispatcharr.svg
           server: ''
 
+      - SABnzbd:
+          id: sabnzbd
+          href: ''
+          description: Usenet Downloader (Games & ROMs)
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sabnzbd.svg
+          server: ''
     - Retired:
       - Decypharr:
           id: decypharr-r
