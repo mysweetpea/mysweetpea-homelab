@@ -410,6 +410,120 @@ AVATAR_PALETTE = [
 ]
 
 
+# --------------------------------------------------------------------------
+# Similar+ (2026-10-15): expand the 20-item /Items/{id}/Similar with merged
+# TMDB recommendations (episodes borrow their series' - stock returns empty).
+# Unknown titles get MINTED item ids from AIOStreams' deterministic scheme
+# (live-verified 2026-10-15):
+#   movie  = "a1" + "1201" + "000000" + %06x(tmdb) + "ffffffff000000"
+#   series = "a1" + "2202" + "000000" + %06x(tmdb) + "ffffffff000000"
+# ponytail: 60-item cap; minted entries carry static unplayed UserData.
+_SIM_CACHE = {}      # item_id -> (ts, payload)
+_SIM_TTL = 86400
+_SIM_MAX = 60
+_SIM_TMDB = "https://api.themoviedb.org/3"
+
+
+def _mint_item_id(tmdb_id: int, mtype: str):
+    if not (0 < tmdb_id < 0x1000000):
+        return None
+    tag = "1201" if mtype == "movie" else "2202"
+    return "a1" + tag + "000000" + ("%06x" % tmdb_id) + "ffffffff000000"
+
+
+def _tmdb_results(mtype: str, tmdb_id: int, kind: str, page: int, key: str):
+    url = "%s/%s/%d/%s?%s" % (_SIM_TMDB, mtype, tmdb_id, kind,
+                              urllib.parse.urlencode({"page": page, "api_key": key}))
+    try:
+        return _http_get_json(url, {}, timeout=8).get("results") or []
+    except Exception:
+        return []
+
+
+def similar_plus(auth_header: str, caller: dict, item_id: str):
+    """-> (payload | None, err | None). None payload = caller falls back to stock."""
+    hit = _SIM_CACHE.get(item_id)
+    if hit and time.time() - hit[0] < _SIM_TTL:
+        return hit[1], None
+    key = tmdb_key()
+    uid = caller.get("id") or ""
+    if not key or not uid:
+        return None, ("no tmdb key" if not key else "no uid")
+    base = CFG["aios_url"].rstrip("/") + "/jellyfin"
+    hdrs = {"Authorization": auth_header}
+
+    def _item(iid, fields):
+        return _http_get_json("%s/Users/%s/Items/%s?Fields=%s"
+                              % (base, urllib.parse.quote(uid, safe=""),
+                                 urllib.parse.quote(iid, safe=""), fields),
+                              hdrs, timeout=10)
+
+    try:
+        item = _item(item_id, "ProviderIds,SeriesId,Type")
+    except Exception as exc:
+        return None, "item fetch failed: %s" % exc
+    itype = item.get("Type")
+    mtype = None
+    tmdb_id = None
+    if itype == "Episode":
+        mtype = "tv"
+        if item.get("SeriesId"):
+            try:
+                tmdb_id = (_item(item["SeriesId"], "ProviderIds").get("ProviderIds") or {}).get("Tmdb")
+            except Exception:
+                pass
+    elif itype in ("Series", "Movie"):
+        mtype = "tv" if itype == "Series" else "movie"
+        tmdb_id = (item.get("ProviderIds") or {}).get("Tmdb")
+    if not mtype or not tmdb_id or not str(tmdb_id).isdigit():
+        return None, "no tmdb id (%s)" % itype
+    seed = int(tmdb_id)
+    seen = {seed}
+    rows = []
+    for kind in ("recommendations", "similar"):
+        for page in (1, 2):
+            for m in _tmdb_results(mtype, seed, kind, page, key):
+                mid = m.get("id")
+                if mid and mid not in seen:
+                    seen.add(mid)
+                    rows.append(m)
+                if len(rows) >= _SIM_MAX:
+                    break
+            if len(rows) >= _SIM_MAX:
+                break
+        if len(rows) >= _SIM_MAX:
+            break
+    items = []
+    for m in rows:
+        name = m.get("title") or m.get("name")
+        minted = _mint_item_id(int(m.get("id") or 0), mtype)
+        if not name or not minted:
+            continue
+        rel = str(m.get("release_date") or m.get("first_air_date") or "")
+        entry = {"Id": minted, "Name": name, "SortName": name,
+                 "ServerId": item.get("ServerId") or "",
+                 "Type": "Movie" if mtype == "movie" else "Series",
+                 "ImageTags": {"Primary": "tmdb"},
+                 "BackdropImageTags": [],
+                 "PrimaryImageAspectRatio": 0.6666667,
+                 "ProviderIds": {"Tmdb": str(m.get("id"))},
+                 "UserData": {"Played": False, "PlayCount": 0,
+                              "PlaybackPositionTicks": 0, "IsFavorite": False}}
+        if rel[:4].isdigit():
+            entry["ProductionYear"] = int(rel[:4])
+        if m.get("overview"):
+            entry["Overview"] = m["overview"]
+        try:
+            if m.get("vote_average"):
+                entry["CommunityRating"] = round(float(m["vote_average"]), 1)
+        except Exception:
+            pass
+        items.append(entry)
+    payload = {"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}
+    _SIM_CACHE[item_id] = (time.time(), payload)
+    return payload, None
+
+
 def _png_rgba(w: int, h: int, px: bytearray) -> bytes:
     import struct
     import zlib
@@ -607,6 +721,38 @@ class Handler(BaseHTTPRequestHandler):
         is_admin = not (user or {}).get("persona")
         return {"id": uid, "admin": is_admin, "user": user}, True
 
+    # -- Similar+ (2026-10-15) ---------------------------------------------
+    def _similar_plus_route(self, path, query):
+        caller, ok = self._caller()
+        if not ok:
+            return
+        item_id = (path[len("/SimilarPlus/"):] or "").strip("/").split("/")[0]
+        if len(item_id) != 32 or any(c not in "0123456789abcdefABCDEF" for c in item_id):
+            self._send(404, {"error": "not found"})
+            return
+        auth = self.headers.get("Authorization", "")
+        payload, err = similar_plus(auth, caller, item_id)
+        if payload is not None:
+            self._send(200, payload)
+            return
+        print("similar+: fallback for %s (%s)" % (item_id, err), flush=True)
+        url = (CFG["aios_url"].rstrip("/") + "/jellyfin/Items/%s/Similar"
+               % urllib.parse.quote(item_id, safe=""))
+        if query:
+            url += "?" + urllib.parse.urlencode(query, doseq=True)
+        try:
+            req = urllib.request.Request(url, headers={"Authorization": auth})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                self._send(getattr(resp, "status", 200),
+                           json.loads(resp.read().decode("utf-8", "replace")))
+        except urllib.error.HTTPError as exc:
+            try:
+                self._send(exc.code, json.loads(exc.read().decode("utf-8", "replace")))
+            except Exception:
+                self._send(exc.code, {"error": "similar upstream error"})
+        except Exception as exc:
+            self._send(502, {"error": "similar unavailable: %s" % exc})
+
     # -- routing -----------------------------------------------------------
     def do_GET(self):
         self._route("GET")
@@ -621,6 +767,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         query = urllib.parse.parse_qs(parsed.query)
+        if path.startswith("/SimilarPlus/"):
+            self._similar_plus_route(path, query)
+            return
         if not path.startswith("/Moonfin"):
             self._send(404, {"error": "not found"})
             return

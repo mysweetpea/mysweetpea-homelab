@@ -148,3 +148,18 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
 ## 2026-10-15 — Since-you-watched rows 4/5 fleet-wide
 - `sinceYouWatchedNumRows=5` + `sinceYouWatched4/5Enabled` + the full 67-entry row list are now **PINS** entries (merged last = push-proof; devices re-push their own homeSections which otherwise shadow defaults.json). Row list source of truth: `moonbase_lite.py` PINS.
 - `seed-defaults.py --keep` updated to keep `sinceyouwatched4,sinceyouwatched5`.
+
+## 2026-10-15 — Similar+ (60-item Similar tab + "Because you watched" seeds)
+- nginx: `~ "^/jellyfin/(?:[^/]+/){0,2}Items/[0-9a-fA-F]{32}/Similar$"` →
+  shim `/SimilarPlus/<id>`, fail-open two ways: shim 5xx/down → `@similar_stock`
+  relays the stock endpoint; no-tmdb/unknown items → the handler relays itself.
+  The client calls it bare (no `/Users`) for BOTH the detail Similar tab and the
+  since-you-watched rows — one interceptor covers both.
+- Handler: resolves the item via the caller's token, uses its Tmdb provider id
+  (episodes → their series — stock returns empty for episodes), merges TMDB
+  recommendations+similar pages 1-2, dedupes, caps at 60, mints deterministic
+  AIOStreams item ids (`a1 + 1201|2202 + 000000 + %06x(tmdb) + ffffffff000000`,
+  live-verified — minted items resolve as full items incl. images) and serves a
+  Jellyfin QueryResult. 24h in-memory cache. ponytail: minted entries carry
+  static unplayed UserData.
+- Smoke suite now 18 asserts (incl. SimilarPlus direct + episode→series fallback).

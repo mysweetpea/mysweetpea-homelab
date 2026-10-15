@@ -332,7 +332,7 @@ search fan-out is now ONLY the tsf addon (verified: response item counts match t
 addon's returns exactly).
 
 **Ops:**
-- Smoke: `bash test-tmdb-search.sh` (8 asserts, hits 127.0.0.1:3010).
+- Smoke: `bash test-tmdb-search.sh` (13 asserts: search + 21 deep catalogs + skip paging, hits 127.0.0.1:3010).
 - Addon logs: `sudo docker logs tmdb-search`.
 - Restart: `cd /opt/aiostreams && sudo -S -p '' docker compose up -d --force-recreate tmdb-search`.
 - Rollback to old search: enabled:true + remove disableSearch on those three mods
@@ -345,3 +345,24 @@ addon's returns exactly).
 
 ## 2026-10-15 — pi-lane response buffers + fleet rows update
 - snippets/aiostreams-pi-proxy.conf: added `proxy_buffer_size 16k; proxy_buffers 8 16k; proxy_busy_buffers_size 32k;` — fixes intermittent 502 ("upstream sent too big header") on large `/Items?Ids=` batch calls.
+
+## 2026-10-15 — deep service catalogs (tmdb-search v1.1.0) + BoxSet-children micro-cache
+- tmdb-search.py v1.1.0: +21 deep per-service catalogs backed by TMDB `discover`
+  (popularity sort, watch-provider filter, Stremio `skip` paging → ~1000+ titles each).
+  Provider facts verified live: Paramount+ = **2303** (531 = legacy junk, 4 results),
+  Prime = **9** (119 is re-keyed/empty in the US region), Canal+ needs
+  `watch_region=FR` (US → 0 results). Single-segment URL form
+  `/catalog/<type>/<id>.json` carries `.json` on the id segment — strip before lookup.
+- Fleet wiring: the 21 old streamer catalogs (`75de3b0.nfx/amp/dnp/hbm/hlu/pmp/pcp/atp/cru/dpe/cpd`)
+  were swapped in place via catalogModifications → `tsfe3b0.<svc>-movies|-shows` (enabled),
+  old entries appended `enabled:false` (un-referenced catalogs default-enable — they MUST
+  stay referenced as disabled). Net: same names + display order, deeper content.
+  `mediaBarLibraryIds` Netflix-Movies id updated in defaults.json + user file +
+  seed-defaults.py. Rollback = flip the pairs back (enable old ids, disable tsfe ids).
+- BoxSet-children micro-cache: `conf.d/aios-api-cache.conf` gains `$aios_is_child`
+  (ParentId=`b…` + no IncludeItemTypes) + `$aios_no_meta`; bar-cache snippet bypass now
+  uses `$aios_no_meta` and TTL is 120s for both shapes (children carry live UserData —
+  same tradeoff as the row cache; the bar shares the location and inherits the fresher TTL).
+- Similar+ (the /Items/<id>/Similar expansion from 20 → 60) is moonbase-lite side — see
+  `scripts/vps-moonbase-lite/README.md`; its nginx fail-open location lives in
+  `nginx-aiostreams-site.conf`.
