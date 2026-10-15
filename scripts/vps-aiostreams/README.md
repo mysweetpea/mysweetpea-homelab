@@ -366,3 +366,8 @@ addon's returns exactly).
 - Similar+ (the /Items/<id>/Similar expansion from 20 → 60) is moonbase-lite side — see
   `scripts/vps-moonbase-lite/README.md`; its nginx fail-open location lives in
   `nginx-aiostreams-site.conf`.
+
+## 2026-10-15 late: library depth cap
+- `.env` += `JELLYFIN_MAX_CATALOG_ITEMS=1000` (upstream default 250 caps every catalog-backed library walk; per-request Limit clamp = min(500, max(100, V)); walk guard <=60 pages/request; 0 disables).
+- Env change needs a container recreate: `cd /opt/aiostreams && docker compose up -d`.
+- Verified: Prime Movies deep pages served to exactly 1000 items (start=240 -> 60 items; start=995 -> 5 items, total 1000; ~1s deep fetch warm).

@@ -162,6 +162,8 @@ PINS = {
     "sinceYouWatchedNumRows": 5,
     "sinceYouWatched4Enabled": True,
     "sinceYouWatched5Enabled": True,
+    # Similar tab + syw rows: server /Similar (60 items) instead of client-side 20-cap local algo.
+    "recommendationSystemSource": "server",
     # Fleet row list (push-proof): devices re-push their own homeSections which would
     # otherwise shadow defaults.json and disable rows 4/5 (seen 2026-10-15). Order: all personalized rows first
     # (resume..playlists), then browse rows (genres / latestmedia / collections).

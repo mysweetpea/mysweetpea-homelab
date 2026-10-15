@@ -163,3 +163,8 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   Jellyfin QueryResult. 24h in-memory cache. ponytail: minted entries carry
   static unplayed UserData.
 - Smoke suite now 18 asserts (incl. SimilarPlus direct + episode→series fallback).
+
+## 2026-10-15 late: recommendationSystemSource pinned to server
+- PINS += `recommendationSystemSource: "server"` (enum local|server|online; client default = local).
+- Detail-page Similar fork: server -> `/Items/{id}/Similar` (shim Similar+, 60 items); local -> client-side genre/people algorithm hard-capped at 20 (the queries seen in client logs); online -> TMDB (needs Seerr; dormant). Episodes always use /Similar.
+- Mirrored into data/defaults.json, all four user-file scopes (global/desktop/mobile/tv), and seed-defaults.py. Devices adopt at app boot (~5s in); the user's own Settings toggle snaps back on next boot by design.
