@@ -82,7 +82,7 @@ def log(msg):
 
 
 def call(path, token=None, timeout=90, method='GET', body=None):
-    hdr = {'Authorization': 'MediaBrowser Token="%s"' % token} if token else {'Authorization': 'MediaBrowser'}
+    hdr = {'X-Aios-Warm': '1', 'Authorization': 'MediaBrowser Token="%s"' % token} if token else {'X-Aios-Warm': '1', 'Authorization': 'MediaBrowser'}
     data = json.dumps(body).encode() if body is not None else None
     if data:
         hdr['Content-Type'] = 'application/json'

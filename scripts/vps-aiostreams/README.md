@@ -385,8 +385,7 @@ the warmer warmed bar shapes as `IncludeItemTypes=Movie,Series` but the client f
 `inactive=30m` < warm gap so even fresh entries could be swept.
 Fix: warmer cron `13 */2` -> `13 *` (hourly); rows/bar/children `proxy_cache_valid 120s -> 10800s`;
 `proxy_cache_path inactive=30m -> 4h`; warmer warms per-type bar shapes + all BoxSet children
-(`children prewarm ok=50`). LAW: edge TTL must be >= warmer cadence — hourly warm + 3h TTL means a
-boot is always a HIT with worst-case staleness 1h (rows/children carry UserData; browse-row staleness
+(`children prewarm ok=50`). LAW (CORRECTED 2026-10-15 v3 - original claim was wrong; see v3 section at EOF): edge TTL alone does not keep entries fresh - an nginx cache HIT does NOT extend an entry's TTL (rows/children carry UserData; browse-row staleness
 <=1h accepted, the live CW/NextUp rows are uncached anyway). Verified: cold MISS 45-1233ms ->
 post-warm HIT 11-15ms on every shape; warmer run ~195s (was ~100s).
 Backups on VPS: `*.bak-hotrows-20261015` + `/root/crontab.bak-hotrows-20261015`.
@@ -450,3 +449,17 @@ Self-heal context: dead verdicts (release blocklist) drop releases from FRESH li
 Trunks' list went 25 -> 11 versions after verdicts + restart; the list cache is 24h
 (`STREAM_CACHE_TTL`/`PIPELINE_CACHE_TTL=86400`), so failover carries the lag.
 Backup on VPS: `.env.bak-deepfailover-20261015`.
+
+
+### 2026-10-15 v3 - warmer bypass-read (the "went back to uncached" fix)
+Symptom: a client boot 34 min after a successful warmer run saw ~25 row fetches as `cs=EXPIRED`
+(0.3s-14.6s each; two 60-item walks at 12.3s/14.6s) - "went back to being uncached".
+Root cause: a cache HIT does NOT extend an entry's TTL. Rows stored 20:38-21:11 by a client boot
+expired at 23:38 (3h TTL); the 22:13/23:13 warmer runs logged `cs=HIT rt=0.000` (no re-store);
+the next client boot at 23:47 fell into the expiry window and re-fetched everything live.
+FIX: the warmer now sends `X-Aios-Warm: 1` on every request (warmer `call()` helper) and the rows +
+bar snippets add `proxy_cache_bypass ... $aios_warm` (map in conf.d/aios-api-cache.conf). Bypass
+READS, still STORES - every hourly warmer run re-stores fresh entries; expiry windows gone.
+Verified: warmer run all-BYPASS (362x, 0 HIT); entries re-stored 23:51-23:52; replaying a
+warmer-warmed row as a client request = `X-Aios-Cache: HIT`, 0.004s.
+Backups: *.bak-bypasswarm-20261015 on the VPS.
