@@ -47,7 +47,7 @@ BAR_CATALOGS = [
     'a26d1a33e2d56da6265981f9d902a374',  # Trending Shows
     'a2170aa89ada673e50b5011031296a24',  # Popular Movies
     'a20e1577e1543cd8707bba16912f48a4',  # Popular Shows
-    'a25ccf8702de5678f2c1a04ca104f30d',  # Netflix Movies
+    'a2b40fefb4986e8e38b519752d90a283',  # Netflix Movies
     'a281c33fb3bb152e71a5d1442b634258',  # Netflix Top 10 Movies (Global)
     'a2606deb6bee40c4b9566cf4edf03a96',  # Netflix Top 10 Shows (Global)
 ]
