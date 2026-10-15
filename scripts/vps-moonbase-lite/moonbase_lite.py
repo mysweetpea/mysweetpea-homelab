@@ -415,14 +415,22 @@ AVATAR_PALETTE = [
 # --------------------------------------------------------------------------
 # Similar+ (2026-10-15): expand the 20-item /Items/{id}/Similar with merged
 # TMDB recommendations (episodes borrow their series' - stock returns empty).
+# v2 (2026-10-15): recommendations stay UNTOUCHED - TMDB's collaborative signal
+# beats crude gating (proved: Slow Horses scores 1/2 genres for Reacher yet is
+# a top rec). The "similar" TAIL is keyword noise: for many seeds its head is
+# 0-20-vote foreign-drama junk that reads as nonsense next to the seed
+# (measured on Tracker/One Piece/Reacher). It is now hard-gated: keep a similar
+# item only if it shares >=2 of the seed's genres (>=1 when the seed has a
+# single genre) AND has >=30 TMDB votes. Lists end shorter but tight.
 # Unknown titles get MINTED item ids from AIOStreams' deterministic scheme
 # (live-verified 2026-10-15):
 #   movie  = "a1" + "1201" + "000000" + %06x(tmdb) + "ffffffff000000"
 #   series = "a1" + "2202" + "000000" + %06x(tmdb) + "ffffffff000000"
-# ponytail: 60-item cap; minted entries carry static unplayed UserData.
+# ponytail: 60-item cap; fixed gate thresholds - loosen if a whole genre class vanishes.
 _SIM_CACHE = {}      # item_id -> (ts, payload)
 _SIM_TTL = 86400
 _SIM_MAX = 60
+_SIM_MIN_VOTES = 30  # similar-tail filler below this many TMDB votes = junk farm
 _SIM_TMDB = "https://api.themoviedb.org/3"
 
 
@@ -440,6 +448,17 @@ def _tmdb_results(mtype: str, tmdb_id: int, kind: str, page: int, key: str):
         return _http_get_json(url, {}, timeout=8).get("results") or []
     except Exception:
         return []
+
+
+def _tmdb_genre_ids(mtype: str, tmdb_id: int, key: str):
+    """The seed's own TMDB genre ids (for gating the similar tail). Empty set
+    on failure -> the gate falls back to vote-count-only."""
+    try:
+        d = _http_get_json("%s/%s/%d?%s" % (_SIM_TMDB, mtype, tmdb_id,
+                           urllib.parse.urlencode({"api_key": key})), {}, timeout=8)
+        return {int(g["id"]) for g in d.get("genres") or []}
+    except Exception:
+        return set()
 
 
 def similar_plus(auth_header: str, caller: dict, item_id: str):
@@ -480,15 +499,24 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
     if not mtype or not tmdb_id or not str(tmdb_id).isdigit():
         return None, "no tmdb id (%s)" % itype
     seed = int(tmdb_id)
+    seed_genres = _tmdb_genre_ids(mtype, seed, key)
+    sim_min_ov = 2 if len(seed_genres) >= 2 else 1
     seen = {seed}
     rows = []
     for kind in ("recommendations", "similar"):
         for page in (1, 2):
             for m in _tmdb_results(mtype, seed, kind, page, key):
                 mid = m.get("id")
-                if mid and mid not in seen:
-                    seen.add(mid)
-                    rows.append(m)
+                if not mid or mid in seen or m.get("adult"):
+                    continue
+                if kind == "similar":
+                    # hard gate (see header comment): similar is keyword noise;
+                    # keep only genre-tight fillers with real audience votes
+                    if len(set(m.get("genre_ids") or []) & seed_genres) < sim_min_ov \
+                            or (m.get("vote_count") or 0) < _SIM_MIN_VOTES:
+                        continue
+                seen.add(mid)
+                rows.append(m)
                 if len(rows) >= _SIM_MAX:
                     break
             if len(rows) >= _SIM_MAX:

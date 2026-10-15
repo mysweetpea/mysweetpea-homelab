@@ -179,3 +179,22 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
 - A missing entry = persona not pre-warmed (graceful skip, logged by the warmer). If a member
   changes their PIN in-app, the stored pin goes stale and the warmer logs a skip for that user -
   refresh by re-provisioning the persona.
+
+## 2026-10-15 late: Similar+ v2 - recommendations kept, similar tail hard-gated
+- Symptom: "some of the media shown in Similar/recommendation lists do not really make
+  sense." Measured across seeds: TMDB `recommendations` are solid (collaborative signal -
+  genre-gating them would misfire: Slow Horses scores 1/2 genres for Reacher yet is a top
+  rec); the noise is entirely the TMDB `similar` endpoint - for many seeds its head is
+  0-20-vote foreign-drama junk (Tracker's similar head: The Demon Master 2 votes, Stock
+  Price Crash 7, Reborn of The Rightful 0; One Piece: Umaru-chan-class fillers). Those
+  filled positions 40-60 of every list.
+- Fix (similar_plus): recommendations untouched; similar-source items are hard-gated -
+  share >=2 of the seed's genres (>=1 when the seed has a single genre; empty set on
+  genre-fetch failure -> vote-gate only) AND vote_count >= 30. Adult-flag items dropped;
+  seed detail genres fetched once per uncached item (8s timeout, cached with the payload).
+- E2E: Tracker 39 recs + 5 tight sims (tail now Sopranos/Dexter/Shark; junk gone), movie
+  seed 48, episode>series seed 51; no fallback log lines. Edge has no proxy_cache on the
+  Similar location - the shim restart flushes the 24h in-memory cache. Smoke asserts
+  relaxed 40 -> 20 (18/18 pass).
+- ponytail: fixed thresholds (`_SIM_MIN_VOTES=30`, sim_min_ov) - loosen if a whole genre
+  class ever vanishes.

@@ -53,11 +53,11 @@ else echo "FAIL companies+studio-image-png"; fail=$((fail+1)); fi
 chk studio-image-none 404 "$BASE/Moonfin/Tmdb/StudioImage/999999999" -H "$AUTH"
 chk similarplus-noauth 401 "$BASE/SimilarPlus/a1210200000027108cffffffff000000"
 chk similarplus-bad-id 404 "$BASE/SimilarPlus/zzz" -H "$AUTH"
-if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/a1210200000027108cffffffff000000" | python3 -c "import json,sys; d=json.load(sys.stdin); n=len(d.get('Items',[])); assert n>=40, n" 2>/dev/null; then
-  echo "PASS similarplus-series (>=40)"; pass=$((pass+1));
+if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/a1210200000027108cffffffff000000" | python3 -c "import json,sys; d=json.load(sys.stdin); n=len(d.get('Items',[])); assert n>=20, n" 2>/dev/null; then
+  echo "PASS similarplus-series (>=20)"; pass=$((pass+1));
 else echo "FAIL similarplus-series"; fail=$((fail+1)); fi
-if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/b2c6748f54b619ae8c19750fe3840b87" | python3 -c "import json,sys; d=json.load(sys.stdin); n=len(d.get('Items',[])); assert n>=40, n" 2>/dev/null; then
-  echo "PASS similarplus-episode-series-fallback (>=40)"; pass=$((pass+1));
+if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/b2c6748f54b619ae8c19750fe3840b87" | python3 -c "import json,sys; d=json.load(sys.stdin); n=len(d.get('Items',[])); assert n>=20, n" 2>/dev/null; then
+  echo "PASS similarplus-episode-series-fallback (>=20)"; pass=$((pass+1));
 else echo "FAIL similarplus-episode-series-fallback"; fail=$((fail+1)); fi
 echo "== $pass passed, $fail failed =="
 [ $fail -eq 0 ]
