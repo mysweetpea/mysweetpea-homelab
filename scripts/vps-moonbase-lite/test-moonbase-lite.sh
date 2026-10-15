@@ -21,5 +21,9 @@ chk messages 200 "$BASE/Moonfin/Messages" -H "$AUTH"
 chk sse-head 200 "$BASE/Moonfin/Settings/Stream" -H "$AUTH" --max-time 2
 chk noauth 401 "$BASE/Moonfin/Ping" -H "Authorization: MediaBrowser Token=\"bogus\""
 chk unknown 404 "$BASE/Moonfin/Nope" -H "$AUTH"
+chk register-post 200 "$BASE/Moonfin/Notifications/Register" -H "$AUTH" -H "Content-Type: application/json" -d '{"token":"t","platform":"linux","deviceId":"selftest"}'
+if curl -s -m 15 -H "$AUTH" "$BASE/Moonfin/Tmdb/EpisodeRating?tmdbId=456&season=8&episode=23" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('success') and (d.get('voteAverage') or 0)>0, d" 2>/dev/null; then
+  echo "PASS ep-rating-content"; pass=$((pass+1));
+else echo "FAIL ep-rating-content"; fail=$((fail+1)); fi
 echo "== $pass passed, $fail failed =="
 [ $fail -eq 0 ]

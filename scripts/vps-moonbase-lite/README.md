@@ -121,8 +121,14 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
 - `detailMetadataOrderDesktop/Mobile/Tv` pinned in defaults.json with
   `upcomingEpisodeDate` first (client only renders the badge if it's in that order):
   `upcomingEpisodeDate,year,parentalRating,runtimeAndSeasons,status,genres`.
-- Same key later unlocks `/Moonfin/Tmdb/EpisodeRating` + `SeasonRatings` +
-  `ProductionCompanies` (client calls these today, currently 404) — same handler pattern.
+- `Tmdb/EpisodeRating` is WIRED (2026-10-15): per-episode `vote_average` from TMDB,
+  response mirrors the Moonbase plugin exactly (`success, voteAverage, voteCount, name,
+  airDate, seasonNumber, episodeNumber, stillPath`), 6h in-memory cache. Client reads
+  only `voteAverage`. `SeasonRatings` / `ProductionCompanies` stay unwired (zero call
+  demand recorded — same handler pattern if the client ever asks).
+- `Notifications/Register` (POST/DELETE) is an accepted no-op: the client only checks
+  the HTTP status and this stack has no push delivery path (in-app Messages is the
+  channel). Kills the retry queue that produced ~41 404s/day.
 
 ## Media bar pool (2026-10-14)
 - `mediaBarLibraryIds` = 7 catalogs as a JSON LIST: Trending M/S, Popular M/S,

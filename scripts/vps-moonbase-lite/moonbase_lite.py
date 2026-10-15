@@ -21,6 +21,9 @@ Endpoints (all under /Moonfin/):
   POST Notifications/Prefs        -> store per-user notification prefs
   GET  Settings/Stream            -> SSE: settingsUpdated / themesChanged + heartbeats
   GET  Web/loader.js, Web/config.json -> web-client stubs
+  GET  Tmdb/NextEpisode           -> TMDB next_episode_to_air (needs tmdb.key)
+  GET  Tmdb/EpisodeRating         -> TMDB episode vote_average (needs tmdb.key)
+  POST/DELETE Notifications/Register -> accepted no-op (no push delivery here)
 
 Auth: the client's Authorization header is validated against the AIOStreams
 server's /Users/Me (loopback). Results cached 10 min. Network failure to
@@ -265,6 +268,35 @@ def tmdb_next_episode(tmdb_id: str, key: str) -> dict:
     except Exception as exc:
         result = {"success": False, "error": f"TMDB fetch failed: {exc}"}
     _TMDB_NEXT_CACHE[tmdb_id] = (now, result)
+    return result
+
+
+_TMDB_EP_CACHE = {}
+_TMDB_EP_TTL = 6 * 3600  # same freshness class as NextEpisode
+
+
+def tmdb_episode_rating(tmdb_id: str, season: int, episode: int, key: str) -> dict:
+    ck = "%s:%d:%d" % (tmdb_id, season, episode)
+    hit = _TMDB_EP_CACHE.get(ck)
+    now = time.time()
+    if hit and now - hit[0] < _TMDB_EP_TTL:
+        return hit[1]
+    url = ("https://api.themoviedb.org/3/tv/%s/season/%d/episode/%d?api_key=%s"
+           % (urllib.parse.quote(tmdb_id, safe=""), season, episode,
+              urllib.parse.quote(key, safe="")))
+    try:
+        data = _http_get_json(url, {"User-Agent": "Moonfin/1.0"}, timeout=8)
+        result = {"success": True,
+                  "voteAverage": data.get("vote_average"),
+                  "voteCount": data.get("vote_count"),
+                  "name": data.get("name"),
+                  "airDate": data.get("air_date"),
+                  "seasonNumber": data.get("season_number"),
+                  "episodeNumber": data.get("episode_number"),
+                  "stillPath": data.get("still_path")}
+    except Exception as exc:
+        result = {"success": False, "error": f"TMDB fetch failed: {exc}"}
+    _TMDB_EP_CACHE[ck] = (now, result)
     return result
 
 
@@ -603,6 +635,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, tmdb_next_episode(tmdb_id, key))
             return
 
+        # ---- tmdb: per-episode rating (mirrors Moonbase Tmdb/EpisodeRating) --
+        if method == "GET" and rel == "/Tmdb/EpisodeRating":
+            tmdb_id = (query.get("tmdbId") or [""])[0].strip()
+            season = (query.get("season") or [""])[0].strip()
+            episode = (query.get("episode") or [""])[0].strip()
+            if not (tmdb_id and season.isdigit() and episode.isdigit()):
+                self._send(400, {"error": "tmdbId, season and episode required"})
+                return
+            resolved = resolve_profile(uid, "mobile")
+            key = (resolved.get("tmdbApiKey") or tmdb_key() or "").strip()
+            if not key:
+                self._send(200, {"success": False,
+                                 "error": "No TMDB API key configured on the server."})
+                return
+            self._send(200, tmdb_episode_rating(tmdb_id, int(season), int(episode), key))
+            return
+
         # ---- settings -------------------------------------------------------
         if rel == "/Settings/Stream" and method == "GET":
             self._sse()
@@ -780,6 +829,12 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET":
                 self._send(200, _read_json(prefs_path, {}))
                 return
+
+        # ---- push registration: accepted no-op (no delivery path here) ------
+        if rel == "/Notifications/Register" and method in ("POST", "DELETE"):
+            _ = self._read_body()  # drain so keep-alive stays in sync
+            self._send(200, {"success": True})
+            return
 
         # ---- mdblist -----------------------------------------------------------
         if rel == "/MdbList/Ratings" and method == "GET":

@@ -255,3 +255,10 @@ Update (2026-10-14 late, owner request - add rows back + concise names):
   on its LEFT side - when editing the id list, parse the REPLACEMENT (right-hand quoted segment).
 - Verified: /UserViews serves new names, excludes n=25 live, Hulu/Crunchyroll/Disney+ Latest
   lists return items (12 each).
+
+## Avatar for bare-path clients (2026-10-15)
+- 2.5.x builds construct user-image URLs WITHOUT the mount prefix
+  (`/jellyfin/Users/<id>/Images/Primary`); AIOStreams cannot route those -> was 8x404/day.
+  nginx now serves `/var/www/aiostreams/avatar.png` for that exact shape
+  (`root /var/www/aiostreams; try_files /avatar.png =404;` + 1d cache). Mounted
+  user-image requests are untouched (AIOStreams answers those 200 itself).
