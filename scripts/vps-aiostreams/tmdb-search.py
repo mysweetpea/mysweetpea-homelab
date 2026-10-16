@@ -32,6 +32,13 @@ needs watch_region FR (US returns 0 results). Keyword ids verified live:
 anime=210024, isekai=237451, mecha=10046, slice-of-life=9914, sport=6075,
 horror=315058, true crime=33722, cult=6158.
 
+v1.7.0 adds Studio Ghibli / Chinese Dramas / Chinese Movies catalogs, 16:9
+service tiles as `poster` on the deep streamer catalogs (AIOStreams turns
+catalog.poster into the view's ImageTags -> Moonfin renders them on the My
+Media row), and a misspell rescue in the search path: fuzzy category match
+plus a word-pool title fallback for zero-result queries ("sprited away",
+"intersteller", "chines drama").
+
 Endpoints (Stremio catalog protocol):
   GET /manifest.json
   GET /catalog/{movie|series}/search/search=<term>.json
@@ -39,7 +46,9 @@ Endpoints (Stremio catalog protocol):
 
 ponytail: single-process ThreadingHTTPServer is plenty (<1 req/s from aios); no config knobs.
 """
+import difflib
 import json
+import re
 import sys
 import time
 from datetime import date, timedelta
@@ -71,6 +80,10 @@ SERVICES = [
 ]
 
 CATALOG_DEFS = {}   # (stremio_type, catalog_id) -> (provider_id, region)
+# 16:9 brand tiles served by the VPS nginx (/var/www/aiostreams/logos/). aios
+# maps catalog.poster -> view ImageTags.Primary, which is what puts the logo
+# on the My Media row.
+LOGO_BASE = "https://aiostreams.mysweetpea.cc/logos/"
 DEEP_CATALOGS = []
 for _k, _pid, _name, _region, _mv, _sh in SERVICES:
     for _kind, _suffix, _has in (("movie", "movies", _mv), ("series", "shows", _sh)):
@@ -82,6 +95,7 @@ for _k, _pid, _name, _region, _mv, _sh in SERVICES:
             "type": _kind, "id": _cid,
             "name": f"{_name} {'Movies' if _kind == 'movie' else 'Shows'}",
             "extra": [{"name": "skip"}],
+            "poster": f"{LOGO_BASE}{_k}.png",
         })
 
 # ---------------------------------------------------------------------------
@@ -182,6 +196,14 @@ DISCOVER_TABLE = [
      _d(with_original_language="ko", with_genres="18|10749", **{"vote_count.gte": "50"})),
     ("korean", "Korean Movies",
      _d(with_original_language="ko", with_genres="18|53", **{"vote_count.gte": "100"}), None),
+    # v1.7.0 language/studio families (volumes probed live: zh dramas 64,
+    # zh movies 100+, Ghibli company 10342 = 82)
+    ("cdrama", "Chinese Dramas", None,
+     _d(with_original_language="zh", with_genres="18|10749", **{"vote_count.gte": "50"})),
+    ("chinese", "Chinese Movies",
+     _d(with_original_language="zh", with_genres="18|53", **{"vote_count.gte": "100"}), None),
+    ("ghibli", "Studio Ghibli",
+     _d(with_companies="10342"), None),
     # --- mainstream top-level genres (2026-10-16) ---
     ("action", "Action & Adventure",
      _d(with_genres="28|12", **{"vote_count.gte": "500"}),
@@ -364,7 +386,7 @@ DYNAMIC_CATALOGS = [
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.6.1",
+    "version": "1.7.0",
     "name": "TMDB Search",
     "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
     "resources": ["catalog"],
@@ -414,6 +436,7 @@ INTENTS["horror"] = (_d(with_genres="27", **{"vote_count.gte": "200"}),
 INTENTS["romcom"] = (_d(with_genres="35,10749", **{"vote_count.gte": "200"}),
                      _d(with_genres="35", with_keywords="9840", **{"vote_count.gte": "30"}))
 INTENTS["korean"] = (INTENTS["korean"][0], INTENTS["kdrama"][1])
+INTENTS["chinese"] = (INTENTS["chinese"][0], INTENTS["cdrama"][1])
 # history's genre-map entry has no series side; restore the themed TV params
 INTENTS["history"] = (_d(with_genres="36", **{"vote_count.gte": "300"}),
                       _d(with_keywords="282633", **{"vote_count.gte": "10"}))
@@ -533,6 +556,12 @@ PHRASE_MAP.update({
 PHRASE_MAP.update({
     "cartoon": "animation", "cartoons": "animation",
     "scary": "horror", "funny": "comedy",
+    # v1.7.0 studio + language families
+    "ghibli": "ghibli", "studio ghibli": "ghibli",
+    "cdrama": "cdrama", "cdramas": "cdrama",
+    "chinese drama": "cdrama", "chinese dramas": "cdrama",
+    "chinese": "chinese", "chinese movies": "chinese", "chinese films": "chinese",
+    "chinese shows": "chinese", "chinese series": "chinese", "chinese tv": "chinese",
 })
 
 ANIME_SUBS = {
@@ -580,6 +609,22 @@ def match_intent(term):
         return ANIME_SUBS.get(sub, "anime")
     return None
 
+
+# Fuzzy fallbacks (2026-10-16): TMDB's own search is strict - one misspelled
+# token returns nothing. Categories get a close-match pass, and zero-result
+# title searches get a word-pool rescue.
+_FUZZY_INTENT = 0.82
+_FUZZY_MIN = 0.5
+
+
+def fuzzy_intent(term):
+    """Closest category for a misspelled one ('chines drama' -> cdrama)."""
+    t = " ".join(term.lower().split())
+    if not t:
+        return None
+    hit = difflib.get_close_matches(t, PHRASE_MAP, n=1, cutoff=_FUZZY_INTENT)
+    return PHRASE_MAP[hit[0]] if hit else None
+
 # ---------------------------------------------------------------------------
 # TMDB fetch layer
 # ---------------------------------------------------------------------------
@@ -612,6 +657,52 @@ def _metas(results, stype):
     return out
 
 
+def _fuzzy_title(kind, term):
+    """Zero-result rescue: pool TMDB hits for each query word (plus the word's
+    2-char-short prefix - tail typos like 'intersteller' only match as
+    'interstell'), then rank by similarity to the full query ('sprited away'
+    -> the 'away' pool contains Spirited Away)."""
+    ck = (kind, "fuzzy:" + term.lower(), 0)
+    hit = _cache.get(ck)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return hit[1]
+    words = [w for w in re.findall(r"[a-z0-9]+", term.lower()) if len(w) >= 4]
+    if not words:
+        return []
+    probes = []
+    for w in sorted(words, key=len, reverse=True)[:3]:
+        probes.append(w)
+        if len(w) >= 6:
+            probes.append(w[:-2])
+    pool = {}
+    for p in probes[:5]:  # ponytail: 5 TMDB calls cap; only runs on zero-result quirks
+        try:
+            q = urllib.parse.urlencode({"query": p, "api_key": _key(),
+                                        "include_adult": "false", "page": 1})
+            with urllib.request.urlopen(f"{TMDB}/search/{kind}?{q}",
+                                        timeout=TMDB_TIMEOUT) as r:
+                for m in json.loads(r.read().decode()).get("results", []):
+                    if m.get("id"):
+                        pool[m["id"]] = m
+        except Exception:
+            continue
+    if not pool:
+        return []
+    query = " ".join(term.lower().split())
+
+    def score(m):
+        name = (m.get("title") or m.get("name") or "").lower()
+        return difflib.SequenceMatcher(None, query, name).ratio()
+
+    ranked = sorted(pool.values(),
+                    key=lambda m: (score(m), m.get("popularity", 0)), reverse=True)
+    hits = [m for m in ranked if score(m) >= _FUZZY_MIN]
+    out = _metas(hits, "movie" if kind == "movie" else "series")
+    _cache[ck] = (time.time(), out)
+    print(f"tmdb-search: fuzzy {kind} {term!r} -> {len(out)}", flush=True)
+    return out
+
+
 def metas_for(kind, term, skip=0):
     """kind: 'movie'|'tv' -> list of Stremio MetaPreview dicts."""
     intent = match_intent(term)
@@ -641,6 +732,21 @@ def metas_for(kind, term, skip=0):
         print(f"tmdb-search: {kind} {term!r} failed: {e}", flush=True)
         return []  # ponytail: failures not cached, so recovery is immediate
     out = _metas(data.get("results"), "movie" if kind == "movie" else "series")
+    if not out and skip == 0:
+        # misspell rescue, cheapest first (live audit 2026-10-16: TMDB turns
+        # away "sprited away", "intersteller", "chines drama" with zero hits).
+        # NOTE: the empty strict result must NOT be cached before this ran -
+        # a cached [] short-circuits the rescue for the next CACHE_TTL.
+        fi = fuzzy_intent(term)
+        if fi:
+            params = INTENTS.get(fi, (None, None))[0 if kind == "movie" else 1]
+            if params and params != "__DYNAMIC__":
+                fout = discover_metas(kind, params, f"intent:{fi}", 0)
+                if fout:
+                    print(f"tmdb-search: fuzzy-intent {term!r} -> {fi} -> {len(fout)}", flush=True)
+                    out = fout
+        if not out:
+            out = _fuzzy_title(kind, term)
     _cache[ck] = (time.time(), out)
     print(f"tmdb-search: {kind} {term!r} -> {len(out)}", flush=True)
     return out
@@ -825,8 +931,18 @@ def _selftest():
     assert match_intent("cartoons shows") == "animation"
     assert match_intent("scary movies") == "horror"
     assert match_intent("funny") == "comedy"
-    assert len(DISCOVER_CATALOGS) == 133, len(DISCOVER_CATALOGS)
-    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 133 + len(DYNAMIC_CATALOGS)
+    assert match_intent("studio ghibli") == "ghibli"
+    assert match_intent("ghibli movies") == "ghibli"
+    assert match_intent("chinese dramas") == "cdrama"
+    assert match_intent("cdrama") == "cdrama"
+    assert match_intent("chinese") == "chinese"
+    assert match_intent("chinese shows") == "chinese"
+    assert INTENTS["chinese"][0] and INTENTS["chinese"][1]
+    assert fuzzy_intent("chines drama") == "cdrama"
+    assert fuzzy_intent("gibli") == "ghibli"
+    assert fuzzy_intent("cartons") == "animation"
+    assert len(DISCOVER_CATALOGS) == 136, len(DISCOVER_CATALOGS)
+    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 136 + len(DYNAMIC_CATALOGS)
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
     assert len(ids) == len(set(ids)), "duplicate (type, id) catalog entries"
     print("selftest ok: %d catalogs (%d discover)" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))

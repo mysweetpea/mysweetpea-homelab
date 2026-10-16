@@ -22,7 +22,7 @@ chk manifest 200 "$BASE/manifest.json"
 chk root 200 "$BASE/"
 chk bad-path 404 "$BASE/nope"
 
-pychk manifest-158 "$BASE/manifest.json" 'import json,sys; m=json.load(sys.stdin); c=m["catalogs"]; assert len(c)==158, len(c)  # 2 search + 21 deep + 133 discover + 2 dynamic; assert sum(1 for x in c if x["id"]=="search")==2; assert sum(1 for x in c if x["id"].endswith(("-movies","-shows")))==21; assert "skip" in json.dumps(c)'
+pychk manifest-161 "$BASE/manifest.json" 'import json,sys; m=json.load(sys.stdin); c=m["catalogs"]; assert len(c)==161, len(c)  # 2 search + 21 deep + 136 discover + 2 dynamic; assert sum(1 for x in c if x["id"]=="search")==2; assert sum(1 for x in c if x["id"].endswith(("-movies","-shows")))==21; assert sum(1 for x in c if x.get("poster"))==21, "service tile posters"; assert "skip" in json.dumps(c)'
 
 # search regression: both types answer with tmdb: previews
 pychk search-movie "$BASE/catalog/movie/search/search=matrix.json" 'import json,sys; d=json.load(sys.stdin); ms=d["metas"]; assert ms and all(i["id"].startswith("tmdb:") for i in ms), len(ms); assert any("Matrix" in i["name"] for i in ms)'
@@ -64,6 +64,20 @@ pychk intent-anime-mystery "$BASE/catalog/series/search/search=anime%20mystery.j
 pychk cat-reality-tv "$BASE/catalog/series/reality-shows.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])==20, len(d["metas"])'
 pychk intent-cartoons "$BASE/catalog/movie/search/search=cartoons.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
 pychk intent-scary "$BASE/catalog/series/search/search=scary.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
+
+# v1.7: Ghibli + Chinese families resolve, serve, and search
+pychk intent-ghibli "$BASE/catalog/movie/search/search=studio%20ghibli.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"]); assert any("Spirited Away" in i["name"] for i in d["metas"])'
+pychk intent-cdrama "$BASE/catalog/series/search/search=chinese%20drama.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk intent-chinese-movies "$BASE/catalog/movie/search/search=chinese%20movies.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk cat-ghibli "$BASE/catalog/movie/ghibli-movies.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])==20, len(d["metas"])'
+pychk cat-cdrama "$BASE/catalog/series/cdrama-shows.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])==20, len(d["metas"])'
+
+# v1.7: misspell rescue (TMDB returns 0 for these raw - the addon resolves them)
+pychk fuzzy-sprited-away "$BASE/catalog/movie/search/search=sprited%20away.json" 'import json,sys; d=json.load(sys.stdin); assert any("Spirited Away" in i["name"] for i in d["metas"]), [i["name"] for i in d["metas"][:5]]'
+pychk fuzzy-sprited-away-repeat "$BASE/catalog/movie/search/search=sprited%20away.json" 'import json,sys; d=json.load(sys.stdin); assert any("Spirited Away" in i["name"] for i in d["metas"]), "cached empty strict result must not shadow the rescue"'
+pychk fuzzy-intersteller "$BASE/catalog/movie/search/search=intersteller.json" 'import json,sys; d=json.load(sys.stdin); assert any("Interstellar" in i["name"] for i in d["metas"]), [i["name"] for i in d["metas"][:5]]'
+pychk fuzzy-intent-cdrama "$BASE/catalog/series/search/search=chines%20drama.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk fuzzy-no-false-positive "$BASE/catalog/movie/search/search=zzzqqq%20xylophone.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])<=3, len(d["metas"])'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
