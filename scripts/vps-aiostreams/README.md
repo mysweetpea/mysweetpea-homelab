@@ -617,3 +617,17 @@ Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
 - NOTE: manual `moonfin-rotate.py` runs must be followed by `moonfin-taste.py`
   (the taste job re-splices taste rows onto the new defaults base and rewrites
   per-user files; the 07:00/07:10 cron pair does this automatically).
+
+### 2026-10-16 (v5) — genre-shape edge cache + warmer genre prewarm
+- `conf.d/aios-api-cache.conf`: new `$aios_genre` map — shapes carrying `GenreIds=`
+  (genre grid pages, genre-chip randoms, "X for You" rows) now cache 3h like
+  rows/children (same live-UserData tradeoff; the hourly warmer bounds staleness
+  <=1h). Per-item detail (`Ids=`) and played-seed queries carry no GenreIds and
+  still BYPASS. Verified live: grid MISS->HIT (0.11s -> 0.04s), detail/seeds BYPASS.
+- `aiostreams-warmer.py`: (a) genre-row warm now replays the client-EXACT shape
+  (`IncludeItemTypes=Movie,Series&ExcludeItemTypes=Episode&SortBy=CommunityRating,SortName
+  &SortOrder=Descending&StartIndex=0&Limit=15&Recursive=true&Fields=F_LONG&GenreIds=...
+  &EnableImageTypes=...&ImageTypeLimit=1`) — cache keys are byte-exact `$args`, the old
+  simplified shape never matched; (b) new genre-grid prewarm block: page-1 of the top
+  `GENRE_PREWARM=30` genres from the client's /Genres list (a cold grid query costs
+  1.6-4.2s on the single-threaded app; warmed = HIT ~40ms).

@@ -41,6 +41,7 @@ PINS = '/opt/moonbase-lite/data/pins.json'  # {slug: {name, pin}} written at pro
 
 BUDGET_S = 600          # hard cap for the whole run
 VIEW_LIMIT = 120         # never more than this many views
+GENRE_PREWARM = 30        # genre grid page-1 prewarm: full clean-list coverage
 META_BATCH = 40         # ids per /Items?Ids= call
 MAX_META_BATCHES = 30   # hard cap on meta batches per run
 MAX_USERS = 6           # users warmed per run (owner first)
@@ -57,6 +58,11 @@ F_BAR = ('Type,Genres,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,'
          'ProductionYear,ImageTags,BackdropImageTags,Overview,ProviderIds')
 IMG_LONG = 'Primary,Backdrop,Thumb,Banner'
 IMG_BAR = 'Backdrop,Logo'
+
+F_GRID = ('PrimaryImageAspectRatio,SortName,Type,IsFolder,UserData,CommunityRating,OfficialRating,'
+          'RunTimeTicks,ProductionYear,ImageTags,BackdropImageTags,ParentBackdropItemId,'
+          'ParentBackdropImageTags,ParentThumbItemId,ParentThumbImageTag,SeriesId,SeriesPrimaryImageTag,'
+          'Album,AlbumId,AlbumArtist,Artists,Genres,Studios')
 
 BAR_CATALOGS = [
     'a2b3d475a9842e952002bbf66ada706f',  # Trending Movies
@@ -236,9 +242,31 @@ def main():
                 warm(utok, '/Playlists/%s/Items?Limit=500' % data,
                      'row %s' % (h.get('pluginDisplayText') or data))
             elif src == 'genres' and data:
-                warm(utok, '/Users/%s/Items?GenreIds=%s&SortBy=CommunityRating'
-                     '&SortOrder=Descending&Recursive=true&Limit=15&ExcludeItemTypes=Episode'
-                     % (uid, data), 'genre row %s' % (h.get('pluginDisplayText') or data))
+                warm(utok, '/Users/%s/Items?IncludeItemTypes=%s&ExcludeItemTypes=Episode'
+                     '&SortBy=CommunityRating%%2CSortName&SortOrder=Descending&StartIndex=0&Limit=15'
+                     '&Recursive=true&Fields=%s&GenreIds=%s&EnableImageTypes=%s&ImageTypeLimit=1'
+                     % (uid, q('Movie,Series'), q(F_LONG), data, q('Primary,Backdrop,Thumb,Banner')),
+                     'genre row %s' % (h.get('pluginDisplayText') or data))
+
+        # genre-grid prewarm: page 1 of the top genres from the client's Genres row
+        # (tapping a genre tile = exactly this paged query; 3h edge cache, refilled hourly)
+        try:
+            gr, _ = call('/Genres?UserId=%s&SortBy=CommunityRating%%2CSortName&SortOrder=Descending'
+                         '&Limit=15&Recursive=true&Fields=ItemCounts%%2CPrimaryImageAspectRatio'
+                         '&IncludeItemTypes=%s' % (uid, q('Movie,Series')), utok, timeout=60)
+            gids = [i.get('Id') for i in items_of(gr) if i.get('Id')][:GENRE_PREWARM]
+        except Exception as exc:
+            gids = []
+            log('  FAIL genre list: %s' % type(exc).__name__)
+        for gid in gids:
+            if time.time() - t_start > BUDGET_S:
+                break
+            warm(utok, '/Users/%s/Items?IncludeItemTypes=%s&ExcludeItemTypes=%s'
+                 '&SortBy=SortName&SortOrder=Ascending&StartIndex=0&Limit=75&Recursive=true'
+                 '&Fields=%s&GenreIds=%s&CollapseBoxSetItems=true&EnableImageTypes=%s&ImageTypeLimit=1'
+                 % (uid, q('Movie,Series,BoxSet'), q('Playlist,Episode,Season,Folder'),
+                    q(F_GRID), gid, q('Primary,Backdrop,Thumb,Banner')),
+                 'genre grid %s' % gid[:8])
 
         # media-bar pool: recentlyReleased windows + SortName count probes
         maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
