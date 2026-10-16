@@ -89,6 +89,8 @@ SCHEMA_VERSION = 1
 _io_lock = threading.Lock()
 _subscribers: "list[queue.Queue]" = []
 _auth_cache: "dict[str, tuple[float, dict | None]]" = {}
+_PLAYLIST_ITEMS_RE = re.compile(r"(?:^|/)Playlists/([^/]+)/Items$")
+_rows_cache: dict = {"mtime": 0.0, "doc": None}
 
 
 # --------------------------------------------------------------------------
@@ -847,6 +849,66 @@ class Handler(BaseHTTPRequestHandler):
             self._send(502, {"error": "similar unavailable: %s" % exc})
 
     # -- routing -----------------------------------------------------------
+    # ---- synthetic playlist rows (home content engine, 2026-10-16) --------
+
+    def _rows_doc(self) -> dict:
+        path = os.path.join(DATA_DIR, "rows.json")
+        try:
+            st = os.stat(path)
+        except OSError:
+            return {"rows": []}
+        if _rows_cache["mtime"] != st.st_mtime:
+            try:
+                with open(path) as f:
+                    _rows_cache["doc"] = json.load(f)
+                _rows_cache["mtime"] = st.st_mtime
+            except Exception as exc:
+                print("rows.json read failed: %s" % exc, flush=True)
+        return _rows_cache["doc"] or {"rows": []}
+
+    def _playlist_items(self, pid: str, query: dict):
+        caller, ok = self._caller()
+        if not ok:
+            return
+        row = next((r for r in (self._rows_doc().get("rows") or [])
+                    if r.get("id") == pid), None)
+        if row is None:
+            self._send(404, {"error": "unknown playlist"})
+            return
+        ids = [i for i in (row.get("items") or []) if isinstance(i, str)][:100]
+        items = []
+        if ids:
+            qs = [(k, v) for k, vs in query.items() if k.lower() != "ids" for v in vs]
+            url = (CFG["aios_url"].rstrip("/") + "/jellyfin/Items?Ids=" +
+                   ",".join(ids))
+            if qs:
+                url += "&" + urllib.parse.urlencode(qs)
+            auth = self.headers.get("Authorization") or ""
+            try:
+                data = _http_get_json(url, {"Authorization": auth}, timeout=20)
+                by_id = {}
+                for it in data.get("Items") or []:
+                    iid = str(it.get("Id") or it.get("id") or "")
+                    if iid:
+                        by_id[iid] = it
+                items = [by_id[i] for i in ids if i in by_id]
+            except Exception as exc:
+                print("playlist items upstream failed (%s): %s" % (pid, exc), flush=True)
+        self._send(200, {"Items": items, "TotalRecordCount": len(items),
+                         "StartIndex": 0})
+
+    def _playlist_list(self):
+        caller, ok = self._caller()
+        if not ok:
+            return
+        rows = self._rows_doc().get("rows") or []
+        items = [{"Id": r.get("id"), "Name": r.get("name"), "Type": "Playlist",
+                  "MediaType": "Video", "ChildCount": len(r.get("items") or []),
+                  "RecursiveItemCount": len(r.get("items") or [])}
+                 for r in rows]
+        self._send(200, {"Items": items, "TotalRecordCount": len(items),
+                         "StartIndex": 0})
+
     def do_GET(self):
         self._route("GET")
 
@@ -862,6 +924,13 @@ class Handler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed.query)
         if path.startswith("/SimilarPlus/"):
             self._similar_plus_route(path, query)
+            return
+        m = _PLAYLIST_ITEMS_RE.search(path)
+        if m:
+            self._playlist_items(m.group(1), query)
+            return
+        if path.endswith("/Playlists"):
+            self._playlist_list()
             return
         if not path.startswith("/Moonfin"):
             self._send(404, {"error": "not found"})

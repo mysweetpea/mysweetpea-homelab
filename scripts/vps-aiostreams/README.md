@@ -551,3 +551,32 @@ now filter `homeSections`), so the fleet list is authoritative.
    collection creation (POST /Playlists + /Collections -> 404), and household
    play counts are still ~zero. Future option: intercept /Playlists* at nginx
    and serve synthetic playlists from the shim (custom-titled arbitrary rows).
+
+## 2026-10-16 (v3) — Playlist rows engine: sparse home, mixed rows, no repeats
+
+Home content rows are now **synthetic playlists** (the "engine"), served by the
+moonbase-lite shim — no more per-catalog "Recently Added X" rows (latestmedia
+is disabled fleet-wide).
+
+- **nginx**: `nginx-playlists-route.snippet.conf` routes
+  `/jellyfin[/<uuid>/<tok>]/Playlists...` to the shim (bare + mount lanes).
+- **shim** (`moonbase_lite.py`): serves `/Playlists` (list) and
+  `/Playlists/{id}/Items` from `data/rows.json`; forwards the caller's token to
+  aios `/Items?Ids=` so UserData is per-user; items returned in playlist order.
+- **generator** (`moonfin-rotate.py`, rewritten; root cron `0 7 * * *`): rebuilds
+  `data/rows.json` + the defaults.json layout daily. Rows are movie+series
+  MIXED, GLOBALLY deduped (a title appears in at most one row per home), 30
+  items each, min 8. Slots: Trending Now, New Releases, [Most Played when data
+  exists], 1 anime + 2 combos + 1 mood + 1 curated + 1 wildcard (rotating,
+  date-seeded, slight per-day content drift). Also retires the old
+  LatestItemsExcludes snippet (comment-only).
+- **taste job** (`moonfin-taste.py`): taste rows splice after
+  `favoriteepisodes`, before the engine rows.
+- **layout (defaults.json)**: smalllibrarytiles (My Media hub) FIRST → personal
+  → taste → engine rows → genres → collections; latestmedia explicit-disabled.
+- **warmer** (`aiostreams-warmer.py`): warms `/Playlists/{id}/Items` per user
+  instead of per-view `/Items/Latest`.
+- **mods order**: streaming-service catalogs moved to the FRONT of
+  catalogModifications (Netflix → Netflix Top 10 → Prime → Disney+ → HBO Max →
+  Hulu → Paramount+ → Peacock → Apple TV+ → Crunchyroll → Discovery+ → Canal+ →
+  everything else), so the My Media hub + Libraries show services first.

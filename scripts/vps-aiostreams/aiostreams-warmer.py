@@ -161,14 +161,12 @@ def main():
         token, _ = auth()  # token likely stale
         views, _ = call('/UserViews', token)
 
-    items = views.get('Items', [])[:VIEW_LIMIT]
-    # rotation-aware (2026-10-16): warm only views the home actually shows
+    # content rows 2026-10-16: home rows are synthetic playlists served by the
+    # moonbase-lite shim (playlist engine); warm each slot per user below.
     try:
-        _vis = set(json.load(open('/root/.moonfin-rotate-state.json')).get('visible_names') or [])
-        if _vis:
-            items = [v for v in items if v.get('Name') in _vis]
+        slots = json.load(open('/opt/moonbase-lite/data/rows.json')).get('rows') or []
     except Exception:
-        pass  # no rotation state -> warm everything (previous behaviour)
+        slots = []
     uid = _get_uid(token)
     users = discover_users(token, uid)
     try:
@@ -192,8 +190,8 @@ def main():
             targets.append((u['id'], login_persona(slug, pins[slug]['pin']), u.get('name')))
         except Exception as exc:
             log('  skip %s (%s): login failed (%s)' % ((u.get('id') or '?')[:8], u.get('name'), type(exc).__name__))
-    log('warm start: %d views, %d user(s) to warm of %d found, budget %ds'
-        % (len(items), len(targets), len(users), BUDGET_S))
+    log('warm start: %d slots, %d user(s) to warm of %d found, budget %ds'
+        % (len(slots), len(targets), len(users), BUDGET_S))
 
     meta_ids = []
 
@@ -217,30 +215,12 @@ def main():
         log('  user %s%s' % (uid[:8], ' (owner)' if owner else ' (%s)' % uname))
         t_user = time.time()
 
-        # per-view rows: /Users/<uid>/Items/Latest (current clients)
-        for v in items:
+        # synthetic content rows (playlist engine): shim -> aios Items batch
+        for r in slots:
             if time.time() - t_start > BUDGET_S:
                 break
-            vid, name = v.get('Id'), v.get('Name', '?')
-            if not vid:
-                continue
-            for lim in (15, 60):
-                warm(utok, '/Users/%s/Items/Latest?ParentId=%s&Limit=%d&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1'
-                     % (uid, vid, lim, q(F_LONG), q(IMG_LONG)), name)
-
-        # UID-LESS row variant (owner only): older builds (iOS 2.5.x) fetch
-        # /Items/Latest?ParentId=... without the /Users/<uid>/ segment; the
-        # response is token-scoped, so only the owner's pass can fill it.
-        if owner:
-            for v in items:
-                if time.time() - t_start > BUDGET_S:
-                    break
-                vid = v.get('Id')
-                if not vid:
-                    continue
-                for lim in (15, 60):
-                    warm(utok, '/Items/Latest?ParentId=%s&Limit=%d&Fields=%s&EnableImageTypes=%s&ImageTypeLimit=1'
-                         % (vid, lim, q(F_LONG), q(IMG_LONG)), 'row-uidless %s' % vid[:12])
+            warm(utok, '/Playlists/%s/Items?Limit=500' % r.get('id'),
+                 'row %s' % (r.get('name') or '?'))
 
         # media-bar pool: recentlyReleased windows + SortName count probes
         maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
@@ -336,7 +316,7 @@ def main():
         % (dur, len(targets), ok, bad, meta_ok, meta_bad, len(uniq)))
     json.dump({'token': token,
                'last': time.strftime('%Y-%m-%dT%H:%M:%S'),
-               'views': len(items), 'users': len(targets), 'ids': len(uniq), 'dur': round(dur, 1)},
+               'slots': len(slots), 'users': len(targets), 'ids': len(uniq), 'dur': round(dur, 1)},
               open(STATE, 'w'))
 
     if ok == 0:

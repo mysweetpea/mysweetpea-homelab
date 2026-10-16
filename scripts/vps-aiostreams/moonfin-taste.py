@@ -3,7 +3,7 @@
 
 Signals: resume + played items (both carry Genres). Top-2 genres become
 pluginDynamic genre rows ("<Genre> for You"), spliced into the user's
-homeSections AFTER 'playlists' in their moonbase-lite user file.
+homeSections AFTER 'favoriteepisodes' in their moonbase-lite user file.
 
 - Layout base = /opt/moonbase-lite/data/defaults.json homeSections (edit that
   to change the fleet row list). moonbase-lite strips homeSections from device
@@ -100,13 +100,13 @@ def taste_rows(counts, genre_ids):
 
 
 def splice(base_hs, taste):
-    """Base layout + taste rows after 'playlists', orders renumbered 1..N."""
+    """Base layout + taste rows after 'favoriteepisodes', orders renumbered 1..N."""
     hs = [dict(h) for h in base_hs
           if not str(h.get("pluginSection") or "").startswith("taste_")]
     if taste:
         pos = len(hs)
         for i, h in enumerate(hs):
-            if h.get("type") == "playlists":
+            if h.get("type") == "favoriteepisodes":
                 pos = i + 1
                 break
         hs = hs[:pos] + taste + hs[pos:]
@@ -172,18 +172,18 @@ def main():
     if a.selftest:
         base = [{"kind": "builtin", "type": t, "enabled": True, "order": i}
                 for i, t in enumerate(
-                    ["resume", "nextup", "playlists", "genres", "latestmedia"], 1)]
+                    ["resume", "nextup", "favoriteepisodes", "genres"], 1)]
         counts = {"Horror": 5, "Comedy": 4, "Drama": 1}
         rows = taste_rows(counts, {"Horror": "gh", "Comedy": "gc"})
         hs = splice(base, rows)
         types = [h.get("pluginSection") or h.get("type") for h in hs]
-        assert types == ["resume", "nextup", "playlists", "taste_0", "taste_1",
-                         "genres", "latestmedia"], types
-        assert [h["order"] for h in hs] == [1, 2, 3, 4, 5, 6, 7]
+        assert types == ["resume", "nextup", "favoriteepisodes", "taste_0",
+                         "taste_1", "genres"], types
+        assert [h["order"] for h in hs] == [1, 2, 3, 4, 5, 6]
         assert rows[0]["pluginDisplayText"] == "Horror for You"
         assert rows[0]["pluginAdditionalData"] == "gh"
         hs2 = splice(hs, [])  # stale taste rows removed when signals gone
-        assert len(hs2) == 5 and all(h.get("type") != "taste_0" for h in hs2)
+        assert len(hs2) == 4 and all(h.get("pluginSection") != "taste_0" for h in hs2)
         assert taste_rows({"Mystery": 9}, {}) == []  # unknown genre skipped
         print("selftest ok")
         return
