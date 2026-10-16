@@ -614,3 +614,6 @@ K-Dramas (Korean Movies + K-Dramas). The rotating block (anime + 2 combos +
 mood + curated + wildcard) is unchanged; wildcard pool rebalanced — True
 Crime and Korean were promoted to permanent rows and replaced by
 Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
+- NOTE: manual `moonfin-rotate.py` runs must be followed by `moonfin-taste.py`
+  (the taste job re-splices taste rows onto the new defaults base and rewrites
+  per-user files; the 07:00/07:10 cron pair does this automatically).
