@@ -22,7 +22,7 @@ chk manifest 200 "$BASE/manifest.json"
 chk root 200 "$BASE/"
 chk bad-path 404 "$BASE/nope"
 
-pychk manifest-23 "$BASE/manifest.json" 'import json,sys; m=json.load(sys.stdin); c=m["catalogs"]; assert len(c)==111, len(c)  # 2 search + 21 deep + 86 discover + 2 dynamic; assert sum(1 for x in c if x["id"]=="search")==2; assert sum(1 for x in c if x["id"].endswith(("-movies","-shows")))==21; assert "skip" in json.dumps(c)'
+pychk manifest-158 "$BASE/manifest.json" 'import json,sys; m=json.load(sys.stdin); c=m["catalogs"]; assert len(c)==158, len(c)  # 2 search + 21 deep + 133 discover + 2 dynamic; assert sum(1 for x in c if x["id"]=="search")==2; assert sum(1 for x in c if x["id"].endswith(("-movies","-shows")))==21; assert "skip" in json.dumps(c)'
 
 # search regression: both types answer with tmdb: previews
 pychk search-movie "$BASE/catalog/movie/search/search=matrix.json" 'import json,sys; d=json.load(sys.stdin); ms=d["metas"]; assert ms and all(i["id"].startswith("tmdb:") for i in ms), len(ms); assert any("Matrix" in i["name"] for i in ms)'
@@ -55,6 +55,13 @@ pychk intent-netflix-shows "$BASE/catalog/series/search/search=netflix.json" 'im
 pychk intent-netflix-movies-suffix "$BASE/catalog/movie/search/search=netflix%20movies.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
 pychk intent-new-releases "$BASE/catalog/movie/search/search=new%20releases.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
 pychk title-still-works "$BASE/catalog/movie/search/search=the%20matrix.json" 'import json,sys; d=json.load(sys.stdin); assert any("Matrix" in i["name"] for i in d["metas"])'
+
+# v1.6: new genre/theme categories resolve + serve
+pychk intent-sitcoms "$BASE/catalog/series/search/search=sitcoms.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk intent-time-travel "$BASE/catalog/movie/search/search=time%20travel.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk intent-standup "$BASE/catalog/movie/search/search=stand%20up%20comedy.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk intent-anime-mystery "$BASE/catalog/series/search/search=anime%20mystery.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
+pychk cat-reality-tv "$BASE/catalog/series/reality-shows.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])==20, len(d["metas"])'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

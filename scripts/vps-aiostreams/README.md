@@ -658,3 +658,38 @@ Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
   `~* "(useritems|users/[^/]+/items)/resume"` ->
   `snippets/aiostreams-resume-dedupe.snippet.conf`. Vhost backup:
   `/root/aiostreams-site.bak-resumededupe-20261016`.
+
+### 2026-10-16 (v7) — taxonomy expansion (~47 new catalogs) + genre-chip prewarm
+- **tmdb-search v1.6.0** — 22 genre/theme extensions + 3 anime sub-genres;
+  total **158 catalogs (133 discover)**, media-server views 130 -> 177. New:
+  Animation, Family & Kids, Crime, Mystery, History, War & Politics, Western,
+  Musical, Reality TV, Sitcoms, Sports, Based on a True Story, Heists & Cons,
+  Spies & Espionage, Time Travel, Space, Zombie, Coming of Age, Supernatural,
+  Medical, Detective, Stand-Up Comedy; anime: Drama, Mystery, Supernatural.
+  All keyword ids verified live against TMDB (`sitcom` 193171, `stand up
+  comedy` 9716, `based on true story` 9672, `heist` 10051, `spy` 470, `time
+  travel` 4379, `space` 9882, `zombie` 12377, `coming of age` 10683,
+  `supernatural` 6152, `medical drama` 208788, `musical` 4344, `detective`
+  703, `history` 282633; `sport` 6075 already known). Single-sided where the
+  other side is thin/meaningless: Stand-Up Comedy (movies), Reality TV +
+  Sitcoms (series). New search phrases: sitcoms, based on a true story, time
+  travel, zombies, reality tv, stand up comedy, kids, family & kids, medical,
+  detective, spies/espionage, heists, coming of age, supernatural, sports,
+  musical(s), anime drama/mystery/supernatural.
+- **JELLYFIN_MAX_LIBRARIES** 150 -> 250 (`/opt/aiostreams/.env`; needs a
+  container recreate, not just restart).
+- **moonfin-rotate.py**: WILDCARD_POOL 5 -> 27 (new pairs join the daily
+  feature rotation; today's pick was already "Coming of Age"); ANIME_POOL
+  10 -> 13; pools may be single-sided now — `view_ids()` returns [] for a
+  missing side and `pair_display()` titles the row.
+- **aiostreams-warmer.py**: genre-chip pass — the Genres row renders one
+  `SortBy=Random&Limit=10` preview per genre tile (~27/rebuild, previously
+  only warmed on visit); the warmer now replays the exact client args for the
+  top genres every run. `/Genres` discovery fetch Limit 15 -> 40 so grid +
+  chip passes cover the whole clean genre list.
+- Ops: recreating the aiostreams container while the :13 warm is running =
+  its children phase eats 502s from the booting app (re-warms next hour, or
+  run the warmer manually once). First warm after a restart re-resolves the
+  app's internal caches — ~5min once, then back to ~1min. Cache probe recipe
+  (mount lane): mount token in the PATH + a real AccessToken in the
+  Authorization header, then read `cs=` from the access log.

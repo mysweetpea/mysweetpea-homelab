@@ -59,6 +59,9 @@ ANIME_POOL = [
     ("Anime: Sports Movies", "Anime: Sports Shows"),
     ("Anime: Horror Movies", "Anime: Horror Shows"),
     ("Anime: Mecha Movies", "Anime: Mecha Shows"),
+    ("Anime: Drama Movies", "Anime: Drama Shows"),
+    ("Anime: Mystery Movies", "Anime: Mystery Shows"),
+    ("Anime: Supernatural Movies", "Anime: Supernatural Shows"),
 ]
 MOOD_POOL = [
     ("Feel-Good Movies", "Feel-Good Shows"),
@@ -91,6 +94,29 @@ WILDCARD_POOL = [
     ("80s Movies", "80s Shows"),
     ("90s Movies", "90s Shows"),
     ("2000s Movies", "2000s Shows"),
+    # v7 genre + theme extensions (2026-10-16)
+    ("Animation Movies", "Animation Shows"),
+    ("Family & Kids Movies", "Family & Kids Shows"),
+    ("Crime Movies", "Crime Shows"),
+    ("Mystery Movies", "Mystery Shows"),
+    ("History Movies", "History Shows"),
+    ("War & Politics Movies", "War & Politics Shows"),
+    ("Western Movies", "Western Shows"),
+    ("Musical Movies", "Musical Shows"),
+    ("Sports Movies", "Sports Shows"),
+    ("Based on a True Story Movies", "Based on a True Story Shows"),
+    ("Heists & Cons Movies", "Heists & Cons Shows"),
+    ("Spies & Espionage Movies", "Spies & Espionage Shows"),
+    ("Time Travel Movies", "Time Travel Shows"),
+    ("Space Movies", "Space Shows"),
+    ("Zombie Movies", "Zombie Shows"),
+    ("Coming of Age Movies", "Coming of Age Shows"),
+    ("Supernatural Movies", "Supernatural Shows"),
+    ("Medical Movies", "Medical Shows"),
+    ("Detective Movies", "Detective Shows"),
+    ("Stand-Up Comedy", None),
+    (None, "Reality TV"),
+    (None, "Sitcoms"),
 ]
 
 DISPLAY = {"Korean": "Korean Picks", "80s": "The 80s", "90s": "The 90s",
@@ -127,7 +153,7 @@ def fetch(path, token=None, data=None):
 
 
 def pick(pool, k, seed):
-    pool = sorted(pool)
+    pool = sorted(pool, key=lambda p: (p[0] or "", p[1] or ""))
     random.Random(seed).shuffle(pool)
     return pool[:k]
 
@@ -135,6 +161,11 @@ def pick(pool, k, seed):
 def display_name(mv_name):
     base = mv_name[:-7] if mv_name.endswith(" Movies") else mv_name
     return DISPLAY.get(base, base)
+
+
+def pair_display(p):
+    """Row title for a pool entry; entries may be single-sided (None)."""
+    return display_name(p[0]) if p[0] else (p[1] or "")
 
 
 def features_for(seed):
@@ -168,6 +199,8 @@ def build_row(ids, seen):
 
 
 def view_ids(name2id, vname, token, limit=FETCH_N):
+    if not vname:            # single-sided pool entries (movie-only / series-only)
+        return []
     vid = name2id.get(vname)
     if not vid:
         log("WARN: view %r missing" % vname)
@@ -228,17 +261,17 @@ def build_slots(seed):
          "views": ("True Crime Movies", "True Crime Shows"), "prio": 72, "kind": "fixed"},
         {"id": "msp-kdrama", "name": "K-Dramas",
          "views": ("Korean Movies", "K-Dramas"), "prio": 73, "kind": "fixed"},
-        {"id": "msp-anime", "name": display_name(anime[0]),
+        {"id": "msp-anime", "name": pair_display(anime),
          "views": anime, "prio": 10, "kind": "feature"},
-        {"id": "msp-combo1", "name": display_name(c1[0]),
+        {"id": "msp-combo1", "name": pair_display(c1),
          "views": c1, "prio": 20, "kind": "feature"},
-        {"id": "msp-combo2", "name": display_name(c2[0]),
+        {"id": "msp-combo2", "name": pair_display(c2),
          "views": c2, "prio": 21, "kind": "feature"},
-        {"id": "msp-mood", "name": display_name(mood[0]),
+        {"id": "msp-mood", "name": pair_display(mood),
          "views": mood, "prio": 30, "kind": "feature"},
-        {"id": "msp-curated", "name": display_name(curated[0]),
+        {"id": "msp-curated", "name": pair_display(curated),
          "views": curated, "prio": 40, "kind": "feature"},
-        {"id": "msp-wildcard", "name": display_name(wild[0]),
+        {"id": "msp-wildcard", "name": pair_display(wild),
          "views": wild, "prio": 50, "kind": "feature"},
     ]
 
@@ -401,8 +434,10 @@ if __name__ == "__main__":
         i_eng = types.index("msp-trending")
         i_gen = types.index("genres")
         assert i_fav < i_eng < i_gen, "engine rows must sit between favorites and genres"
-        assert len(ANIME_POOL) == 10 and len(COMBO_POOL) == 10
-        assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 5
+        assert len(ANIME_POOL) == 13 and len(COMBO_POOL) == 10
+        assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 27
+        assert pair_display((None, "Sitcoms")) == "Sitcoms"
+        assert pair_display(("Stand-Up Comedy", None)) == "Stand-Up Comedy"
         assert len(slots) == 12
         assert [x["id"] for x in slots if x["kind"] == "fixed"] == \
             ["msp-action", "msp-afterdark", "msp-crime", "msp-kdrama"]

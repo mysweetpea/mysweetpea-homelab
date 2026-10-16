@@ -8,6 +8,7 @@ their EXACT query shapes (ground truth from real client traffic):
   - media-bar recentlyReleased windows + SortName count probes over the 7
     curated bar catalogs (moonbase-lite seed-defaults.py mediaBarLibraryIds)
   - Resume / NextUp / Upcoming + common home rows (BoxSet, DatePlayed, history)
+  - genre grid page-1 shapes + genre-chip SortBy=Random previews (top genres)
   - batched per-item metadata (/Items?Ids=) for detail pages
   - NextUp/Resume detail pages (the cold ~2s open) and EVERY BoxSet's children
     in BOTH client shapes (Recursive=true&Fields=UserData + Fields=BasicSyncInfo)
@@ -252,7 +253,7 @@ def main():
         # (tapping a genre tile = exactly this paged query; 3h edge cache, refilled hourly)
         try:
             gr, _ = call('/Genres?UserId=%s&SortBy=CommunityRating%%2CSortName&SortOrder=Descending'
-                         '&Limit=15&Recursive=true&Fields=ItemCounts%%2CPrimaryImageAspectRatio'
+                         '&Limit=40&Recursive=true&Fields=ItemCounts%%2CPrimaryImageAspectRatio'
                          '&IncludeItemTypes=%s' % (uid, q('Movie,Series')), utok, timeout=60)
             gids = [i.get('Id') for i in items_of(gr) if i.get('Id')][:GENRE_PREWARM]
         except Exception as exc:
@@ -267,6 +268,16 @@ def main():
                  % (uid, q('Movie,Series,BoxSet'), q('Playlist,Episode,Season,Folder'),
                     q(F_GRID), gid, q('Primary,Backdrop,Thumb,Banner')),
                  'genre grid %s' % gid[:8])
+        # genre-chip thumbnails: the Genres row renders one SortBy=Random preview
+        # per genre tile (exact client args; previously only warmed on visit)
+        for gid in gids:
+            if time.time() - t_start > BUDGET_S:
+                break
+            warm(utok, '/Users/%s/Items?IncludeItemTypes=%s&ExcludeItemTypes=Episode'
+                 '&SortBy=Random&SortOrder=Ascending&Limit=10&Recursive=true'
+                 '&Fields=%s&GenreIds=%s&EnableImageTypes=%s&ImageTypeLimit=1'
+                 % (uid, q('Movie,Series'), q(F_LONG), gid, q('Primary,Backdrop,Thumb,Banner')),
+                 'genre chip %s' % gid[:8])
 
         # media-bar pool: recentlyReleased windows + SortName count probes
         maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))

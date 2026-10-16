@@ -19,6 +19,11 @@ v1.3.0 adds cross-genre combos (Romantic Comedy, Action Comedy, Crime Drama, Sci
 Psychological / Horror Thriller, Fantasy / Family Adventure, Dark Comedy, Superhero)
 and decades (80s / 90s / 2000s).
 v1.4.0 adds a dynamic New Releases pair (rolling 8-week window, refreshed daily).
+v1.6.0 adds 22 genre/theme extensions (Animation, Family & Kids, Crime, Mystery,
+History, War & Politics, Western, Musical, Reality TV, Sitcoms, Sports, Based on
+a True Story, Heists & Cons, Spies & Espionage, Time Travel, Space, Zombie, Coming
+of Age, Supernatural, Medical, Detective, Stand-Up Comedy) plus 3 anime sub-genres
+(Drama, Mystery, Supernatural). Keyword ids verified live against TMDB.
 
 Deep catalogs (2026-10-15): per-service browse catalogs backed by TMDB discover
 (watch-provider filtered; US unless noted) with Stremio `skip` paging.
@@ -127,6 +132,15 @@ DISCOVER_TABLE = [
     ("anime-mecha", "Anime: Mecha",
      _d(with_keywords=f"{_AKW},10046"),
      _d(with_genres="16", with_keywords="10046")),
+    ("anime-drama", "Anime: Drama",
+     _d(with_genres="18", with_keywords=_AKW, **{"vote_count.gte": "50"}),
+     _d(with_genres="18", with_keywords=_AKW, **{"vote_count.gte": "50"})),
+    ("anime-mystery", "Anime: Mystery",
+     _d(with_genres="9648", with_keywords=_AKW, **{"vote_count.gte": "50"}),
+     _d(with_genres="9648", with_keywords=_AKW, **{"vote_count.gte": "50"})),
+    ("anime-supernatural", "Anime: Supernatural",
+     _d(with_keywords=f"{_AKW},6152"),
+     _d(with_keywords=f"{_AKW},6152")),
     # --- moods ---
     ("feel-good", "Feel-Good",
      _d(with_genres="35|10751", **{"vote_average.gte": "6.5", "vote_count.gte": "500"}),
@@ -193,6 +207,70 @@ DISCOVER_TABLE = [
     ("documentaries", "Documentaries",
      _d(with_genres="99", **{"vote_count.gte": "100"}),
      _d(with_genres="99", **{"vote_count.gte": "30"})),
+    # --- genre + theme extensions (v1.6.0, 2026-10-16; keyword ids verified live) ---
+    ("animation", "Animation",
+     _d(with_genres="16", **{"vote_count.gte": "500"}),
+     _d(with_genres="16", **{"vote_count.gte": "100"})),
+    ("family-kids", "Family & Kids",
+     _d(with_genres="10751", **{"vote_count.gte": "500"}),
+     _d(with_genres="10751|10762", **{"vote_count.gte": "100"})),
+    ("crime", "Crime",
+     _d(with_genres="80", **{"vote_count.gte": "500"}),
+     _d(with_genres="80", **{"vote_count.gte": "100"})),
+    ("mystery", "Mystery",
+     _d(with_genres="9648", **{"vote_count.gte": "500"}),
+     _d(with_genres="9648", **{"vote_count.gte": "100"})),
+    ("history", "History",
+     _d(with_genres="36", **{"vote_count.gte": "300"}),
+     _d(with_keywords="282633", **{"vote_count.gte": "10"})),
+    ("war", "War & Politics",
+     _d(with_genres="10752", **{"vote_count.gte": "300"}),
+     _d(with_genres="10768", **{"vote_count.gte": "100"})),
+    ("western", "Western",
+     _d(with_genres="37", **{"vote_count.gte": "300"}),
+     _d(with_genres="37", **{"vote_count.gte": "100"})),
+    ("musical", "Musical",
+     _d(with_keywords="4344", **{"vote_count.gte": "50"}),
+     _d(with_keywords="4344", **{"vote_count.gte": "30"})),
+    ("reality", "Reality TV", None,
+     _d(with_genres="10764")),
+    ("sitcoms", "Sitcoms", None,
+     _d(with_keywords="193171", **{"vote_count.gte": "30"})),
+    ("sports", "Sports",
+     _d(with_keywords="6075", **{"vote_count.gte": "100"}),
+     _d(with_keywords="6075", **{"vote_count.gte": "30"})),
+    ("true-story", "Based on a True Story",
+     _d(with_keywords="9672", **{"vote_count.gte": "50"}),
+     _d(with_keywords="9672", **{"vote_count.gte": "30"})),
+    ("heist", "Heists & Cons",
+     _d(with_keywords="10051", **{"vote_count.gte": "50"}),
+     _d(with_keywords="10051", **{"vote_count.gte": "10"})),
+    ("spy", "Spies & Espionage",
+     _d(with_keywords="470", **{"vote_count.gte": "50"}),
+     _d(with_keywords="470", **{"vote_count.gte": "30"})),
+    ("time-travel", "Time Travel",
+     _d(with_keywords="4379", **{"vote_count.gte": "50"}),
+     _d(with_keywords="4379", **{"vote_count.gte": "30"})),
+    ("space", "Space",
+     _d(with_keywords="9882", **{"vote_count.gte": "50"}),
+     _d(with_keywords="9882", **{"vote_count.gte": "30"})),
+    ("zombie", "Zombie",
+     _d(with_keywords="12377", **{"vote_count.gte": "50"}),
+     _d(with_keywords="12377", **{"vote_count.gte": "30"})),
+    ("coming-of-age", "Coming of Age",
+     _d(with_keywords="10683", **{"vote_count.gte": "50"}),
+     _d(with_keywords="10683", **{"vote_count.gte": "30"})),
+    ("supernatural", "Supernatural",
+     _d(with_keywords="6152", **{"vote_count.gte": "50"}),
+     _d(with_keywords="6152", **{"vote_count.gte": "30"})),
+    ("medical", "Medical",
+     _d(with_keywords="208788", **{"vote_count.gte": "10"}),
+     _d(with_keywords="208788", **{"vote_count.gte": "10"})),
+    ("detective", "Detective",
+     _d(with_keywords="703", **{"vote_count.gte": "50"}),
+     _d(with_keywords="703", **{"vote_count.gte": "30"})),
+    ("standup", "Stand-Up Comedy",
+     _d(with_keywords="9716", **{"vote_count.gte": "50"}), None),
     # --- cross-genre combos (Netflix-style multi-genre shelves) ---
     ("romantic-comedy", "Romantic Comedy",
      _d(with_genres="35,10749", **{"vote_count.gte": "200"}),
@@ -286,7 +364,7 @@ DYNAMIC_CATALOGS = [
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "name": "TMDB Search",
     "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
     "resources": ["catalog"],
@@ -336,6 +414,9 @@ INTENTS["horror"] = (_d(with_genres="27", **{"vote_count.gte": "200"}),
 INTENTS["romcom"] = (_d(with_genres="35,10749", **{"vote_count.gte": "200"}),
                      _d(with_genres="35", with_keywords="9840", **{"vote_count.gte": "30"}))
 INTENTS["korean"] = (INTENTS["korean"][0], INTENTS["kdrama"][1])
+# history's genre-map entry has no series side; restore the themed TV params
+INTENTS["history"] = (_d(with_genres="36", **{"vote_count.gte": "300"}),
+                      _d(with_keywords="282633", **{"vote_count.gte": "10"}))
 
 # streamer LIBRARIES searchable by name (same params as their deep catalogs)
 for _k, _pid, _name, _region, _mv, _sh in SERVICES:
@@ -424,6 +505,29 @@ PHRASE_MAP.update({
     "canal": "canal", "canal+": "canal", "canal plus": "canal",
 })
 
+# v1.6.0 genre/theme extensions (keyword ids verified live 2026-10-16)
+PHRASE_MAP.update({
+    "sitcom": "sitcoms", "sitcoms": "sitcoms",
+    "reality": "reality", "reality tv": "reality",
+    "stand-up": "standup", "stand up": "standup", "standup": "standup",
+    "stand up comedy": "standup", "stand-up comedy": "standup",
+    "musical": "musical", "musicals": "musical",
+    "kids": "family-kids", "family & kids": "family-kids",
+    "family and kids": "family-kids",
+    "based on a true story": "true-story", "true story": "true-story",
+    "true stories": "true-story",
+    "heist": "heist", "heists": "heist",
+    "spy": "spy", "spies": "spy", "espionage": "spy",
+    "time travel": "time-travel",
+    "space": "space",
+    "zombie": "zombie", "zombies": "zombie",
+    "coming of age": "coming-of-age",
+    "supernatural": "supernatural",
+    "medical": "medical", "medical drama": "medical", "medical dramas": "medical",
+    "detective": "detective", "detectives": "detective",
+    "sports": "sports", "sport": "sports",
+})
+
 ANIME_SUBS = {
     "action": "anime-action",
     "adventure": "anime-action",
@@ -441,6 +545,9 @@ ANIME_SUBS = {
     "sports": "anime-sports",
     "sport": "anime-sports",
     "horror": "anime-horror",
+    "drama": "anime-drama",
+    "mystery": "anime-mystery",
+    "supernatural": "anime-supernatural",
 }
 
 _SUFFIXES = (" movies", " movie", " shows", " show", " series")
@@ -695,8 +802,20 @@ def _selftest():
     for key in ("anime", "korean", "true-crime", "feel-good"):
         mv, ser = INTENTS[key]
         assert mv and ser, key
-    assert len(DISCOVER_CATALOGS) == 86, len(DISCOVER_CATALOGS)
-    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 86 + len(DYNAMIC_CATALOGS)
+    assert match_intent("sitcoms") == "sitcoms"
+    assert match_intent("based on a true story") == "true-story"
+    assert match_intent("time travel movies") == "time-travel"
+    assert match_intent("anime mystery") == "anime-mystery"
+    assert match_intent("zombies") == "zombie"
+    assert match_intent("reality tv shows") == "reality"
+    assert match_intent("stand up comedy") == "standup"
+    assert match_intent("detective shows") == "detective"
+    assert match_intent("kids shows") == "family-kids"
+    assert match_intent("anime drama") == "anime-drama"
+    assert INTENTS["sitcoms"][1] and INTENTS["reality"][1]
+    assert INTENTS["standup"][0] and INTENTS["korean"][1]
+    assert len(DISCOVER_CATALOGS) == 133, len(DISCOVER_CATALOGS)
+    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 133 + len(DYNAMIC_CATALOGS)
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
     assert len(ids) == len(set(ids)), "duplicate (type, id) catalog entries"
     print("selftest ok: %d catalogs (%d discover)" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))
