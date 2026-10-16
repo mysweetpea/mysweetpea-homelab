@@ -3,7 +3,7 @@
 
 Keeps the /jellyfin endpoints Moonfin + the apps actually hit hot, replaying
 their EXACT query shapes (ground truth from real client traffic):
-  - per-view Items/Latest rows (Limit 15 + 60, full Fields list, user-scoped),
+  - resolved-layout rows: synthetic playlists + taste genre rows (per user),
     plus the UID-LESS variant older builds send (owner only; token-scoped)
   - media-bar recentlyReleased windows + SortName count probes over the 7
     curated bar catalogs (moonbase-lite seed-defaults.py mediaBarLibraryIds)
@@ -215,12 +215,30 @@ def main():
         log('  user %s%s' % (uid[:8], ' (owner)' if owner else ' (%s)' % uname))
         t_user = time.time()
 
-        # synthetic content rows (playlist engine): shim -> aios Items batch
-        for r in slots:
+        # content rows: read the LIVE resolved layout (playlist engine + genre rows)
+        # so the warmer follows exactly what clients render, per user.
+        layout = []
+        try:
+            prof, _ = call('/Moonfin/Settings/Resolved/desktop', utok, timeout=60)
+            layout = [h for h in (prof.get('homeSections') or [])
+                      if isinstance(h, dict) and h.get('enabled')]
+        except Exception as exc:
+            log('  FAIL resolved layout: %s' % type(exc).__name__)
+        if not layout:
+            layout = [{'pluginSource': 'playlists', 'pluginAdditionalData': r.get('id'),
+                       'pluginDisplayText': r.get('name')} for r in slots]
+        for h in layout:
             if time.time() - t_start > BUDGET_S:
                 break
-            warm(utok, '/Playlists/%s/Items?Limit=500' % r.get('id'),
-                 'row %s' % (r.get('name') or '?'))
+            src = h.get('pluginSource')
+            data = (h.get('pluginAdditionalData') or '').strip()
+            if src == 'playlists' and data:
+                warm(utok, '/Playlists/%s/Items?Limit=500' % data,
+                     'row %s' % (h.get('pluginDisplayText') or data))
+            elif src == 'genres' and data:
+                warm(utok, '/Users/%s/Items?GenreIds=%s&SortBy=CommunityRating'
+                     '&SortOrder=Descending&Recursive=true&Limit=15&ExcludeItemTypes=Episode'
+                     % (uid, data), 'genre row %s' % (h.get('pluginDisplayText') or data))
 
         # media-bar pool: recentlyReleased windows + SortName count probes
         maxpremiere = q(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
