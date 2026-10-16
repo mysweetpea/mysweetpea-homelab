@@ -168,6 +168,31 @@ DISCOVER_TABLE = [
      _d(with_original_language="ko", with_genres="18|10749", **{"vote_count.gte": "50"})),
     ("korean", "Korean Movies",
      _d(with_original_language="ko", with_genres="18|53", **{"vote_count.gte": "100"}), None),
+    # --- mainstream top-level genres (2026-10-16) ---
+    ("action", "Action & Adventure",
+     _d(with_genres="28|12", **{"vote_count.gte": "500"}),
+     _d(with_genres="10759", **{"vote_count.gte": "100"})),
+    ("comedy", "Comedy",
+     _d(with_genres="35", **{"vote_count.gte": "500"}),
+     _d(with_genres="35", **{"vote_count.gte": "100"})),
+    ("drama", "Drama",
+     _d(with_genres="18", **{"vote_count.gte": "500"}),
+     _d(with_genres="18", **{"vote_count.gte": "100"})),
+    ("scifi-fantasy", "Sci-Fi & Fantasy",
+     _d(with_genres="878|14", **{"vote_count.gte": "500"}),
+     _d(with_genres="10765", **{"vote_count.gte": "100"})),
+    ("horror", "Horror",
+     _d(with_genres="27", **{"vote_count.gte": "300"}),
+     _d(with_keywords="315058", **{"vote_count.gte": "30"})),
+    ("thriller", "Thriller",
+     _d(with_genres="53", **{"vote_count.gte": "500"}),
+     _d(with_genres="80|9648", **{"vote_count.gte": "100"})),
+    ("romance", "Romance",
+     _d(with_genres="10749", **{"vote_count.gte": "300"}),
+     _d(with_genres="10749", **{"vote_count.gte": "50"})),
+    ("documentaries", "Documentaries",
+     _d(with_genres="99", **{"vote_count.gte": "100"}),
+     _d(with_genres="99", **{"vote_count.gte": "30"})),
     # --- cross-genre combos (Netflix-style multi-genre shelves) ---
     ("romantic-comedy", "Romantic Comedy",
      _d(with_genres="35,10749", **{"vote_count.gte": "200"}),
@@ -603,8 +628,8 @@ def _selftest():
     for key in ("anime", "korean", "true-crime", "feel-good"):
         mv, ser = INTENTS[key]
         assert mv and ser, key
-    assert len(DISCOVER_CATALOGS) == 70, len(DISCOVER_CATALOGS)
-    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 70 + len(DYNAMIC_CATALOGS)
+    assert len(DISCOVER_CATALOGS) == 86, len(DISCOVER_CATALOGS)
+    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 86 + len(DYNAMIC_CATALOGS)
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
     assert len(ids) == len(set(ids)), "duplicate (type, id) catalog entries"
     print("selftest ok: %d catalogs (%d discover)" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))

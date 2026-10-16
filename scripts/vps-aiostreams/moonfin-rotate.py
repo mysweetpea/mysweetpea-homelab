@@ -86,8 +86,8 @@ COMBO_POOL = [
     ("Superhero Movies", "Superhero Shows"),
 ]
 WILDCARD_POOL = [
-    ("True Crime Movies", "True Crime Shows"),
-    ("Korean Movies", "K-Dramas"),
+    ("Documentaries Movies", "Documentaries Shows"),
+    ("Romance Movies", "Romance Shows"),
     ("80s Movies", "80s Shows"),
     ("90s Movies", "90s Shows"),
     ("2000s Movies", "2000s Shows"),
@@ -219,6 +219,15 @@ def build_slots(seed):
          "views": ("Trending Movies", "Trending Shows"), "prio": 90, "kind": "core"},
         {"id": "msp-newreleases", "name": "New Releases",
          "views": ("New Releases Movies", "New Releases Shows"), "prio": 95, "kind": "core"},
+        # --- fixed mainstream anchors (2026-10-16) ---
+        {"id": "msp-action", "name": "Action Fix",
+         "views": ("Action & Adventure Movies", "Action & Adventure Shows"), "prio": 70, "kind": "fixed"},
+        {"id": "msp-afterdark", "name": "After Dark",
+         "views": ("Horror Movies", "Horror Shows"), "prio": 71, "kind": "fixed"},
+        {"id": "msp-crime", "name": "True Crime Files",
+         "views": ("True Crime Movies", "True Crime Shows"), "prio": 72, "kind": "fixed"},
+        {"id": "msp-kdrama", "name": "K-Dramas",
+         "views": ("Korean Movies", "K-Dramas"), "prio": 73, "kind": "fixed"},
         {"id": "msp-anime", "name": display_name(anime[0]),
          "views": anime, "prio": 10, "kind": "feature"},
         {"id": "msp-combo1", "name": display_name(c1[0]),
@@ -305,6 +314,7 @@ def main():
     display = [s for s in slots if s["kind"] == "core"]
     if len(mp) >= MIN_N:
         display.insert(1, mp_slot)
+    display += [s for s in slots if s["kind"] == "fixed"]
     display += [s for s in slots if s["kind"] == "feature"]
 
     rows = []
@@ -393,6 +403,9 @@ if __name__ == "__main__":
         assert i_fav < i_eng < i_gen, "engine rows must sit between favorites and genres"
         assert len(ANIME_POOL) == 10 and len(COMBO_POOL) == 10
         assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 5
+        assert len(slots) == 12
+        assert [x["id"] for x in slots if x["kind"] == "fixed"] == \
+            ["msp-action", "msp-afterdark", "msp-crime", "msp-kdrama"]
         print("selftest ok")
         sys.exit(0)
     sys.exit(main())

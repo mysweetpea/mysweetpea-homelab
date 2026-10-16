@@ -597,3 +597,20 @@ wave. The `/Playlists/{id}/Items` location now edge-caches at nginx (zone
 - **`proxy_buffering off` blocks cache stores** - this location was created
   with buffering off (SSE habit); stores only began after flipping it ON.
   Keep `proxy_buffering on` here.
+
+
+### 2026-10-16 (v4) — mainstream taxonomy + 4 fixed rows
+
+**tmdb-search** (86 discover catalogs / 111 total): +8 mainstream top-level
+genre pairs (16 views) — Action & Adventure, Comedy, Drama, Sci-Fi & Fantasy,
+Horror, Thriller, Romance, Documentaries. Views went 114 -> 130.
+(Grounded in Nielsen H1-2026: top streaming titles cluster in sci-fi/fantasy,
+drama, comedy, kids, romance; unscripted rising.)
+
+**rows engine (moonfin-rotate.py)**: 8 -> 12 playlist rows. Four NEW fixed
+anchor rows after Trending/New Releases/[Most Played]:
+Action Fix (Action & Adventure), After Dark (Horror), True Crime Files,
+K-Dramas (Korean Movies + K-Dramas). The rotating block (anime + 2 combos +
+mood + curated + wildcard) is unchanged; wildcard pool rebalanced — True
+Crime and Korean were promoted to permanent rows and replaced by
+Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
