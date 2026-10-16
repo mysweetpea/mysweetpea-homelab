@@ -74,6 +74,8 @@ def main():
     g["sinceYouWatchedSource"] = "server"
     g["recommendationSystemSource"] = "server"
     g["mediaBarMode"] = "moonfin"
+    g["displayPlaylistsRows"] = True
+    g["displayGenresRows"] = True
     json.dump(g, open(a.out, "w"), ensure_ascii=False, separators=(",", ":"))
     print(f"wrote {a.out}: {len(g)} fields, "
           f"{len(g.get('homeSections', []))} home rows, theme={g.get('customThemeId')}")

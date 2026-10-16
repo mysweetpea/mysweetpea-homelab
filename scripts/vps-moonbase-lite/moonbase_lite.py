@@ -171,6 +171,11 @@ PINS = {
     "genresRowSortBy": "communityRating",
     "genresRowSortOrder": "descending",
     "genresRowItemFilter": "both",
+    # Client gates pluginDynamic playlist/genre rows on these toggles too
+    # (home_view_model visibleConfigs filter) - without them rows are
+    # dropped BEFORE any fetch. Root cause of the no-rows bug 2026-10-16.
+    "displayPlaylistsRows": True,
+    "displayGenresRows": True,
 
     # Classic Moonfin media bar style instead of the Aya style (owner directive).
     "mediaBarMode": "moonfin",
