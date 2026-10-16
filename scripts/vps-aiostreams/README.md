@@ -631,3 +631,30 @@ Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
   simplified shape never matched; (b) new genre-grid prewarm block: page-1 of the top
   `GENRE_PREWARM=30` genres from the client's /Genres list (a cold grid query costs
   1.6-4.2s on the single-threaded app; warmed = HIT ~40ms).
+
+### 2026-10-16 (v6) — searchable libraries + Continue Watching dedupe
+- **tmdb-search v1.5.0**: every library is now searchable by name — the 8
+  mainstream genre pairs, ALL anime sub-genre pairs, moods, curated, combos,
+  decades, streamers (netflix / hulu / disney+ / hbo max / prime / apple tv+ /
+  paramount+ / peacock / crunchyroll / discovery+ / canal+), plus "new
+  releases" (rolling window, computed per request) and "trending". Suffix
+  handling now RECURSES, so "slice of life shows" / "anime horror shows" /
+  "netflix movies" all resolve. Two fixes: (a) `_search_term()` — segments are
+  percent-decoded before parsing, so splitting on '&' truncated terms
+  ("law & order" -> "law", "sci-fi & fantasy" -> "sci-fi"); the term is now
+  taken from its own segment whole. (b) `anime-romance-shows` was empty — TV
+  has no TMDB genre 10749; series side is now keyword 9840. Smoke suite:
+  **22/22** (manifest assert updated 23 -> 111 catalogs; the deep sweep covers
+  all 109 catalogs).
+- **aiostreams-resume-filter.py** (NEW sidecar, port 3005, systemd unit
+  `aiostreams-resume-filter`): nginx routes `.../UserItems/Resume` through it.
+  It keeps ONLY the first entry per series — the list is LastPlayedDate
+  descending, so first == most recently watched episode — which makes the
+  merged "Continue Watching & Next Up" row show ONE card per show (was: every
+  partially-watched episode). Non-episodes keep unique Ids; any parse problem
+  passes through untouched; fail-open to :3000 (upstream `aiostreams_resume`
+  with 3000 backup); CORS headers preserved. Verified live: 7 -> 3 items.
+- **nginx**: upstream `aiostreams_resume` + location
+  `~* "(useritems|users/[^/]+/items)/resume"` ->
+  `snippets/aiostreams-resume-dedupe.snippet.conf`. Vhost backup:
+  `/root/aiostreams-site.bak-resumededupe-20261016`.

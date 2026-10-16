@@ -102,7 +102,7 @@ DISCOVER_TABLE = [
      _d(with_genres="10759", with_keywords=_AKW, **{"vote_count.gte": "50"})),
     ("anime-romance", "Anime: Romance",
      _d(with_genres="10749", with_keywords=_AKW, **{"vote_count.gte": "50"}),
-     _d(with_genres="10749", with_keywords=_AKW, **{"vote_count.gte": "50"})),
+     _d(with_keywords=f"{_AKW},9840")),  # TV has no Romance genre; keyword 9840
     ("anime-comedy", "Anime: Comedy",
      _d(with_genres="35", with_keywords=_AKW, **{"vote_count.gte": "50"}),
      _d(with_genres="35", with_keywords=_AKW, **{"vote_count.gte": "50"})),
@@ -286,7 +286,7 @@ DYNAMIC_CATALOGS = [
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "name": "TMDB Search",
     "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
     "resources": ["catalog"],
@@ -336,6 +336,16 @@ INTENTS["horror"] = (_d(with_genres="27", **{"vote_count.gte": "200"}),
 INTENTS["romcom"] = (_d(with_genres="35,10749", **{"vote_count.gte": "200"}),
                      _d(with_genres="35", with_keywords="9840", **{"vote_count.gte": "30"}))
 INTENTS["korean"] = (INTENTS["korean"][0], INTENTS["kdrama"][1])
+
+# streamer LIBRARIES searchable by name (same params as their deep catalogs)
+for _k, _pid, _name, _region, _mv, _sh in SERVICES:
+    _p = _d(with_watch_providers=str(_pid), watch_region=_region)
+    INTENTS[_k] = (_p if _mv else None, _p if _sh else None)
+
+# engine-row intents: "new releases" computes its rolling window per request
+INTENTS["new-releases"] = ("__DYNAMIC__", "__DYNAMIC__")
+INTENTS["trending"] = (_d(**{"vote_count.gte": "300"}),
+                       _d(**{"vote_count.gte": "100"}))
 
 PHRASE_MAP = {
     "anime": "anime",
@@ -388,6 +398,32 @@ for _g in _GENRE_MAP:
     PHRASE_MAP.setdefault(_g, _g)
 PHRASE_MAP["horror"] = "horror"
 
+PHRASE_MAP.update({
+    # phrase forms of the mainstream pairs
+    "action & adventure": "action", "action and adventure": "action",
+    "sci-fi & fantasy": "scifi-fantasy", "sci fi & fantasy": "scifi-fantasy",
+    "sci-fi fantasy": "scifi-fantasy", "sci fi fantasy": "scifi-fantasy",
+    "scifi fantasy": "scifi-fantasy", "science fiction fantasy": "scifi-fantasy",
+    # genre plurals
+    "comedies": "comedy", "dramas": "drama", "thrillers": "thriller",
+    "romances": "romance", "documentaries": "documentaries",
+    "musicals": "music", "westerns": "western", "mysteries": "mystery",
+    "animes": "anime",
+    # engine rows
+    "new releases": "new-releases", "new release": "new-releases",
+    "trending": "trending", "trending now": "trending",
+    # streamer libraries (deep catalogs)
+    "netflix": "netflix", "hulu": "hulu",
+    "disney": "disney", "disney+": "disney", "disney plus": "disney",
+    "prime": "prime", "prime video": "prime", "amazon": "prime", "amazon prime": "prime",
+    "hbo": "hbo", "hbo max": "hbo",
+    "apple": "apple", "apple tv": "apple", "apple tv+": "apple", "apple tv plus": "apple",
+    "paramount": "paramount", "paramount+": "paramount", "paramount plus": "paramount",
+    "peacock": "peacock", "crunchyroll": "crunchyroll",
+    "discovery": "discovery", "discovery+": "discovery", "discovery plus": "discovery",
+    "canal": "canal", "canal+": "canal", "canal plus": "canal",
+})
+
 ANIME_SUBS = {
     "action": "anime-action",
     "adventure": "anime-action",
@@ -419,12 +455,9 @@ def match_intent(term):
         return PHRASE_MAP[t]
     for sfx in _SUFFIXES:
         if t.endswith(sfx):
-            base = t[:-len(sfx)].strip()
-            if base in PHRASE_MAP:
-                return PHRASE_MAP[base]
-            if base in ANIME_SUBS:
-                return ANIME_SUBS[base]
-            return None
+            # recurse, so "slice of life shows", "netflix movies" and
+            # "anime horror shows" all resolve through the same tables
+            return match_intent(t[:-len(sfx)].strip())
     if t.endswith(" anime"):
         sub = t[:-6].strip()
         return ANIME_SUBS.get(sub, "anime")
@@ -472,7 +505,11 @@ def metas_for(kind, term, skip=0):
         params = INTENTS.get(intent, (None, None))[0 if kind == "movie" else 1]
         if params is None:
             return []  # intent recognised, nothing on this side (e.g. "thriller" series)
-        out = discover_metas(kind, params, f"intent:{intent}", skip)
+        if params == "__DYNAMIC__":
+            params = _new_releases_params(kind, _today())
+            out = discover_metas(kind, params, f"intent:{intent}:{_today()}", skip)
+        else:
+            out = discover_metas(kind, params, f"intent:{intent}", skip)
         print(f"tmdb-search: intent {term!r} -> {intent} -> {len(out)}", flush=True)
         return out
     ck = (kind, term.lower(), skip)
@@ -543,6 +580,23 @@ def _parsed_skip(parts, u):
     return skip
 
 
+def _search_term(parts, u):
+    """Search term from the path segments / query. Segments arrive percent-
+    decoded, so a term containing a literal '&' ("law & order") must be taken
+    from its OWN segment whole - splitting it on '&' would truncate it."""
+    term = (urllib.parse.parse_qs(u.query).get("search") or [""])[0]
+    for seg in parts:
+        if seg.startswith("search="):
+            term = seg[len("search="):]
+            break
+        for piece in seg.split("&"):
+            if piece.startswith("search="):
+                term = piece[len("search="):]
+    if term.endswith(".json"):
+        term = term[:-5]
+    return term.strip()
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -567,13 +621,7 @@ class Handler(BaseHTTPRequestHandler):
                 if cid.endswith(".json"):  # Stremio single-segment form: /catalog/movie/<id>.json
                     cid = cid[:-5]
                 if cid == "search":
-                    term = (urllib.parse.parse_qs(u.query).get("search") or [""])[0]
-                    for seg in parts[3:]:
-                        for piece in seg.split("&"):
-                            if piece.startswith("search="):
-                                term = piece[len("search="):]
-                    term = term[:-5] if term.endswith(".json") else term
-                    term = term.strip()
+                    term = _search_term(parts[3:], u)
                     if not term:
                         return self._send({"metas": []})
                     return self._send({"metas": metas_for(kind, term, _parsed_skip(parts, u)),
@@ -623,6 +671,25 @@ def _selftest():
     assert match_intent("superhero movies") == "superhero"
     assert match_intent("80s movies") == "80s"
     assert match_intent("crime drama") == "crime-drama"
+    assert match_intent("slice of life") == "anime-sol"
+    assert match_intent("slice of life shows") == "anime-sol"
+    assert match_intent("anime horror shows") == "anime-horror"
+    assert match_intent("documentaries") == "documentaries"
+    assert match_intent("sci-fi & fantasy") == "scifi-fantasy"
+    assert match_intent("action & adventure") == "action"
+    assert match_intent("netflix") == "netflix"
+    assert match_intent("netflix shows") == "netflix"
+    assert match_intent("new releases") == "new-releases"
+    assert match_intent("trending now") == "trending"
+    assert match_intent("max") is None  # bare "max" stays a title search
+    assert match_intent("disney+") == "disney"
+    _u = urllib.parse.urlparse("/catalog/movie/search/search=law%20%26%20order.json")
+    _p = [urllib.parse.unquote(x) for x in _u.path.strip("/").split("/")]
+    assert _search_term(_p[3:], _u) == "law & order", _search_term(_p[3:], _u)
+    _u2 = urllib.parse.urlparse("/catalog/movie/search/search=anime.json")
+    _p2 = [urllib.parse.unquote(x) for x in _u2.path.strip("/").split("/")]
+    assert _search_term(_p2[3:], _u2) == "anime"
+    assert INTENTS["netflix"][0] and INTENTS["netflix"][1]
     assert INTENTS["romantic-comedy"][0] and INTENTS["romantic-comedy"][1]
     # intent sides resolve for both kinds where promised
     for key in ("anime", "korean", "true-crime", "feel-good"):

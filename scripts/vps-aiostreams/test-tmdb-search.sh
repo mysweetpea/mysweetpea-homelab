@@ -22,7 +22,7 @@ chk manifest 200 "$BASE/manifest.json"
 chk root 200 "$BASE/"
 chk bad-path 404 "$BASE/nope"
 
-pychk manifest-23 "$BASE/manifest.json" 'import json,sys; m=json.load(sys.stdin); c=m["catalogs"]; assert len(c)==23, len(c); assert sum(1 for x in c if x["id"]=="search")==2; assert sum(1 for x in c if x["id"].endswith(("-movies","-shows")))==21; assert "skip" in json.dumps(c)'
+pychk manifest-23 "$BASE/manifest.json" 'import json,sys; m=json.load(sys.stdin); c=m["catalogs"]; assert len(c)==111, len(c)  # 2 search + 21 deep + 86 discover + 2 dynamic; assert sum(1 for x in c if x["id"]=="search")==2; assert sum(1 for x in c if x["id"].endswith(("-movies","-shows")))==21; assert "skip" in json.dumps(c)'
 
 # search regression: both types answer with tmdb: previews
 pychk search-movie "$BASE/catalog/movie/search/search=matrix.json" 'import json,sys; d=json.load(sys.stdin); ms=d["metas"]; assert ms and all(i["id"].startswith("tmdb:") for i in ms), len(ms); assert any("Matrix" in i["name"] for i in ms)'
@@ -44,6 +44,17 @@ for c in m["catalogs"]:
         if not d.get("metas"): bad.append(c["id"])
     except Exception as e: bad.append("%s:%s" % (c["id"], e))
 assert not bad, bad'
+
+# v1.5: category / sub-category / streamer names resolve to their libraries' content
+pychk intent-slice-of-life "$BASE/catalog/movie/search/search=slice%20of%20life.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
+pychk intent-isekai "$BASE/catalog/series/search/search=isekai.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
+pychk intent-anime-romance "$BASE/catalog/movie/search/search=anime%20romance.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
+pychk intent-documentaries "$BASE/catalog/movie/search/search=documentaries.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk intent-scifi-fantasy "$BASE/catalog/movie/search/search=sci-fi%20%26%20fantasy.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
+pychk intent-netflix-shows "$BASE/catalog/series/search/search=netflix.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
+pychk intent-netflix-movies-suffix "$BASE/catalog/movie/search/search=netflix%20movies.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
+pychk intent-new-releases "$BASE/catalog/movie/search/search=new%20releases.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
+pychk title-still-works "$BASE/catalog/movie/search/search=the%20matrix.json" 'import json,sys; d=json.load(sys.stdin); assert any("Matrix" in i["name"] for i in d["metas"])'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
