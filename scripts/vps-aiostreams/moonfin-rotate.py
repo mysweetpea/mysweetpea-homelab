@@ -29,10 +29,9 @@ CREDS = "/root/.aiostreams-warmer-creds.json"
 STATE = "/root/.moonfin-rotate-state.json"
 LOG = "/var/log/moonfin-rotate.log"
 
-CORE = [
-    "Trending Movies", "Trending Shows", "Popular Movies", "Popular Shows",
-    "Netflix Movies", "Netflix Shows", "Disney+ Movies", "Disney+ Shows",
-    "Hulu Movies", "Hulu Shows", "Crunchyroll Movies", "Crunchyroll Shows",
+CORE = [  # streamer/popular rows retired from Home 2026-10-16 (browsable via the My Media hub)
+    "Trending Movies", "Trending Shows",
+    "New Releases Movies", "New Releases Shows",
     "Anime Movies", "Anime Shows",
 ]
 ANIME_POOL = [
@@ -197,7 +196,7 @@ if __name__ == "__main__":
         assert len(set(f1)) == 6, "no duplicate pairs in a day"
         text = snippet_text(["abc", "def"])
         assert '"LatestItemsExcludes":["abc", "def"]' in text
-        assert len(CORE) == 14 and len(ANIME_POOL) == 10 and len(COMBO_POOL) == 10
+        assert len(CORE) == 6 and len(ANIME_POOL) == 10 and len(COMBO_POOL) == 10
         assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 5
         print("selftest ok")
         sys.exit(0)

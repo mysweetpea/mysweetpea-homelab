@@ -166,11 +166,10 @@ PINS = {
     "sinceYouWatched5Enabled": True,
     # Similar tab + syw rows: server /Similar (60 items) instead of client-side 20-cap local algo.
     "recommendationSystemSource": "server",
-    # Fleet row list (push-proof): devices re-push their own homeSections which would
-    # otherwise shadow defaults.json and disable rows 4/5 (seen 2026-10-15). Order: all personalized rows first
-    # (resume..playlists), then browse rows (genres / latestmedia / collections).
-    # Owner request 2026-10-15.
-    "homeSections": [{'type': 'resume', 'enabled': True, 'order': 1}, {'type': 'nextup', 'enabled': True, 'order': 2}, {'type': 'sinceyouwatched1', 'enabled': True, 'order': 3}, {'type': 'sinceyouwatched2', 'enabled': True, 'order': 4}, {'type': 'sinceyouwatched3', 'enabled': True, 'order': 5}, {'type': 'sinceyouwatched4', 'enabled': True, 'order': 6}, {'type': 'sinceyouwatched5', 'enabled': True, 'order': 7}, {'type': 'rewatch', 'enabled': True, 'order': 8}, {'type': 'genres', 'enabled': True, 'order': 12}, {'type': 'latestmedia', 'enabled': True, 'order': 13}, {'type': 'collections', 'enabled': True, 'order': 14}, {'type': 'favoritemovies', 'enabled': True, 'order': 9}, {'type': 'favoriteepisodes', 'enabled': True, 'order': 10}, {'type': 'playlists', 'enabled': True, 'order': 11}, {'type': 'mediabar', 'enabled': False, 'order': 15}, {'type': 'recentlyreleased', 'enabled': False, 'order': 16}, {'type': 'smalllibrarytiles', 'enabled': False, 'order': 17}, {'type': 'librarybuttons', 'enabled': False, 'order': 18}, {'type': 'resumeaudio', 'enabled': False, 'order': 19}, {'type': 'resumebook', 'enabled': False, 'order': 20}, {'type': 'activerecordings', 'enabled': False, 'order': 21}, {'type': 'audioartists', 'enabled': False, 'order': 22}, {'type': 'audioalbums', 'enabled': False, 'order': 23}, {'type': 'audioplaylists', 'enabled': False, 'order': 24}, {'type': 'favoriteseries', 'enabled': False, 'order': 25}, {'type': 'favoritepeople', 'enabled': False, 'order': 26}, {'type': 'favoriteartists', 'enabled': False, 'order': 27}, {'type': 'favoritemusicvideos', 'enabled': False, 'order': 28}, {'type': 'favoritealbums', 'enabled': False, 'order': 29}, {'type': 'favoritesongs', 'enabled': False, 'order': 30}, {'type': 'studios', 'enabled': False, 'order': 31}, {'type': 'livetv', 'enabled': False, 'order': 32}, {'type': 'seerr_shortcuts', 'enabled': False, 'order': 33}, {'type': 'seerr_recent_requests', 'enabled': False, 'order': 34}, {'type': 'seerr_watchlist', 'enabled': False, 'order': 35}, {'type': 'seerr_recently_added', 'enabled': False, 'order': 36}, {'type': 'seerr_popular_movies', 'enabled': False, 'order': 37}, {'type': 'seerr_upcoming_movies', 'enabled': False, 'order': 38}, {'type': 'seerr_popular_series', 'enabled': False, 'order': 39}, {'type': 'seerr_upcoming_series', 'enabled': False, 'order': 40}, {'type': 'seerr_trending', 'enabled': False, 'order': 41}, {'type': 'seerr_movie_genres', 'enabled': False, 'order': 42}, {'type': 'seerr_studios', 'enabled': False, 'order': 43}, {'type': 'seerr_series_genres', 'enabled': False, 'order': 44}, {'type': 'seerr_networks', 'enabled': False, 'order': 45}, {'type': 'imdb_top_250_movies', 'enabled': False, 'order': 46}, {'type': 'imdb_top_250_tv_shows', 'enabled': False, 'order': 47}, {'type': 'imdb_most_popular_movies', 'enabled': False, 'order': 48}, {'type': 'imdb_most_popular_tv_shows', 'enabled': False, 'order': 49}, {'type': 'imdb_lowest_rated_movies', 'enabled': False, 'order': 50}, {'type': 'imdb_top_english_movies', 'enabled': False, 'order': 51}, {'type': 'tmdb_popular_movies', 'enabled': False, 'order': 52}, {'type': 'tmdb_top_rated_movies', 'enabled': False, 'order': 53}, {'type': 'tmdb_now_playing_movies', 'enabled': False, 'order': 54}, {'type': 'tmdb_upcoming_movies', 'enabled': False, 'order': 55}, {'type': 'tmdb_popular_tv', 'enabled': False, 'order': 56}, {'type': 'tmdb_top_rated_tv', 'enabled': False, 'order': 57}, {'type': 'tmdb_airing_today_tv', 'enabled': False, 'order': 58}, {'type': 'tmdb_on_the_air_tv', 'enabled': False, 'order': 59}, {'type': 'tmdb_trending_movie_daily', 'enabled': False, 'order': 60}, {'type': 'tmdb_trending_movie_weekly', 'enabled': False, 'order': 61}, {'type': 'tmdb_trending_tv_daily', 'enabled': False, 'order': 62}, {'type': 'tmdb_trending_tv_weekly', 'enabled': False, 'order': 63}, {'type': 'tmdb_trending_all_weekly', 'enabled': False, 'order': 64}, {'type': 'radarr_calendar', 'enabled': False, 'order': 65}, {'type': 'sonarr_calendar', 'enabled': False, 'order': 66}, {'type': 'seasonal', 'enabled': False, 'order': 67}],
+    "genresRowSortBy": "communityRating",
+    "genresRowSortOrder": "descending",
+    "genresRowItemFilter": "both",
+
     # Classic Moonfin media bar style instead of the Aya style (owner directive).
     "mediaBarMode": "moonfin",
 }
@@ -1028,7 +1027,7 @@ class Handler(BaseHTTPRequestHandler):
             for key in list(payload.keys()):
                 low = key.lower()
                 if low in SCOPES and isinstance(payload[key], dict):
-                    merge_flat(doc[low], payload[key])
+                    merge_flat(doc[low], {k: v for k, v in payload[key].items() if k != "homeSections"})
                     touched.append(low)
                 elif low in ("hiddencontentbaselines", "hiddenContentBaselines".lower(),
                              "syncenabled", "syncEnabled".lower()):
@@ -1071,7 +1070,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "profile must be an object"})
                 return
             doc = load_user(uid)
-            merge_flat(doc[scope], flat)
+            merge_flat(doc[scope], {k: v for k, v in flat.items() if k != "homeSections"})
             save_user(uid, doc)
             broadcast({"type": "settingsUpdated", "userId": uid, "scopes": [scope]})
             self._send(200, {"success": True, "profile": scope})

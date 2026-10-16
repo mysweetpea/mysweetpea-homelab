@@ -521,3 +521,33 @@ genre 35 + romance kw 9840 (TV romance genre alone ~6 titles); sci-fi thriller T
 dark comedy kw 10123; psych thriller kw 12565. Search intents extended to match
 (psychological thriller / dark+black comedy / superhero / crime+action comedy /
 sci-fi thriller / "80s|90s|2000s").
+
+## 2026-10-16 — Home redesign: personal rows + hub + taste (Phase 1.5)
+
+Layout is now owned by the server in three places; devices adopt at boot and
+their own homeSections pushes are DROPPED shim-side (moonbase_lite.py merges
+now filter `homeSections`), so the fleet list is authoritative.
+
+1. **Base layout** — `data/defaults.json` homeSections (16 rows):
+   resume, nextup, syw1-5, rewatch, favoritemovies, **favoriteseries**,
+   favoriteepisodes, playlists, genres, latestmedia, collections,
+   **smalllibrarytiles** ("My Media" hub row). PINS no longer carries
+   homeSections; genre-row sort is pinned fleet-wide:
+   `genresRowSortBy=communityRating, genresRowSortOrder=descending,
+   genresRowItemFilter=both` (client default was alphabetical — useless).
+2. **Taste rows** — `moonfin-taste.py` (root cron `10 7 * * *`): per-user
+   top-2 genres from resume+played items -> pluginDynamic genre rows
+   ("<Genre> for You") spliced after 'playlists' in the user's file.
+   Owner-only until personas exist (aios scopes user data BY TOKEN; personas
+   need pins.json entries + their own login).
+3. **New Releases** — tmdb-search v1.4.0 adds a rolling 8-week
+   release-window pair (dates computed per request); registered as mods
+   `tsfe3b0.new-releases-movies/-shows` at the FRONT of the catalog array.
+4. **Rotation CORE** — streamer + Popular pairs REMOVED from home
+   (netflix/hulu/crunchyroll/disney/popular; still browsable via the hub).
+   CORE = Trending m/s, New Releases m/s, Anime m/s; features unchanged
+   (1 anime + 2 combos + 1 mood + 1 curated + 1 wildcard). visible 18/114.
+5. **Most-Played row — parked**: aios supports neither playlist nor
+   collection creation (POST /Playlists + /Collections -> 404), and household
+   play counts are still ~zero. Future option: intercept /Playlists* at nginx
+   and serve synthetic playlists from the shim (custom-titled arbitrary rows).

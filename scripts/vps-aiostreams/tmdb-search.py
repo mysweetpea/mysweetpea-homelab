@@ -18,6 +18,7 @@ true crime, K-Dramas, Korean movies). All popularity-sorted unless noted.
 v1.3.0 adds cross-genre combos (Romantic Comedy, Action Comedy, Crime Drama, Sci-Fi /
 Psychological / Horror Thriller, Fantasy / Family Adventure, Dark Comedy, Superhero)
 and decades (80s / 90s / 2000s).
+v1.4.0 adds a dynamic New Releases pair (rolling 8-week window, refreshed daily).
 
 Deep catalogs (2026-10-15): per-service browse catalogs backed by TMDB discover
 (watch-provider filtered; US unless noted) with Stremio `skip` paging.
@@ -36,6 +37,7 @@ ponytail: single-process ThreadingHTTPServer is plenty (<1 req/s from aios); no 
 import json
 import sys
 import time
+from datetime import date, timedelta
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -230,9 +232,36 @@ for _base, _name, _mv, _ser in DISCOVER_TABLE:
             "extra": [{"name": "skip"}],
         })
 
+# --- dynamic catalogs (params computed per request) ---
+
+def _today():
+    return date.today().isoformat()
+
+
+def _new_releases_params(kind, today):
+    """Rolling 8-week release window, popularity-sorted."""
+    since = (date.fromisoformat(today) - timedelta(days=56)).isoformat()
+    if kind == "movie":
+        return _d(**{"primary_release_date.gte": since, "primary_release_date.lte": today,
+                     "vote_count.gte": "25"})
+    return _d(**{"first_air_date.gte": since, "first_air_date.lte": today,
+                 "vote_count.gte": "10"})
+
+
+DYNAMIC_DEFS = {
+    "new-releases-movies": lambda t: _new_releases_params("movie", t),
+    "new-releases-shows": lambda t: _new_releases_params("series", t),
+}
+DYNAMIC_CATALOGS = [
+    {"type": "movie", "id": "new-releases-movies", "name": "New Releases Movies",
+     "extra": [{"name": "skip"}]},
+    {"type": "series", "id": "new-releases-shows", "name": "New Releases Shows",
+     "extra": [{"name": "skip"}]},
+]
+
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "name": "TMDB Search",
     "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
     "resources": ["catalog"],
@@ -242,7 +271,7 @@ MANIFEST = {
          "extra": [{"name": "search", "isRequired": True}]},
         {"type": "series", "id": "search", "name": "Search",
          "extra": [{"name": "search", "isRequired": True}]},
-    ] + DEEP_CATALOGS + DISCOVER_CATALOGS,
+    ] + DEEP_CATALOGS + DISCOVER_CATALOGS + DYNAMIC_CATALOGS,
 }
 
 # ---------------------------------------------------------------------------
@@ -531,6 +560,10 @@ class Handler(BaseHTTPRequestHandler):
                               "sort_by": "popularity.desc"}
                     return self._send({"metas": discover_metas(kind, params, f"svc:{provider_id}:{region}", skip),
                                        "cacheMaxAge": 3600})
+                if cid in DYNAMIC_DEFS:
+                    today = _today()
+                    return self._send({"metas": discover_metas(kind, DYNAMIC_DEFS[cid](today),
+                                       f"dyn:{cid}:{today}", skip), "cacheMaxAge": 3600})
                 if (stype, cid) in DISCOVER_DEFS:
                     return self._send({"metas": discover_metas(kind, DISCOVER_DEFS[(stype, cid)], f"cid:{cid}", skip),
                                        "cacheMaxAge": 3600})
@@ -559,6 +592,7 @@ def _selftest():
     assert match_intent("the matrix") is None
     assert match_intent("demon anime") == "anime"
     assert match_intent("spider man") is None
+    assert DYNAMIC_DEFS["new-releases-movies"]("2026-10-16")["primary_release_date.gte"] == "2026-08-21"
     assert match_intent("psychological thriller") == "psych-thriller"
     assert match_intent("dark comedy") == "dark-comedy"
     assert match_intent("superhero movies") == "superhero"
@@ -570,7 +604,7 @@ def _selftest():
         mv, ser = INTENTS[key]
         assert mv and ser, key
     assert len(DISCOVER_CATALOGS) == 70, len(DISCOVER_CATALOGS)
-    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 70
+    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 70 + len(DYNAMIC_CATALOGS)
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
     assert len(ids) == len(set(ids)), "duplicate (type, id) catalog entries"
     print("selftest ok: %d catalogs (%d discover)" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))
