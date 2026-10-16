@@ -580,3 +580,20 @@ is disabled fleet-wide).
   catalogModifications (Netflix → Netflix Top 10 → Prime → Disney+ → HBO Max →
   Hulu → Paramount+ → Peacock → Apple TV+ → Crunchyroll → Discovery+ → Canal+ →
   everything else), so the My Media hub + Libraries show services first.
+
+### 2026-10-16 (v3.1) — Playlist-row edge cache (per-device)
+
+Every playlist row was fetched TWICE per boot (first paint + the settings-apply
+reload) and cold again on each relaunch; rows took 0.4-2.8s each under the boot
+wave. The `/Playlists/{id}/Items` location now edge-caches at nginx (zone
+`aios_api`, see `nginx-playlists-route.snippet.conf`):
+
+- **Key** = canonical URI + args + `$http_authorization`. This path has NO
+  per-user uid (unlike rows/bar/children), so the auth header is the per-user
+  discriminator: entries are per-DEVICE and never shared across members (no
+  UserData bleed). Verified: same token MISS->HIT (~15ms); different token
+  MISSes its own entry, then HITs.
+- **TTL** 1h. Warmer runs (`X-Aios-Warm: 1`) skip read AND store.
+- **`proxy_buffering off` blocks cache stores** - this location was created
+  with buffering off (SSE habit); stores only began after flipping it ON.
+  Keep `proxy_buffering on` here.
