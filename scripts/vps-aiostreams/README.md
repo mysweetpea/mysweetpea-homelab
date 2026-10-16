@@ -508,3 +508,16 @@ missing), `VIEW_LIMIT 60 -> 120` as the fallback cap. Run dropped 371s/60 views 
 **Ops traps re-confirmed**: catalogModifications -> /UserViews needs a container restart
 (Oct 14 trap); config PUT body `{"config": userData}`; hard-refresh any open configure tab
 after API-side edits (stale tab save reverts).
+
+**Rotation v2 (2026-10-16 evening) — mixed daily sets**: the daily feature set is now a
+deliberate Netflix-style mixture — 1 anime sub-genre pair + 2 cross-genre combo pairs +
+1 mood pair + 1 curated pair + 1 wildcard pair (True Crime / Korean / 80s / 90s / 2000s).
+tmdb-search v1.3.0 (+26 catalogs): 10 combo pairs (Romantic Comedy, Action Comedy,
+Crime Drama, Sci-Fi Thriller, Psychological Thriller, Fantasy Adventure, Family Adventure,
+Horror Thriller, Dark Comedy, Superhero) + 3 decade pairs. Views 86 -> 112; mods 140;
+visible 26 (14 core + 12 features); excludes 86/112. Params verified live: romcom TV =
+genre 35 + romance kw 9840 (TV romance genre alone ~6 titles); sci-fi thriller TV =
+10765 + thriller kw 316362; horror TV = 9648 + horror kw 315058; superhero kw 9715;
+dark comedy kw 10123; psych thriller kw 12565. Search intents extended to match
+(psychological thriller / dark+black comedy / superhero / crime+action comedy /
+sci-fi thriller / "80s|90s|2000s").

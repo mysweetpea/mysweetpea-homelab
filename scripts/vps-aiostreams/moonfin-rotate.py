@@ -7,7 +7,8 @@ entirely by the client - libraries stay fully browsable, but no home row and no
 Items/Latest fetch for them.
 
 Stable core rows are always visible. Each day a new feature set rotates in:
-2 anime sub-genre pairs + 1 mood pair + 1 curated pair + 1 special pair.
+1 anime sub-genre pair + 2 cross-genre combo pairs + 1 mood pair + 1 curated
+pair + 1 wildcard pair (true crime / Korean / a decade), a mixed Netflix-style set.
 Deterministic by date seed. The only artifact is the nginx snippet.
 
 ponytail: regenerates + reloads nginx daily; nginx -t gates the reload, a bad
@@ -59,7 +60,25 @@ CURATED_POOL = [
     ("Best of All Time Movies", "Best of All Time Shows"),
     ("Cult Classics Movies", "Cult Classics Shows"),
 ]
-SPECIAL_POOL = [("True Crime Movies", "True Crime Shows"), ("Korean Movies", "K-Dramas")]
+COMBO_POOL = [
+    ("Action Comedy Movies", "Action Comedy Shows"),
+    ("Crime Drama Movies", "Crime Drama Shows"),
+    ("Dark Comedy Movies", "Dark Comedy Shows"),
+    ("Family Adventure Movies", "Family Adventure Shows"),
+    ("Fantasy Adventure Movies", "Fantasy Adventure Shows"),
+    ("Horror Thriller Movies", "Horror Thriller Shows"),
+    ("Psychological Thriller Movies", "Psychological Thriller Shows"),
+    ("Romantic Comedy Movies", "Romantic Comedy Shows"),
+    ("Sci-Fi Thriller Movies", "Sci-Fi Thriller Shows"),
+    ("Superhero Movies", "Superhero Shows"),
+]
+WILDCARD_POOL = [
+    ("True Crime Movies", "True Crime Shows"),
+    ("Korean Movies", "K-Dramas"),
+    ("80s Movies", "80s Shows"),
+    ("90s Movies", "90s Shows"),
+    ("2000s Movies", "2000s Shows"),
+]
 
 CREDS_BASE = ""
 
@@ -80,10 +99,11 @@ def pick(pool, k, seed):
 
 
 def features_for(seed):
-    return (pick(ANIME_POOL, 2, seed * 7 + 1) +
-            pick(MOOD_POOL, 1, seed * 7 + 2) +
-            pick(CURATED_POOL, 1, seed * 7 + 3) +
-            pick(SPECIAL_POOL, 1, seed * 7 + 4))
+    return (pick(ANIME_POOL, 1, seed * 11 + 1) +
+            pick(COMBO_POOL, 2, seed * 11 + 2) +
+            pick(MOOD_POOL, 1, seed * 11 + 3) +
+            pick(CURATED_POOL, 1, seed * 11 + 4) +
+            pick(WILDCARD_POOL, 1, seed * 11 + 5))
 
 
 def snippet_text(excluded_ids):
@@ -173,12 +193,12 @@ def main():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         f1, f2 = features_for(20261016), features_for(20261016)
-        assert f1 == f2 and len(f1) == 5, "features must be deterministic, 5 pairs"
-        assert len(set(f1)) == 5, "no duplicate pairs in a day"
+        assert f1 == f2 and len(f1) == 6, "features must be deterministic, 6 pairs"
+        assert len(set(f1)) == 6, "no duplicate pairs in a day"
         text = snippet_text(["abc", "def"])
         assert '"LatestItemsExcludes":["abc", "def"]' in text
-        assert len(CORE) == 14 and len(ANIME_POOL) == 10 and len(MOOD_POOL) == 5
-        assert len(CURATED_POOL) == 4 and len(SPECIAL_POOL) == 2
+        assert len(CORE) == 14 and len(ANIME_POOL) == 10 and len(COMBO_POOL) == 10
+        assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 5
         print("selftest ok")
         sys.exit(0)
     sys.exit(main())

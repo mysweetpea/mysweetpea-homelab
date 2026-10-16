@@ -15,6 +15,9 @@ TMDB title search.
 Discovery families (2026-10-16): 44 sub-genre / mood / curated catalogs
 (anime sub-genres, moods, critically-acclaimed/hidden-gems/best-of/cult,
 true crime, K-Dramas, Korean movies). All popularity-sorted unless noted.
+v1.3.0 adds cross-genre combos (Romantic Comedy, Action Comedy, Crime Drama, Sci-Fi /
+Psychological / Horror Thriller, Fantasy / Family Adventure, Dark Comedy, Superhero)
+and decades (80s / 90s / 2000s).
 
 Deep catalogs (2026-10-15): per-service browse catalogs backed by TMDB discover
 (watch-provider filtered; US unless noted) with Stremio `skip` paging.
@@ -163,6 +166,53 @@ DISCOVER_TABLE = [
      _d(with_original_language="ko", with_genres="18|10749", **{"vote_count.gte": "50"})),
     ("korean", "Korean Movies",
      _d(with_original_language="ko", with_genres="18|53", **{"vote_count.gte": "100"}), None),
+    # --- cross-genre combos (Netflix-style multi-genre shelves) ---
+    ("romantic-comedy", "Romantic Comedy",
+     _d(with_genres="35,10749", **{"vote_count.gte": "200"}),
+     _d(with_genres="35", with_keywords="9840", **{"vote_count.gte": "30"})),
+    ("action-comedy", "Action Comedy",
+     _d(with_genres="28,35", **{"vote_count.gte": "200"}),
+     _d(with_genres="10759,35", **{"vote_count.gte": "100"})),
+    ("crime-drama", "Crime Drama",
+     _d(with_genres="80,18", **{"vote_count.gte": "300"}),
+     _d(with_genres="80,18", **{"vote_count.gte": "100"})),
+    ("scifi-thriller", "Sci-Fi Thriller",
+     _d(with_genres="878,53", **{"vote_count.gte": "300"}),
+     _d(with_genres="10765", with_keywords="316362", **{"vote_count.gte": "100"})),
+    ("psych-thriller", "Psychological Thriller",
+     _d(with_keywords="12565", **{"vote_count.gte": "200"}),
+     _d(with_keywords="12565", **{"vote_count.gte": "50"})),
+    ("fantasy-adventure", "Fantasy Adventure",
+     _d(with_genres="14,12", **{"vote_count.gte": "200"}),
+     _d(with_genres="10765,10759", **{"vote_count.gte": "100"})),
+    ("family-adventure", "Family Adventure",
+     _d(with_genres="10751,12", **{"vote_count.gte": "200"}),
+     _d(with_genres="10751,10759", **{"vote_count.gte": "50"})),
+    ("horror-thriller", "Horror Thriller",
+     _d(with_genres="27,53", **{"vote_count.gte": "200"}),
+     _d(with_genres="9648", with_keywords="315058", **{"vote_count.gte": "30"})),
+    ("dark-comedy", "Dark Comedy",
+     _d(with_keywords="10123", **{"vote_count.gte": "100"}),
+     _d(with_keywords="10123", **{"vote_count.gte": "50"})),
+    ("superhero", "Superhero",
+     _d(with_keywords="9715", **{"vote_count.gte": "100"}),
+     _d(with_keywords="9715", **{"vote_count.gte": "50"})),
+    # --- decades ---
+    ("80s", "80s",
+     _d(**{"primary_release_date.gte": "1980-01-01", "primary_release_date.lte": "1989-12-31",
+           "vote_count.gte": "500"}),
+     _d(**{"first_air_date.gte": "1980-01-01", "first_air_date.lte": "1989-12-31",
+           "vote_count.gte": "100"})),
+    ("90s", "90s",
+     _d(**{"primary_release_date.gte": "1990-01-01", "primary_release_date.lte": "1999-12-31",
+           "vote_count.gte": "500"}),
+     _d(**{"first_air_date.gte": "1990-01-01", "first_air_date.lte": "1999-12-31",
+           "vote_count.gte": "100"})),
+    ("2000s", "2000s",
+     _d(**{"primary_release_date.gte": "2000-01-01", "primary_release_date.lte": "2009-12-31",
+           "vote_count.gte": "500"}),
+     _d(**{"first_air_date.gte": "2000-01-01", "first_air_date.lte": "2009-12-31",
+           "vote_count.gte": "100"})),
 ]
 
 DISCOVER_DEFS = {}      # (stremio_type, catalog_id) -> params
@@ -182,7 +232,7 @@ for _base, _name, _mv, _ser in DISCOVER_TABLE:
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "name": "TMDB Search",
     "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
     "resources": ["catalog"],
@@ -230,7 +280,7 @@ for _g, (_m, _s) in _GENRE_MAP.items():
 INTENTS["horror"] = (_d(with_genres="27", **{"vote_count.gte": "200"}),
                      _d(with_keywords="315058", **{"vote_count.gte": "100"}))
 INTENTS["romcom"] = (_d(with_genres="35,10749", **{"vote_count.gte": "200"}),
-                     _d(with_genres="35,10749", **{"vote_count.gte": "100"}))
+                     _d(with_genres="35", with_keywords="9840", **{"vote_count.gte": "30"}))
 INTENTS["korean"] = (INTENTS["korean"][0], INTENTS["kdrama"][1])
 
 PHRASE_MAP = {
@@ -249,6 +299,16 @@ PHRASE_MAP = {
     "rom com": "romcom",
     "romcom": "romcom",
     "romantic comedy": "romcom",
+    "psychological thriller": "psych-thriller",
+    "dark comedy": "dark-comedy",
+    "black comedy": "dark-comedy",
+    "superhero": "superhero",
+    "crime drama": "crime-drama",
+    "action comedy": "action-comedy",
+    "sci-fi thriller": "scifi-thriller",
+    "80s": "80s",
+    "90s": "90s",
+    "2000s": "2000s",
     "feel good": "feel-good",
     "feel-good": "feel-good",
     "feelgood": "feel-good",
@@ -499,12 +559,18 @@ def _selftest():
     assert match_intent("the matrix") is None
     assert match_intent("demon anime") == "anime"
     assert match_intent("spider man") is None
+    assert match_intent("psychological thriller") == "psych-thriller"
+    assert match_intent("dark comedy") == "dark-comedy"
+    assert match_intent("superhero movies") == "superhero"
+    assert match_intent("80s movies") == "80s"
+    assert match_intent("crime drama") == "crime-drama"
+    assert INTENTS["romantic-comedy"][0] and INTENTS["romantic-comedy"][1]
     # intent sides resolve for both kinds where promised
     for key in ("anime", "korean", "true-crime", "feel-good"):
         mv, ser = INTENTS[key]
         assert mv and ser, key
-    assert len(DISCOVER_CATALOGS) == 44, len(DISCOVER_CATALOGS)
-    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 44
+    assert len(DISCOVER_CATALOGS) == 70, len(DISCOVER_CATALOGS)
+    assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 70
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
     assert len(ids) == len(set(ids)), "duplicate (type, id) catalog entries"
     print("selftest ok: %d catalogs (%d discover)" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))
