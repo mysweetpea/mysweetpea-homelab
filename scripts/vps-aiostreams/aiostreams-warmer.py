@@ -40,7 +40,7 @@ LOGFILE = '/var/log/aiostreams-warmer.log'
 PINS = '/opt/moonbase-lite/data/pins.json'  # {slug: {name, pin}} written at provisioning
 
 BUDGET_S = 600          # hard cap for the whole run
-VIEW_LIMIT = 60         # never more than this many views
+VIEW_LIMIT = 120         # never more than this many views
 META_BATCH = 40         # ids per /Items?Ids= call
 MAX_META_BATCHES = 30   # hard cap on meta batches per run
 MAX_USERS = 6           # users warmed per run (owner first)
@@ -162,6 +162,13 @@ def main():
         views, _ = call('/UserViews', token)
 
     items = views.get('Items', [])[:VIEW_LIMIT]
+    # rotation-aware (2026-10-16): warm only views the home actually shows
+    try:
+        _vis = set(json.load(open('/root/.moonfin-rotate-state.json')).get('visible_names') or [])
+        if _vis:
+            items = [v for v in items if v.get('Name') in _vis]
+    except Exception:
+        pass  # no rotation state -> warm everything (previous behaviour)
     uid = _get_uid(token)
     users = discover_users(token, uid)
     try:

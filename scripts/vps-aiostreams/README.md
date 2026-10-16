@@ -463,3 +463,48 @@ READS, still STORES - every hourly warmer run re-stores fresh entries; expiry wi
 Verified: warmer run all-BYPASS (362x, 0 HIT); entries re-stored 23:51-23:52; replaying a
 warmer-warmed row as a client request = `X-Aios-Cache: HIT`, 0.004s.
 Backups: *.bak-bypasswarm-20261015 on the VPS.
+
+## 2026-10-16 — discovery families + search intents + daily row rotation (Phase 1)
+
+**tmdb-search.py v1.2.0**: +44 discover-backed catalogs (sub-genre / mood / curated):
+- Anime hub + 10 sub-genre pairs (Action & Adventure, Romance, Comedy, Fantasy, Sci-Fi,
+  Isekai, Slice of Life, Sports, Horror, Mecha — keyword ids verified live: anime=210024,
+  isekai=237451, mecha=10046, slice-of-life=9914, sport=6075, horror=315058).
+- Moods: Feel-Good, Dark & Gritty, Mind-Bending, Cozy, Epic.
+- Curated: Critically Acclaimed, Hidden Gems, **Best of All Time** (the planned "Award
+  Winners" keyword — TMDB award keywords have only ~1-3 items of coverage; vote_average.desc
+  + vote_count floors is the real data), Cult Classics.
+- Specials: True Crime pair, K-Dramas (series), Korean Movies.
+- Search intents: category queries resolve via TMDB discover instead of literal title
+  matches ("anime", "adventure anime", "k-drama", "true crime", "feel good", plain genres,
+  "<genre> movies/shows" suffixes, "romantic comedy", "science fiction"...). Verified on the
+  public lane: "anime" 10 junk -> Spirited Away/Doraemon/Bleach/Demon Slayer; title search
+  unchanged ("the matrix" still returns The Matrix). Selftest: `python3 tmdb-search.py --selftest`.
+
+**Fleet wiring** (config API, 2026-10-16): +44 catalogModifications entries (explicit
+enabled:true; anime block after Trending/Popular, moods/curated/specials after the streamers,
+before Year/Language). Views 40 -> 86. `.env` `JELLYFIN_MAX_LIBRARIES=40 -> 150` (views were
+at the cap). Container recreate required for env.
+
+**Daily rotation** (`moonfin-rotate.py`, root cron `0 7 * * *`, flock):
+Writes `nginx-aiostreams-config-excludes.snippet.conf` from the LIVE /UserViews each run:
+stable core (14 views: Trending/Popular/Netflix/Disney+/Hulu/Crunchyroll + Anime hub
+movies+shows) stays visible; each day a date-seeded set rotates in — 2 anime sub-genre pairs
++ 1 mood pair + 1 curated pair + 1 special pair (10 views). Everything else is excluded
+(62 of 86 today). nginx -t gates the reload; a bad snippet self-restores from `.bak-rotate`.
+State (incl. `visible_names`) at `/root/.moonfin-rotate-state.json`; log
+`/var/log/moonfin-rotate.log`. After a successful rotation the script triggers the warmer
+(flock) so the new rows are warm. ⚠️ The snippet is now GENERATED — edit `moonfin-rotate.py`,
+not the snippet. Verified E2E: /Users/Me LatestItemsExcludes=62 (independent fresh-login
+check), feature views serve real content (Best of All Time -> Breaking Bad/Avatar/One Piece;
+Anime: Fantasy -> Spirited Away...). NOTE: a draining nginx worker can serve the pre-reload
+body for a few seconds — the script sleeps 5s before its own verify.
+
+**Warmer v4** (rotation-aware): warms ONLY the views the home actually shows
+(`visible_names` from the rotation state; falls back to all views when the state file is
+missing), `VIEW_LIMIT 60 -> 120` as the fallback cap. Run dropped 371s/60 views ->
+50s/24 views.
+
+**Ops traps re-confirmed**: catalogModifications -> /UserViews needs a container restart
+(Oct 14 trap); config PUT body `{"config": userData}`; hard-refresh any open configure tab
+after API-side edits (stale tab save reverts).
