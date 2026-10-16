@@ -4,7 +4,7 @@ controllers:
       main:
         image:
           repository: searxng/searxng
-          tag: 2026.10.16-d2209bfbb
+          tag: 2026.10.16-0ce72dd2c
         env:
         - name: SEARXNG_SECRET
           valueFrom:
