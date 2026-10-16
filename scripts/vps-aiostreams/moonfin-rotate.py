@@ -253,7 +253,7 @@ def build_slots(seed):
         {"id": "msp-newreleases", "name": "New Releases",
          "views": ("New Releases Movies", "New Releases Shows"), "prio": 95, "kind": "core"},
         # --- fixed mainstream anchors (2026-10-16) ---
-        {"id": "msp-action", "name": "Action Fix",
+        {"id": "msp-action", "name": "Action & Adventure",
          "views": ("Action & Adventure Movies", "Action & Adventure Shows"), "prio": 70, "kind": "fixed"},
         {"id": "msp-afterdark", "name": "After Dark",
          "views": ("Horror Movies", "Horror Shows"), "prio": 71, "kind": "fixed"},

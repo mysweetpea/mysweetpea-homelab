@@ -693,3 +693,19 @@ Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
   app's internal caches — ~5min once, then back to ~1min. Cache probe recipe
   (mount lane): mount token in the PATH + a real AccessToken in the
   Authorization header, then read `cs=` from the access log.
+
+### 2026-10-16 (v1.6.1) — taxonomy accuracy audit + colloquial search terms
+- **audit-taxonomy.py** (new, re-runnable): verifies every keyword/genre id
+  against TMDB's official names, samples each live catalog's top items and
+  checks them against the catalog's OWN filter via per-item TMDB metadata,
+  and checks the playlist rows in `rows.json` against the row theme.
+- **Audit results (2026-10-16)**: 27/27 keyword ids + 23/23 genre ids correct;
+  18/18 sampled catalogs 100% pass (incl. the noisy keyword cats); all rows
+  pass their own filters. Only finding: the row titled "Action Fix" carried
+  Action&Adventure content (adventure-only titles included by design of the
+  28|12 filter) -> row renamed **"Action & Adventure"** in moonfin-rotate.py.
+- **tmdb-search v1.6.1**: colloquial terms `cartoon/cartoons -> animation`,
+  `scary -> horror`, `funny -> comedy` (they were falling through to literal
+  title search, e.g. "cartoons" returned obscure shorts, "cartoons shows" 0).
+  Verified via the aios lane: "cartoons" -> Toy Story 5, Simpsons, Zootopia 2,
+  Doraemon. Suite 27 -> **29/29** (intent-cartoons, intent-scary added).

@@ -62,6 +62,8 @@ pychk intent-time-travel "$BASE/catalog/movie/search/search=time%20travel.json" 
 pychk intent-standup "$BASE/catalog/movie/search/search=stand%20up%20comedy.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=10, len(d["metas"])'
 pychk intent-anime-mystery "$BASE/catalog/series/search/search=anime%20mystery.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=5, len(d["metas"])'
 pychk cat-reality-tv "$BASE/catalog/series/reality-shows.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])==20, len(d["metas"])'
+pychk intent-cartoons "$BASE/catalog/movie/search/search=cartoons.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
+pychk intent-scary "$BASE/catalog/series/search/search=scary.json" 'import json,sys; d=json.load(sys.stdin); assert len(d["metas"])>=15, len(d["metas"])'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

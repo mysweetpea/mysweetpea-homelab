@@ -364,7 +364,7 @@ DYNAMIC_CATALOGS = [
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.6.0",
+    "version": "1.6.1",
     "name": "TMDB Search",
     "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
     "resources": ["catalog"],
@@ -526,6 +526,13 @@ PHRASE_MAP.update({
     "medical": "medical", "medical drama": "medical", "medical dramas": "medical",
     "detective": "detective", "detectives": "detective",
     "sports": "sports", "sport": "sports",
+})
+
+# colloquial forms (live search audit 2026-10-16: "cartoons" fell through to
+# a literal title search returning obscure shorts; map what users actually type)
+PHRASE_MAP.update({
+    "cartoon": "animation", "cartoons": "animation",
+    "scary": "horror", "funny": "comedy",
 })
 
 ANIME_SUBS = {
@@ -814,6 +821,10 @@ def _selftest():
     assert match_intent("anime drama") == "anime-drama"
     assert INTENTS["sitcoms"][1] and INTENTS["reality"][1]
     assert INTENTS["standup"][0] and INTENTS["korean"][1]
+    assert match_intent("cartoons") == "animation"
+    assert match_intent("cartoons shows") == "animation"
+    assert match_intent("scary movies") == "horror"
+    assert match_intent("funny") == "comedy"
     assert len(DISCOVER_CATALOGS) == 133, len(DISCOVER_CATALOGS)
     assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 133 + len(DYNAMIC_CATALOGS)
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
