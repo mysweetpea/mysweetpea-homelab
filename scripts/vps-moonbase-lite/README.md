@@ -247,3 +247,22 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   keyword soup (Twitches k4) can't outrank studio/anime signals. If a class still nags,
   next lever = keyword rarity weighting (IDF via per-keyword discover counts).
 
+## 2026-10-17: Similar+ v4 - anime language gate + discover fill (the still-junk fix)
+- Symptom: v3 sank the junk but did not remove it - the tab still showed Sleeping Beauty /
+  Hotel Transylvania / Epic / Tooth Fairy Tale / Barbie / Monster High at slots 13-48,
+  because the Western animation/family tail scores 0.3-1.0 but carries huge popularity,
+  and the anime candidate pool runs out at ~21.
+- Fix (similar_plus, after the recs/similar collection loop): if seed original_language
+  == "ja", keep ja candidates ONLY (drop, don't sink), then backfill with one TMDB
+  discover call (with_original_language=ja, with_genres=16, sort popularity.desc,
+  vote_count.gte=250, page 1) up to pool cap; fill items are scored by the same pass.
+- Measured (Spirited Away 129, cold): 48 items (21 anime + 27 Western junk)
+  -> 37 items, 100% ja/anime. Head: Kiki's / Earwig / Castle in the Sky / Boy and the
+  Beast / Howl's / Mononoke; fill added Ponyo, The Boy and the Heron, Mugen Train,
+  Your Name., Chainsaw Man Reze, Look Back, Perfect Blue, Akira.
+- Smoke: similarplus-relevance-ghibli strengthened - junk names banned from the ENTIRE
+  list (not just head), >=25 items, and a popular-anime fill title must be present.
+- ponytail: gate is ja-only by design; extend the rule to other seed languages only if a
+  non-anime class gets reported. Red Turtle-class ja-studio co-pros (en/fr language) are
+  dropped by the gate - acceptable.
+

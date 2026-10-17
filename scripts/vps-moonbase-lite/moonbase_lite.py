@@ -441,6 +441,13 @@ AVATAR_PALETTE = [
 # ponytail: pool 80 = recs 40 + gated similars 40; detail fetches capped by the
 # pool, 24h cache absorbs the first-hit cost (~2s). Loosen weights if a genre
 # class vanishes (verify via test-moonbase-lite.sh similarplus-relevance-*).
+# v4 (2026-10-17): score-sinking wasn't enough — the Western animation/family
+# dump tail (Sleeping Beauty / Hotel Transylvania / Epic / Barbie class) still
+# filled slots 13-48 because it scores 0.3-1.0 but the anime pool runs out at
+# ~21. Language gate: an anime seed (original_language=ja) keeps ja candidates
+# ONLY; a TMDB discover fill (popular ja animation, votes>=250) backfills the
+# volume the gate removes. ponytail: ja-only; extend the rule to other
+# languages only if a non-anime seed class gets reported.
 _SIM_CACHE = {}      # item_id -> (ts, payload)
 _SIM_TTL = 86400
 _SIM_MAX = 60
@@ -579,6 +586,32 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
                 break
         if len(rows) >= _SIM_POOL:
             break
+
+    # v4 language gate (2026-10-17, see header): anime seeds get anime only;
+    # the Western animation/family tail scores 0.3-1.0 but carries huge
+    # popularity, so it fills the visible tab once the ~21-item anime pool
+    # runs out. Remove it, don't sink it.
+    if seed_lang == "ja":
+        rows = [r for r in rows if r.get("original_language") == "ja"]
+        if len(rows) < 36:  # backfill: recs/similar feeds are narrow for anime
+            try:
+                disc = _http_get_json(
+                    "%s/discover/movie?%s" % (_SIM_TMDB, urllib.parse.urlencode(
+                        {"api_key": key, "with_original_language": "ja",
+                         "with_genres": "16", "sort_by": "popularity.desc",
+                         "vote_count.gte": 250, "page": 1})),
+                    {}, timeout=8)
+                for m in disc.get("results") or []:
+                    if len(rows) >= _SIM_POOL:
+                        break
+                    mid = m.get("id")
+                    if not mid or mid in seen or m.get("adult") \
+                            or (m.get("vote_count") or 0) < 250:
+                        continue
+                    seen.add(mid)
+                    rows.append(m)
+            except Exception:
+                pass
 
     # v3 relevance pass (2026-10-16): score every candidate with one parallel
     # TMDB detail call (keywords + companies + collection). See header comment.
