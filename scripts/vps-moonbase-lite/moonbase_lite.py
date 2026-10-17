@@ -60,6 +60,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -423,21 +424,27 @@ AVATAR_PALETTE = [
 # --------------------------------------------------------------------------
 # Similar+ (2026-10-15): expand the 20-item /Items/{id}/Similar with merged
 # TMDB recommendations (episodes borrow their series' - stock returns empty).
-# v2 (2026-10-15): recommendations stay UNTOUCHED - TMDB's collaborative signal
-# beats crude gating (proved: Slow Horses scores 1/2 genres for Reacher yet is
-# a top rec). The "similar" TAIL is keyword noise: for many seeds its head is
-# 0-20-vote foreign-drama junk that reads as nonsense next to the seed
-# (measured on Tracker/One Piece/Reacher). It is now hard-gated: keep a similar
-# item only if it shares >=2 of the seed's genres (>=1 when the seed has a
-# single genre) AND has >=30 TMDB votes. Lists end shorter but tight.
-# Unknown titles get MINTED item ids from AIOStreams' deterministic scheme
-# (live-verified 2026-10-15):
+# v2 (2026-10-15): the "similar" TAIL is keyword noise; hard-gated to genre-tight
+# fillers with >=30 votes. Recommendations were left untouched.
+# v3 (2026-10-16): the untouched recommendations feed CARRIED the junk (Barbie:
+# A Fairy Secret, Sleeping Beauty, Monster High... for a Spirited Away seed -
+# genre overlap is useless inside Animation/Family/Fantasy where everything
+# shares all three). Relevance is now SCORED, not gated: one parallel TMDB
+# detail call per candidate adds keyword ids + production companies + collection
+# id; score = same-studio 2.0 + same-collection 2.5 + 0.5/keyword overlap (cap 3)
+# + same-language 0.5 + genre-fit 0.3; rows sorted (score, popularity) desc, then
+# capped at 60. Measured on Spirited Away: Ghibli/anime picks land 2.0-4.3,
+# the DVD-fluff lands 0.3-1.0. Unknown titles get MINTED item ids from
+# AIOStreams' deterministic scheme (live-verified 2026-10-15):
 #   movie  = "a1" + "1201" + "000000" + %06x(tmdb) + "ffffffff000000"
 #   series = "a1" + "2202" + "000000" + %06x(tmdb) + "ffffffff000000"
-# ponytail: 60-item cap; fixed gate thresholds - loosen if a whole genre class vanishes.
+# ponytail: pool 80 = recs 40 + gated similars 40; detail fetches capped by the
+# pool, 24h cache absorbs the first-hit cost (~2s). Loosen weights if a genre
+# class vanishes (verify via test-moonbase-lite.sh similarplus-relevance-*).
 _SIM_CACHE = {}      # item_id -> (ts, payload)
 _SIM_TTL = 86400
 _SIM_MAX = 60
+_SIM_POOL = 80       # candidates collected before scoring (recs + similar)
 _SIM_MIN_VOTES = 30  # similar-tail filler below this many TMDB votes = junk farm
 _SIM_TMDB = "https://api.themoviedb.org/3"
 
@@ -492,15 +499,22 @@ def _tmdb_results(mtype: str, tmdb_id: int, kind: str, page: int, key: str):
         return []
 
 
-def _tmdb_genre_ids(mtype: str, tmdb_id: int, key: str):
-    """The seed's own TMDB genre ids (for gating the similar tail). Empty set
-    on failure -> the gate falls back to vote-count-only."""
+def _tmdb_seed_signals(mtype: str, tmdb_id: int, key: str):
+    """Seed's (genre ids, keyword ids, company ids, collection id, language).
+    All-empty on failure -> the relevance pass degrades to source order."""
     try:
         d = _http_get_json("%s/%s/%d?%s" % (_SIM_TMDB, mtype, tmdb_id,
-                           urllib.parse.urlencode({"api_key": key})), {}, timeout=8)
-        return {int(g["id"]) for g in d.get("genres") or []}
+                           urllib.parse.urlencode({"api_key": key,
+                                                   "append_to_response": "keywords"})),
+                           {}, timeout=8)
     except Exception:
-        return set()
+        return set(), set(), set(), None, None
+    kws = {k.get("id") for k in ((d.get("keywords") or {}).get("keywords") or [])
+           if k.get("id")}
+    cos = {c.get("id") for c in d.get("production_companies") or [] if c.get("id")}
+    coll = (d.get("belongs_to_collection") or {}).get("id")
+    return ({int(g["id"]) for g in d.get("genres") or []}, kws, cos, coll,
+            d.get("original_language"))
 
 
 def similar_plus(auth_header: str, caller: dict, item_id: str):
@@ -541,7 +555,7 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
     if not mtype or not tmdb_id or not str(tmdb_id).isdigit():
         return None, "no tmdb id (%s)" % itype
     seed = int(tmdb_id)
-    seed_genres = _tmdb_genre_ids(mtype, seed, key)
+    seed_genres, seed_kws, seed_cos, seed_coll, seed_lang = _tmdb_seed_signals(mtype, seed, key)
     sim_min_ov = 2 if len(seed_genres) >= 2 else 1
     seen = {seed}
     rows = []
@@ -559,12 +573,47 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
                         continue
                 seen.add(mid)
                 rows.append(m)
-                if len(rows) >= _SIM_MAX:
+                if len(rows) >= _SIM_POOL:
                     break
-            if len(rows) >= _SIM_MAX:
+            if len(rows) >= _SIM_POOL:
                 break
-        if len(rows) >= _SIM_MAX:
+        if len(rows) >= _SIM_POOL:
             break
+
+    # v3 relevance pass (2026-10-16): score every candidate with one parallel
+    # TMDB detail call (keywords + companies + collection). See header comment.
+    if rows and (seed_kws or seed_cos or seed_genres):
+        def _cand_signals(r):
+            try:
+                d = _http_get_json(
+                    "%s/%s/%d?%s" % (_SIM_TMDB, mtype, int(r.get("id") or 0),
+                                     urllib.parse.urlencode(
+                                         {"api_key": key,
+                                          "append_to_response": "keywords"})),
+                    {}, timeout=8)
+                return (r.get("id"),
+                        {k.get("id") for k in ((d.get("keywords") or {}).get("keywords") or [])
+                         if k.get("id")},
+                        {c.get("id") for c in d.get("production_companies") or [] if c.get("id")},
+                        (d.get("belongs_to_collection") or {}).get("id"))
+            except Exception:
+                return (r.get("id"), set(), set(), None)
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            sig = {s[0]: s[1:] for s in ex.map(_cand_signals, rows)}
+        for r in rows:
+            kws, cos, coll = sig.get(r.get("id"), (set(), set(), None))
+            kov = len(kws & seed_kws) if seed_kws else 0
+            r["_score"] = (
+                (2.0 if seed_cos and (cos & seed_cos) else 0.0)
+                + (2.5 if seed_coll and coll == seed_coll else 0.0)
+                + 0.5 * min(kov, 3)
+                + (0.5 if seed_lang and r.get("original_language") == seed_lang else 0.0)
+                + (0.3 * len(set(r.get("genre_ids") or []) & seed_genres) / len(seed_genres)
+                   if seed_genres else 0.0))
+        rows.sort(key=lambda r: (r.get("_score") or 0.0, r.get("popularity") or 0),
+                  reverse=True)
+    rows = rows[:_SIM_MAX]
     items = []
     for m in rows:
         name = m.get("title") or m.get("name")

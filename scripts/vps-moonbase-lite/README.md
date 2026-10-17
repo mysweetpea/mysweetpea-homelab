@@ -222,3 +222,28 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   a live list carry valid tags (0 missing / 0 stale) and all 5 target posters stream through
   the public lane (JPEG magic checked). Smoke: 19 asserts.
 
+## 2026-10-16: Similar+ v3 - scored relevance (the "Spirited Away shows Barbie" fix)
+- Symptom: the Similar tab for Spirited Away led with DVD-fluff (Barbie: A Fairy Secret,
+  Sleeping Beauty, Hotel Transylvania, Twitches, Monster High). Data probe showed the junk
+  came from the RECOMMENDATIONS feed (v2 left it untouched) and that v2's genre gate cannot
+  help: inside Animation/Family/Fantasy everything shares all three genres by construction.
+- Fix (similar_plus): relevance is SCORED, not gated. One parallel TMDB detail call per
+  candidate (`append_to_response=keywords`, ThreadPoolExecutor(8), pool 80 = recs 40 + gated
+  similars 40) adds keyword ids + production companies + collection id; score =
+  same-studio 2.0 + same-collection 2.5 + 0.5 per shared keyword (cap 3) + same-language 0.5
+  + 0.3 * genre-fit; rows sorted (score, popularity) desc, then capped at 60. The v2 genre
+  gate stays for the similar tail. Total per fresh seed: ~85 TMDB calls, ~2s cold, 24h cache.
+- Measured (Spirited Away, tmdb 129): head = Kiki's / Earwig / Boy and the Beast / Howl's /
+  Totoro / Momo / Mary / Wonderland / Mononoke / Madoka (12/12 legit Ghibli+anime; was
+  ~8/20 with junk at positions 3,6-8); Barbie/Twitches/Halloweentown sank past 13.
+  Series seed -> anime lineup; Interstellar -> space/sci-fi lineup (Planet of the Apes,
+  Mission to Mars, Project Hail Mary, Arrival...). Public lane (mount shape) identical.
+- Minted-id trap: hand-assembling the deterministic id drops zeros (129 => a1120100...0081);
+  ALWAYS mint via `moonbase_lite._mint_item_id(tmdb, "movie"|"series")`.
+- Smoke: +`similarplus-relevance-ghibli` (>=3 Ghibli/anime picks in first 8, no
+  Barbie/Monster High/Twitches/Hotel Transylvania in first 10). Needs `TOKEN=` env
+  (`sudo env TOKEN=$TOKEN bash test-moonbase-lite.sh`).
+- ponytail: weights are fixed constants; keyword hit-count caps at 3 so a generic
+  keyword soup (Twitches k4) can't outrank studio/anime signals. If a class still nags,
+  next lever = keyword rarity weighting (IDF via per-keyword discover counts).
+

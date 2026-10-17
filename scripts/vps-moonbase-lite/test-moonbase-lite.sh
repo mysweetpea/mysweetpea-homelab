@@ -62,5 +62,18 @@ else echo "FAIL similarplus-episode-series-fallback"; fail=$((fail+1)); fi
 if curl -s -m 60 -H "$AUTH" "$BASE/SimilarPlus/b2c6748f54b619ae8c19750fe3840b87" | python3 -c "import json,sys; ts=[(i.get('ImageTags') or {}).get('Primary','') for i in json.load(sys.stdin).get('Items',[])]; assert ts and all(t and t!='tmdb' for t in ts), ts[:3]" 2>/dev/null; then
   echo "PASS similarplus-image-tags"; pass=$((pass+1));
 else echo "FAIL similarplus-image-tags"; fail=$((fail+1)); fi
+# v3 relevance: Spirited Away (tmdb 129, minted a11201...0081) must lead with
+# Ghibli/anime picks and NOT the DVD-fluff (Barbie/Monster High) in the head.
+if curl -s -m 120 -H "$AUTH" "$BASE/SimilarPlus/a11201000000000081ffffffff000000" | python3 -c "
+import json,sys
+names=[i.get('Name','') for i in json.load(sys.stdin).get('Items',[])]
+head=names[:10]
+good=sum(1 for n in names[:8] if any(k in n for k in ('Kiki','Totoro',\"Howl'\",'Earwig','Boy and the Beast','Letter to Momo','Mary and the Witch')))
+assert len(names)>=20, len(names)
+assert good>=3, ('ghibli-picks', good, head)
+assert not any(k in n for n in head for k in ('Barbie','Monster High','Twitches','Hotel Transylvania')), head
+print('ok')" 2>/dev/null; then
+  echo "PASS similarplus-relevance-ghibli"; pass=$((pass+1));
+else echo "FAIL similarplus-relevance-ghibli"; fail=$((fail+1)); fi
 echo "== $pass passed, $fail failed =="
 [ $fail -eq 0 ]
