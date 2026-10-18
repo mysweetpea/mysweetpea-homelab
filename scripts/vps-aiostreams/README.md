@@ -781,3 +781,13 @@ H.264-only MediaSources filter. Cold first-open of a big show costs up to ~1s
 
 Verify: `curl -sk "https://aiostreams.mysweetpea.cc/jellyfin/Users/<uid>/Items/<seriesid>?Fields=ChildCount,RecursiveItemCount" -A "Mozilla/5.0 (compatible; Moonfin/2.7.0)" -H "Authorization: MediaBrowser Token=\"$TOK\""`
 -> ChildCount = seasons, RecursiveItemCount = episodes.
+
+## Search window 20 -> 55 per catalog (2026-10-17)
+
+`SEARCH_WINDOW = 55` + `discover_window()`: intent searches ("crime shows", "anime")
+now return 55 metas per catalog per request instead of 20 (TMDB pages are 20, so a
+window spans 3 pages). Windows are index-based, so skip=0 / skip=55 never overlap
+or gap. Plain title searches keep 20 (TMDB rarely has more).
+Verified through aios: `SearchTerm=crime shows` -> 109 items (54 movies + 55 series).
+aios caches search 6h in memory - restart the `aiostreams` container after changing
+search behaviour, or old results keep serving.

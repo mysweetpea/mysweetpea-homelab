@@ -63,6 +63,9 @@ TMDB_TIMEOUT = 4          # hard ceiling: on expiry return empty rather than han
 CACHE_TTL = 600           # per (kind, term); aios layers its own 6h cache above
 DEEP_TTL = 21600          # discover pages change slowly; 6h matches aios catalog cache
 LIMIT = 20
+# Stremio search results per intent catalog. TMDB pages are 20, so a 55-item
+# window spans 3 pages; the client grid shows one window per catalog.
+SEARCH_WINDOW = 55
 
 # (catalog key, tmdb provider id, display name, watch region, has_movies, has_shows)
 SERVICES = [
@@ -712,9 +715,9 @@ def metas_for(kind, term, skip=0):
             return []  # intent recognised, nothing on this side (e.g. "thriller" series)
         if params == "__DYNAMIC__":
             params = _new_releases_params(kind, _today())
-            out = discover_metas(kind, params, f"intent:{intent}:{_today()}", skip)
+            out = discover_window(kind, params, f"intent:{intent}:{_today()}", skip)
         else:
-            out = discover_metas(kind, params, f"intent:{intent}", skip)
+            out = discover_window(kind, params, f"intent:{intent}", skip)
         print(f"tmdb-search: intent {term!r} -> {intent} -> {len(out)}", flush=True)
         return out
     ck = (kind, term.lower(), skip)
@@ -741,7 +744,7 @@ def metas_for(kind, term, skip=0):
         if fi:
             params = INTENTS.get(fi, (None, None))[0 if kind == "movie" else 1]
             if params and params != "__DYNAMIC__":
-                fout = discover_metas(kind, params, f"intent:{fi}", 0)
+                fout = discover_window(kind, params, f"intent:{fi}", 0)
                 if fout:
                     print(f"tmdb-search: fuzzy-intent {term!r} -> {fi} -> {len(fout)}", flush=True)
                     out = fout
@@ -785,6 +788,26 @@ def discover_metas(kind, params, cache_key, skip):
         if nxt:
             out = out + nxt[:LIMIT - len(out)]
     return out
+
+
+def discover_window(kind, params, cache_key, skip, want=SEARCH_WINDOW):
+    """Absolute slice of a discover catalog for search: items[skip:skip+want].
+
+    Unlike discover_metas (20/page, catalog paging) this is index-based, so a
+    55-item first window and a later skip=55 window never overlap or gap.
+    """
+    if skip < 0:
+        return []
+    page = skip // LIMIT + 1          # TMDB page holding item `skip`
+    off = skip % LIMIT
+    out, p = [], page
+    while len(out) < want + off and p <= 500:   # TMDB hard cap
+        chunk = _discover_page(kind, params, cache_key, p)
+        if not chunk:
+            break
+        out += chunk
+        p += 1
+    return out[off:off + want]
 
 
 def _parsed_skip(parts, u):

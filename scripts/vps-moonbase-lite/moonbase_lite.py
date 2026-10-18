@@ -187,7 +187,16 @@ PINS = {
 # so on a narrow screen Genres/Favorites sit off-screen (owner report 2026-10-17).
 # Bottom bar fits Home/Search/Genres/Favorites/Settings inline (maxInline = 5).
 SCOPE_PINS = {
-    "mobile": {"navbarPosition": "bottom", "showGenresButton": True},
+    "mobile": {
+        "navbarPosition": "bottom",
+        "showGenresButton": True,
+        # 2.5.x has no "server" option for recommendationSystemSource (enum is
+        # local|online), so the server pin is silently skipped and the Similar
+        # tab uses the client-side 20-item algo. "online" makes the client try
+        # Seerr/TMDb (both absent -> empty) and fall through to
+        # /Items/{id}/Similar, which is the shim's v4 list. 2.7.x keeps "server".
+        "recommendationSystemSource": "online",
+    },
 }
 
 
