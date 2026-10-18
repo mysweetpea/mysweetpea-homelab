@@ -3,7 +3,9 @@
 
 1. Browser H.264 source filter: for browser UAs (not Moonfin/Stremio/Dart/etc.)
    every MediaSources array is reduced to H.264 entries only (when any exist).
-2. Series ChildCount fix: AIOStreams puts the EPISODE total in ChildCount, but
+2. Codec gate for players that crash or starve on big sources: browser UAs and
+   Roku (4K HEVC 10-bit MKV kills the Roku player) get H.264-only MediaSources.
+3. Series ChildCount fix: AIOStreams puts the EPISODE total in ChildCount, but
    Jellyfin semantics are ChildCount = number of seasons (Moonfin renders it as
    "N Seasons"). For single-Series item responses we replace it with the real
    season count from /Shows/{id}/Seasons (6h cache).
@@ -22,6 +24,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 UPSTREAM = ("127.0.0.1", 3000)
 BROWSER = re.compile(r"Mozilla/5\.0")
 NATIVE = re.compile(r"(Moonfin|Stremio|Dart|okhttp|Dalvik|Lavf)")
+ROKU = re.compile(r"Roku", re.I)
+# Phones/TVs stream over the same usenet pipe as everyone else; measured cold
+# throughput is ~1.5-2.3 MB/s, so a 19 Mbps 4K source can never feed them.
+MOBILE_TV = re.compile(r"Roku|CFNetwork|Darwin|Dalvik|okhttp", re.I)
+BITRATE_CAP = 12_000_000
 UID_RE = re.compile(r"/Users/([0-9a-fA-F]{32})/Items/")
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
        "te", "trailers", "transfer-encoding", "upgrade", "accept-encoding"}
@@ -38,15 +45,21 @@ def _is_h264(src):
     return False
 
 
-def _filt_obj(obj):
+def _filt_obj(obj, require_h264=False, max_bitrate=None):
     if not isinstance(obj, dict):
         return False
     ms = obj.get("MediaSources")
-    if isinstance(ms, list) and ms:
-        keep = [s for s in ms if _is_h264(s)]
-        if 0 < len(keep) < len(ms):
-            obj["MediaSources"] = keep
-            return True
+    if not isinstance(ms, list) or not ms:
+        return False
+    keep = ms
+    if require_h264:
+        keep = [s for s in keep if _is_h264(s)]
+    if max_bitrate:
+        capped = [s for s in keep if (s.get("Bitrate") or 0) <= max_bitrate]
+        keep = capped or keep          # never blank the list over a bitrate cap
+    if keep and len(keep) < len(ms):
+        obj["MediaSources"] = keep
+        return True
     return False
 
 
@@ -100,22 +113,34 @@ def _fix_series(j, path, auth):
     return True
 
 
+def _limited(ua):
+    """Players that must not be handed a source they cannot decode.
+
+    Roku (DVP) chokes on 4K HEVC 10-bit MKV; browsers cannot decode HEVC at all.
+    """
+    if ROKU.search(ua):
+        return True
+    return bool(BROWSER.search(ua)) and not NATIVE.search(ua)
+
+
 def _filter(data, ua, path, auth):
     try:
         j = json.loads(data)
     except Exception:
         return data, False
     changed = _fix_series(j, path, auth)
-    if BROWSER.search(ua) and not NATIVE.search(ua):
+    require_h264 = _limited(ua)
+    max_br = BITRATE_CAP if MOBILE_TV.search(ua) else None
+    if require_h264 or max_br:
         if isinstance(j, dict):
-            if _filt_obj(j):
+            if _filt_obj(j, require_h264, max_br):
                 changed = True
             for it in j.get("Items") or []:
-                if _filt_obj(it):
+                if _filt_obj(it, require_h264, max_br):
                     changed = True
         elif isinstance(j, list):
             for it in j:
-                if _filt_obj(it):
+                if _filt_obj(it, require_h264, max_br):
                     changed = True
     if not changed:
         return data, False
@@ -185,6 +210,12 @@ def _selftest():
     ]}).encode()
     out, ch = _filter(body, "Mozilla/5.0", "/x", "")
     assert ch and len(out) == len(body) and b"hevc" not in out
+    # Roku is a limited class too (4K HEVC crashes the player)
+    assert _limited("Roku/DVP-15.3 (15.3.4.2402-51)")
+    assert MOBILE_TV.search("Moonfin/30000149 CFNetwork/3860.700.2 Darwin/25.6.0")
+    assert not MOBILE_TV.search("Mozilla/5.0 (compatible; Moonfin/2.7.0)")
+    assert not _limited("Mozilla/5.0 (compatible; Moonfin/2.7.0)")
+    assert not _limited("Lavf/62.12.100")
     # native UA keeps its sources
     out2, ch2 = _filter(body, "Moonfin/2.7.0", "/x", "")
     assert not ch2 and out2 == body

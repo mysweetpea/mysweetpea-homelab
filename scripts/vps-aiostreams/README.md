@@ -791,3 +791,20 @@ or gap. Plain title searches keep 20 (TMDB rarely has more).
 Verified through aios: `SearchTerm=crime shows` -> 109 items (54 movies + 55 series).
 aios caches search 6h in memory - restart the `aiostreams` container after changing
 search behaviour, or old results keep serving.
+
+## Playback fixes (2026-10-18)
+
+**Roku crash**: the Roku UA ("Roku/DVP-15.3") was not in any filter class, so it was
+offered all 25 sources with the 4K HEVC 10-bit MKV first — the player dies on it.
+`_limited()` now includes Roku -> H.264 only (verified 25 -> 17 sources, top = 1080p AVC).
+
+**Mobile/TV bitrate cap**: cold usenet throughput is ~1.5-2.3 MB/s (~16 Mbps), so a
+19 Mbps 4K source can never feed a phone. `MOBILE_TV` UAs (Roku/CFNetwork/Darwin/
+Dalvik/okhttp) now drop sources above `BITRATE_CAP = 12 Mbps` (list is never blanked;
+desktop Dart/VLC/mpv untouched). Verified iOS 25 -> 18, top = 4K HEVC 7.7 Mbps.
+
+**Read-ahead**: `/opt/aiostreams/.env` now sets
+`USENET_PERFORMANCE_PROFILE=custom` + `USENET_PREFETCH_SEGMENTS=64` +
+`USENET_SEGMENT_DISK_CACHE_BYTES=4000000000` (were 32 / 2GB). A `custom` profile is
+required — the `balanced`/`high` presets override the individual knobs. Re-reads of
+already-fetched ranges measured 15 MB/s after the change.
