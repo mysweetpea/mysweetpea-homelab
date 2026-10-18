@@ -468,8 +468,8 @@ AVATAR_PALETTE = [
 # languages only if a non-anime seed class gets reported.
 _SIM_CACHE = {}      # item_id -> (ts, payload)
 _SIM_TTL = 86400
-_SIM_MAX = 75
-_SIM_POOL = 160      # candidates collected before scoring (recs + similar)
+_SIM_MAX = 150
+_SIM_POOL = 300      # candidates collected before scoring (recs + similar)
 _SIM_MIN_VOTES = 30  # similar-tail filler below this many TMDB votes = junk farm
 _SIM_TMDB = "https://api.themoviedb.org/3"
 
@@ -585,7 +585,7 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
     seen = {seed}
     rows = []
     for kind in ("recommendations", "similar"):
-        for page in (1, 2, 3, 4):
+        for page in (1, 2, 3, 4, 5, 6):
             for m in _tmdb_results(mtype, seed, kind, page, key):
                 mid = m.get("id")
                 if not mid or mid in seen or m.get("adult"):
@@ -613,7 +613,7 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
         rows = [r for r in rows if r.get("original_language") == "ja"]
         if len(rows) < _SIM_MAX:  # backfill: recs/similar feeds are narrow for anime
             try:
-                for dpage in (1, 2, 3, 4):
+                for dpage in range(1, 11):
                     if len(rows) >= _SIM_MAX:
                         break
                     disc = _http_get_json(
@@ -633,6 +633,36 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
                         rows.append(m)
             except Exception:
                 pass
+
+    # v5 fill (2026-10-18): recs+similar alone cap out well below _SIM_MAX
+    # (TMDB recs are ~2 pages, the similar feed is vote/genre gated), so top up
+    # with same-genre popular titles. Fill rows carry _fill so the scoring pass
+    # sinks them below anything with a real signal — popularity alone must not
+    # outrank a genuine recommendation.
+    if len(rows) < _SIM_MAX and seed_genres and seed_lang != "ja":
+        try:
+            g = "|".join(str(x) for x in sorted(seed_genres)[:2])
+            for dpage in range(1, 7):
+                if len(rows) >= _SIM_MAX:
+                    break
+                disc = _http_get_json(
+                    "%s/discover/%s?%s" % (_SIM_TMDB, mtype, urllib.parse.urlencode(
+                        {"api_key": key, "with_genres": g,
+                         "sort_by": "popularity.desc",
+                         "vote_count.gte": 250, "page": dpage})),
+                    {}, timeout=8)
+                for m in disc.get("results") or []:
+                    if len(rows) >= _SIM_MAX:
+                        break
+                    mid = m.get("id")
+                    if not mid or mid in seen or m.get("adult") \
+                            or (m.get("vote_count") or 0) < 250:
+                        continue
+                    seen.add(mid)
+                    m["_fill"] = True
+                    rows.append(m)
+        except Exception:
+            pass
 
     # v3 relevance pass (2026-10-16): score every candidate with one parallel
     # TMDB detail call (keywords + companies + collection). See header comment.
@@ -664,7 +694,8 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
                 + 0.5 * min(kov, 3)
                 + (0.5 if seed_lang and r.get("original_language") == seed_lang else 0.0)
                 + (0.3 * len(set(r.get("genre_ids") or []) & seed_genres) / len(seed_genres)
-                   if seed_genres else 0.0))
+                   if seed_genres else 0.0)
+                - (0.6 if r.get("_fill") else 0.0))
         rows.sort(key=lambda r: (r.get("_score") or 0.0, r.get("popularity") or 0),
                   reverse=True)
     rows = rows[:_SIM_MAX]
