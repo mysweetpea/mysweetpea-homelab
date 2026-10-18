@@ -266,3 +266,10 @@ JF-parity rows impossible on this server (plugin-backed): seerr_*, radarr/sonarr
   non-anime class gets reported. Red Turtle-class ja-studio co-pros (en/fr language) are
   dropped by the gate - acceptable.
 
+## Per-scope pins (2026-10-17)
+
+`SCOPE_PINS` in `moonbase_lite.py` is merged AFTER the user file (device pushes
+cannot undo it). Currently: `mobile` -> `navbarPosition=bottom` + `showGenresButton=true`.
+Reason: the top nav pill is a horizontally scrolling row, so on a phone the Genres
+button sat off-screen; the bottom bar fits Home/Search/Genres/Favorites/Settings
+inline (client `maxInline = 5`). Desktop/tv scopes stay `top`.

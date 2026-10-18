@@ -764,3 +764,20 @@ Documentaries + Romance (pool stays 5: those two + 80s/90s/2000s).
   cat-cdrama, fuzzy-sprited-away + repeat, fuzzy-intersteller,
   fuzzy-intent-cdrama, fuzzy-no-false-positive; manifest-161 asserts 161
   catalogs and the 21 poster fields).
+
+## Series ChildCount fix + single lane (2026-10-17)
+
+AIOStreams puts the EPISODE total in `ChildCount` on a Series item, but Jellyfin
+semantics are `ChildCount` = number of seasons — Moonfin renders it as "N Seasons",
+so Bob's Burgers showed "317 Seasons".
+
+`aiostreams-pi-filter.py` now rewrites `ChildCount` on single-Series detail
+responses to the real season count from `/Shows/{id}/Seasons` (6h in-memory cache).
+Consequence: the UA lane switch was removed — **every client goes through the
+sidecar** (`map $http_user_agent $aios_pi_lane { default "aiostreams_pi"; }`).
+Natives still pass byte-identical except for this fix; browsers still get the
+H.264-only MediaSources filter. Cold first-open of a big show costs up to ~1s
+(season enumeration); warm is ~50ms. Self-check: `python3 aiostreams-pi-filter.py --selftest`.
+
+Verify: `curl -sk "https://aiostreams.mysweetpea.cc/jellyfin/Users/<uid>/Items/<seriesid>?Fields=ChildCount,RecursiveItemCount" -A "Mozilla/5.0 (compatible; Moonfin/2.7.0)" -H "Authorization: MediaBrowser Token=\"$TOK\""`
+-> ChildCount = seasons, RecursiveItemCount = episodes.

@@ -182,6 +182,14 @@ PINS = {
     "mediaBarMode": "moonfin",
 }
 
+# Per-scope pins, merged AFTER the user file so device pushes cannot undo them.
+# Phones get the bottom nav bar: the top pill is a horizontally scrolling row,
+# so on a narrow screen Genres/Favorites sit off-screen (owner report 2026-10-17).
+# Bottom bar fits Home/Search/Genres/Favorites/Settings inline (maxInline = 5).
+SCOPE_PINS = {
+    "mobile": {"navbarPosition": "bottom", "showGenresButton": True},
+}
+
 
 def resolve_profile(uid: str, scope: str) -> dict:
     out: dict = {}
@@ -191,6 +199,7 @@ def resolve_profile(uid: str, scope: str) -> dict:
     if scope in ("desktop", "mobile", "tv"):
         merge_flat(out, doc.get(scope, {}))
     merge_flat(out, PINS)
+    merge_flat(out, SCOPE_PINS.get(scope, {}))
     return out
 
 
