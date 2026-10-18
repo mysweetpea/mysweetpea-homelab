@@ -792,6 +792,24 @@ Verified through aios: `SearchTerm=crime shows` -> 109 items (54 movies + 55 ser
 aios caches search 6h in memory - restart the `aiostreams` container after changing
 search behaviour, or old results keep serving.
 
+## Case-insensitive sidecar routes (2026-10-18)
+
+Roku's client lowercases every path (`/jellyfin/items/{id}/similar`,
+`/jellyfin/genres`, `/jellyfin/items?Ids=`) while Moonfin desktop/mobile send
+`/Items`, `/Genres`. Every sidecar location is now `location ~*`; a
+case-sensitive `~` silently skips the sidecar and the client gets stock
+aiostreams output. Measured on the Roku UA before/after:
+
+| route | before (`~`) | after (`~*`) |
+|---|---|---|
+| `.../similar` | 12 items (stock cap) | 41 (shim Similar+ v4) |
+| `.../genres` | 244 (raw, incl. Day/Week junk) | 27 (filtered) |
+| `items/{ep}?fields=MediaSources` | unfiltered, 4K HEVC offered | 17 sources, H.264 only |
+
+Roku also addresses items without the `/Users` prefix, so a lowercase
+`^/jellyfin/(?:[^/]+/){0,2}items(/|$)` lane routes that through the pi
+sidecar (placed after the Similar/Images/Latest locations so those still win).
+
 ## Search window + season counts for batch rows (2026-10-18)
 
 - `tmdb-search.py`: title search now pages TMDB like `discover_window` does
