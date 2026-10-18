@@ -4,7 +4,8 @@
 Home content rows are served through the moonbase-lite shim as synthetic
 playlists: nginx routes /Playlists/{id}/Items to the shim (moonbase_lite.py),
 and the client renders one titled row per playlist via pluginDynamic entries in
-homeSections. This script rebuilds, every day:
+homeSections. This script rebuilds, every day (rotating rows change
+per 14-day bucket):
 
   1. /opt/moonbase-lite/data/rows.json - ordered slot list {id, name, items[]}.
      Slots: Trending Now, New Releases, Most Played (when there is data), and
@@ -312,7 +313,12 @@ def write_atomic(path, text):
 def main():
     global CREDS_BASE
     dry = "--dry-run" in sys.argv
-    seed = int(os.environ.get("ROTATE_SEED") or date.today().strftime("%Y%m%d"))
+    # 14-day buckets (owner 2026-10-18): the feature rows should drift every
+    # ~2 weeks, not daily. The job still runs daily so new releases keep flowing
+    # into the fixed rows; only the rotating selection is pinned to the bucket.
+    _epoch = date(2026, 1, 5)
+    seed = int(os.environ.get("ROTATE_SEED") or
+               ((date.today() - _epoch).days // 14 + 1))
     creds = json.load(open(CREDS))
     CREDS_BASE = creds["base"].rstrip("/")
     body = json.dumps({"Username": creds["uuid"], "Pw": creds["password"]}).encode()

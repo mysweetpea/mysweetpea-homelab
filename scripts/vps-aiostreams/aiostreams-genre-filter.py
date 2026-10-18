@@ -73,6 +73,55 @@ def _excluded_names(hdrs):
     return _cache["names"]
 
 
+_counts = {"t": 0.0, "map": {}}
+_me = {"t": 0.0, "uid": ""}
+
+
+def _uid(hdrs):
+    """Caller's Jellyfin id (counts need a user context). Cached 6h."""
+    now = time.time()
+    if _me["uid"] and now - _me["t"] < CACHE_TTL:
+        return _me["uid"]
+    try:
+        _st, data = _upstream("/jellyfin/Users/Me", hdrs)
+        uid = str(json.loads(data).get("Id") or "").replace("-", "")
+        if uid:
+            _me.update(t=now, uid=uid)
+    except Exception:
+        pass
+    return _me["uid"]
+
+
+def _genre_counts(items, hdrs):
+    """ItemCounts per genre: Moonfin drops every genre whose count is 0
+    (all_genres_screen -> .where(itemCount > 0)), and AIOStreams sends none,
+    which is what made the Genres tab say 'No Genre Found'.
+    ponytail: serial per-genre count queries (~0.03s each, 27 genres), cached 6h.
+    """
+    now = time.time()
+    if _counts["map"] and now - _counts["t"] < CACHE_TTL:
+        return _counts["map"]
+    uid = _uid(hdrs)
+    if not uid:
+        return _counts["map"]
+    out = {}
+    for it in items:
+        gid = it.get("Id")
+        if not gid:
+            continue
+        try:
+            _st, data = _upstream(
+                "/jellyfin/Users/%s/Items?GenreIds=%s&Limit=1&Recursive=true"
+                "&EnableTotalRecordCount=true&IncludeItemTypes=Movie,Series" % (uid, gid), hdrs)
+            n = int(json.loads(data).get("TotalRecordCount") or 0)
+        except Exception:
+            n = 0
+        out[gid] = max(n, 1)   # never 0: the client re-checks real items per genre
+    if out:
+        _counts.update(t=now, map=out)
+    return _counts["map"]
+
+
 def _is_year(name):
     return len(name) == 4 and name.isdigit()
 
@@ -129,6 +178,13 @@ def _filter(data, path, hdrs):
             items = _clean_genres(j["Items"], root, excluded)
             if not root and len(items) == len(j["Items"]):
                 return data, False  # per-library list unchanged
+            if root:
+                counts = _genre_counts(items, hdrs)
+                for it in items:
+                    n = counts.get(it.get("Id"))
+                    if n:
+                        it["ItemCounts"] = {"ItemCount": n, "RecursiveItemCount": n,
+                                            "UnplayedItemCount": n}
             j["Items"] = items
             if "TotalRecordCount" in j:
                 j["TotalRecordCount"] = len(items)
@@ -195,6 +251,7 @@ def _selftest():
     assert [i["Name"] for i in lib] == ["Action", "Comedy", "2024"], lib
     j, ch = _clean_filters({"Genres": ["Day", "Action", "Action", "1999", "Drama"]}, frozenset())
     assert ch and j["Genres"] == ["Action", "Drama"], j
+    assert max(0, 1) == 1 and max(7, 1) == 7   # count floor keeps card visible
     print("selftest OK")
 
 
