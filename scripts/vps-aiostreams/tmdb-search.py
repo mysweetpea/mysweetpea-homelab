@@ -632,7 +632,8 @@ def fuzzy_intent(term):
 # TMDB fetch layer
 # ---------------------------------------------------------------------------
 
-_cache = {}   # ponytail: unbounded, but keys are human-typed search terms
+_cache = {}
+_pcache: dict = {}   # ponytail: unbounded, but keys are human-typed search terms
 _dcache = {}  # (kind, cache_key, page) -> (ts, metas)
 
 
@@ -724,17 +725,7 @@ def metas_for(kind, term, skip=0):
     hit = _cache.get(ck)
     if hit and time.time() - hit[0] < CACHE_TTL:
         return hit[1]
-    try:
-        q = urllib.parse.urlencode(
-            {"query": term, "api_key": _key(), "include_adult": "false",
-             "page": skip // LIMIT + 1})
-        with urllib.request.urlopen(f"{TMDB}/search/{kind}?{q}",
-                                    timeout=TMDB_TIMEOUT) as r:
-            data = json.loads(r.read().decode())
-    except Exception as e:  # fail-soft: search must never hang on us
-        print(f"tmdb-search: {kind} {term!r} failed: {e}", flush=True)
-        return []  # ponytail: failures not cached, so recovery is immediate
-    out = _metas(data.get("results"), "movie" if kind == "movie" else "series")
+    out = _search_window(kind, term, skip)
     if not out and skip == 0:
         # misspell rescue, cheapest first (live audit 2026-10-16: TMDB turns
         # away "sprited away", "intersteller", "chines drama" with zero hits).
@@ -753,6 +744,47 @@ def metas_for(kind, term, skip=0):
     _cache[ck] = (time.time(), out)
     print(f"tmdb-search: {kind} {term!r} -> {len(out)}", flush=True)
     return out
+
+
+def _search_page(kind, term, page):
+    """One TMDB title-search page (20 metas). None = fetch failed (not cached)."""
+    k = (kind, term.lower(), page)
+    hit = _pcache.get(k)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return hit[1]
+    try:
+        q = urllib.parse.urlencode(
+            {"query": term, "api_key": _key(), "include_adult": "false",
+             "page": page})
+        with urllib.request.urlopen(f"{TMDB}/search/{kind}?{q}",
+                                    timeout=TMDB_TIMEOUT) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:  # fail-soft: search must never hang on us
+        print(f"tmdb-search: {kind} {term!r} p{page} failed: {e}", flush=True)
+        return None
+    metas = _metas(data.get("results"), "movie" if kind == "movie" else "series")
+    _pcache[k] = (time.time(), metas)
+    return metas
+
+
+def _search_window(kind, term, skip, want=SEARCH_WINDOW):
+    """Absolute slice of TMDB title search: items[skip:skip+want].
+
+    Same index-based paging as discover_window so a 55-item first window and a
+    later skip=55 window never overlap or gap. ponytail: hard stop at want+off
+    pages, no total_results probing.
+    """
+    if skip < 0:
+        return []
+    page, off = skip // LIMIT + 1, skip % LIMIT
+    out, p = [], page
+    while len(out) < want + off and p <= 500:
+        chunk = _search_page(kind, term, p)
+        if not chunk:
+            break
+        out += chunk
+        p += 1
+    return out[off:off + want]
 
 
 def _discover_page(kind, params, cache_key, page):

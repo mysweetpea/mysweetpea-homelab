@@ -113,6 +113,33 @@ def _fix_series(j, path, auth):
     return True
 
 
+DETAIL_BATCH_MAX = 8
+
+
+def _fix_series_batch(j, path, auth):
+    """Rewrite Series counts inside small Items[] batches (detail fetches).
+
+    Moonfin renders seasonsCount only on the detail screen, and detail rows
+    carry 1-3 ids; browse rows carry 25+. Skipping big rows keeps cold-cache
+    lookups at 1-3 per request instead of 25.
+    """
+    if not isinstance(j, dict):
+        return False
+    items = j.get("Items")
+    if not isinstance(items, list):
+        return False
+    series = [it for it in items
+              if isinstance(it, dict) and it.get("Type") == "Series"
+              and isinstance(it.get("ChildCount"), int)]
+    if not series or len(series) > DETAIL_BATCH_MAX:
+        return False
+    changed = False
+    for it in series:
+        if _fix_series(it, path, auth):
+            changed = True
+    return changed
+
+
 def _limited(ua):
     """Players that must not be handed a source they cannot decode.
 
@@ -129,6 +156,8 @@ def _filter(data, ua, path, auth):
     except Exception:
         return data, False
     changed = _fix_series(j, path, auth)
+    if _fix_series_batch(j, path, auth):
+        changed = True
     require_h264 = _limited(ua)
     max_br = BITRATE_CAP if MOBILE_TV.search(ua) else None
     if require_h264 or max_br:
@@ -199,6 +228,10 @@ class Handler(BaseHTTPRequestHandler):
 def _selftest():
     # _fix_series only rewrites Series dicts; everything else passes through.
     assert _fix_series({"Type": "Movie", "ChildCount": 3}, "/x", "") is False
+    assert _fix_series_batch({"Items": []}, "/x", "") is False
+    assert _fix_series_batch(
+        {"Items": [{"Type": "Series", "ChildCount": 317, "Id": "a"}] * 9},
+        "/x", "") is False  # big rows skipped (no lookups)
     assert _fix_series({"Type": "Series", "ChildCount": 0, "Id": "a"}, "/x", "") is False
     # _filter returns original bytes when nothing changes
     raw = b'{"Type":"Movie","Id":"a"}'

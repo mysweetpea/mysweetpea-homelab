@@ -792,6 +792,19 @@ Verified through aios: `SearchTerm=crime shows` -> 109 items (54 movies + 55 ser
 aios caches search 6h in memory - restart the `aiostreams` container after changing
 search behaviour, or old results keep serving.
 
+## Search window + season counts for batch rows (2026-10-18)
+
+- `tmdb-search.py`: title search now pages TMDB like `discover_window` does
+  (`_search_window`, 55/type). Intent queries were already 55; plain titles
+  were stuck at 20 per type (40 visible), which is what users read as "the
+  cap didn't land".
+- `aiostreams-pi-filter.py`: the Series `ChildCount` (seasons) rewrite now also
+  covers small `Items[]` batches. Moonfin's detail screen reads the item from
+  the batch `Items?Ids=` response, so the single-item rewrite alone left
+  "317 Seasons" on screen. Batches over `DETAIL_BATCH_MAX = 8` series are
+  skipped on purpose: browse rows carry 25+ series and never render
+  seasonsCount, so a big row would cost 25 lookups for nothing.
+
 ## Playback fixes (2026-10-18)
 
 **Roku crash**: the Roku UA ("Roku/DVP-15.3") was not in any filter class, so it was
