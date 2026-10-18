@@ -792,6 +792,23 @@ Verified through aios: `SearchTerm=crime shows` -> 109 items (54 movies + 55 ser
 aios caches search 6h in memory - restart the `aiostreams` container after changing
 search behaviour, or old results keep serving.
 
+## My Media tile logos = 2:3, and the AR that makes them render (2026-10-18)
+
+Moonfin's `_resolveRowImageUrl` refuses to draw landscape art on a My Media
+poster tile: `PrimaryImageAspectRatio >= 1.0` returns **null**, so the tile
+renders as an empty box with just the name (aios reports 1.7777 for every
+view). Two halves to the fix:
+
+1. `make-logos.py` now emits **800x1200** (2:3) tiles, logo scaled to 620x620
+   so square app icons fill the poster instead of floating small.
+2. `aiostreams-pi-filter.py` rewrites `PrimaryImageAspectRatio` to `0.6667`
+   for `CollectionFolder` items that carry a primary image. Views now route
+   through the sidecar (`location ~* "/(UserViews|Users/[^/]+/Views)$"`).
+
+Verified: all 21 streamer views report 0.6667 and serve 800x1200 PNGs.
+Purge `/var/cache/nginx/aios-images/*` after swapping tile art — the cache
+is keyed on the tag, which is derived from the unchanged logo URL.
+
 ## Case-insensitive sidecar routes (2026-10-18)
 
 Roku's client lowercases every path (`/jellyfin/items/{id}/similar`,

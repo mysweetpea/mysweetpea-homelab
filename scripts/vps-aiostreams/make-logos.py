@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the 16:9 streaming-service tiles for the My Media row.
+"""Generate the 2:3 streaming-service tiles for the My Media row.
 
-Each tile: 640x360, #0B0D12 canvas, the official TMDB watch-provider logo
-centred (max 460x220). Output goes to ./logos/<slug>.png; upload to
+Each tile: 800x1200 (poster), #0B0D12 canvas, the official TMDB watch-provider
+logo centred (max 620x300). Poster shape on purpose: Moonfin skips landscape
+primary art on My Media poster tiles (PrimaryImageAspectRatio >= 1 -> no image). Output goes to ./logos/<slug>.png; upload to
 /var/www/aiostreams/logos/ on the VPS. Slugs must match the SERVICES keys in
 tmdb-search.py (its DEEP_CATALOGS point at
 https://aiostreams.mysweetpea.cc/logos/<slug>.png).
@@ -50,7 +51,7 @@ for slug, pid in SERVICES.items():
         urllib.request.urlretrieve("https://image.tmdb.org/t/p/w500" + lp, raw)
     out = os.path.join(OUT, slug + ".png")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw, "-vf",
-                    "scale=460:220:force_original_aspect_ratio=decrease,"
-                    "pad=640:360:(ow-iw)/2:(oh-ih)/2:color=0x0B0D12",
+                    "scale=620:620:force_original_aspect_ratio=decrease,"
+                    "pad=800:1200:(ow-iw)/2:(oh-ih)/2:color=0x0B0D12",
                     "-frames:v", "1", out], check=True)
     print(slug, os.path.getsize(out), "bytes")

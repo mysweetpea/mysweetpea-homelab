@@ -140,6 +140,27 @@ def _fix_series_batch(j, path, auth):
     return changed
 
 
+VIEW_AR = 0.6667   # our logo tiles are 800x1200
+
+
+def _fix_view_ar(j):
+    """My Media tiles: aios reports 16:9 for every view (PrimaryImageAspectRatio
+    1.7777) and Moonfin refuses to draw landscape primary art on a poster tile
+    (home_screen._resolveRowImageUrl: AR >= 1 -> no image), so the tiles render
+    blank. Our logo art is portrait, so report the truth.
+    """
+    if not isinstance(j, dict):
+        return False
+    if j.get("Type") != "CollectionFolder":
+        return False
+    if not (j.get("ImageTags") or {}).get("Primary"):
+        return False
+    if j.get("PrimaryImageAspectRatio") == VIEW_AR:
+        return False
+    j["PrimaryImageAspectRatio"] = VIEW_AR
+    return True
+
+
 def _limited(ua):
     """Players that must not be handed a source they cannot decode.
 
@@ -158,6 +179,11 @@ def _filter(data, ua, path, auth):
     changed = _fix_series(j, path, auth)
     if _fix_series_batch(j, path, auth):
         changed = True
+    if _fix_view_ar(j):
+        changed = True
+    for _it in (j.get("Items") or []) if isinstance(j, dict) else []:
+        if _fix_view_ar(_it):
+            changed = True
     require_h264 = _limited(ua)
     max_br = BITRATE_CAP if MOBILE_TV.search(ua) else None
     if require_h264 or max_br:
@@ -229,6 +255,9 @@ def _selftest():
     # _fix_series only rewrites Series dicts; everything else passes through.
     assert _fix_series({"Type": "Movie", "ChildCount": 3}, "/x", "") is False
     assert _fix_series_batch({"Items": []}, "/x", "") is False
+    assert _fix_view_ar({"Type": "Movie", "ImageTags": {"Primary": "x"}}) is False
+    assert _fix_view_ar({"Type": "CollectionFolder", "ImageTags": {"Primary": "x"},
+                         "PrimaryImageAspectRatio": 1.7777}) is True
     assert _fix_series_batch(
         {"Items": [{"Type": "Series", "ChildCount": 317, "Id": "a"}] * 9},
         "/x", "") is False  # big rows skipped (no lookups)
