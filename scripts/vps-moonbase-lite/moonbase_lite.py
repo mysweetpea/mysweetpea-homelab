@@ -92,6 +92,7 @@ _subscribers: "list[queue.Queue]" = []
 _auth_cache: "dict[str, tuple[float, dict | None]]" = {}
 _PLAYLIST_ITEMS_RE = re.compile(r"(?:^|/)Playlists/([^/]+)/Items$")
 _rows_cache: dict = {"mtime": 0.0, "doc": None}
+_user_rows_cache = {}   # path -> (mtime, doc) for per-member rows
 
 
 # --------------------------------------------------------------------------
@@ -1005,12 +1006,37 @@ class Handler(BaseHTTPRequestHandler):
                 print("rows.json read failed: %s" % exc, flush=True)
         return _rows_cache["doc"] or {"rows": []}
 
+    def _user_rows_doc(self, uid: str) -> dict:
+        """Per-member rows (moonfin-for-you.py). No file -> {} -> shared rows."""
+        if not uid:
+            return {}
+        key = hashlib.sha1(uid.encode("utf-8")).hexdigest()[:16]
+        path = os.path.join(DATA_DIR, "users", "rows-" + key + ".json")
+        try:
+            st = os.stat(path)
+        except OSError:
+            return {}
+        hit = _user_rows_cache.get(path)
+        if not hit or hit[0] != st.st_mtime:
+            try:
+                with open(path) as f:
+                    hit = (st.st_mtime, json.load(f))
+                _user_rows_cache[path] = hit
+            except Exception as exc:
+                print("user rows read failed (%s): %s" % (path, exc), flush=True)
+                return {}
+        return hit[1] or {}
+
     def _playlist_items(self, pid: str, query: dict):
         caller, ok = self._caller()
         if not ok:
             return
-        row = next((r for r in (self._rows_doc().get("rows") or [])
+        # per-member rows first (moonfin-for-you.py), then the shared rotation
+        row = next((r for r in (self._user_rows_doc(caller.get("id") or "").get("rows") or [])
                     if r.get("id") == pid), None)
+        if row is None:
+            row = next((r for r in (self._rows_doc().get("rows") or [])
+                        if r.get("id") == pid), None)
         if row is None:
             self._send(404, {"error": "unknown playlist"})
             return

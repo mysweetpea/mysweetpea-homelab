@@ -331,6 +331,19 @@ def main():
                 det_bad += 1
         log('  detail prewarm: ok=%d fail=%d' % (det_ok, det_bad))
 
+        # Similar+ prewarm: the Similar tab is a 1.5-4.3s TMDB compute that the
+        # shim caches per item for 24h. Prime the titles this user opens next.
+        sim_ok = sim_bad = 0
+        for iid in detail_ids[:10]:
+            if time.time() - t_start > BUDGET_S:
+                break
+            try:
+                call('/Items/%s/Similar?Limit=20&bypass=moonfin' % iid, utok, timeout=90)
+                sim_ok += 1
+            except Exception:
+                sim_bad += 1
+        log('  similar prewarm: ok=%d fail=%d' % (sim_ok, sim_bad))
+
         # collections-row children: EVERY BoxSet in BOTH client shapes
         # (collections row hydration + the light BasicSyncInfo re-sync pass)
         try:

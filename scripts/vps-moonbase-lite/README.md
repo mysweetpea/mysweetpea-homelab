@@ -273,3 +273,30 @@ cannot undo it). Currently: `mobile` -> `navbarPosition=bottom` + `showGenresBut
 Reason: the top nav pill is a horizontally scrolling row, so on a phone the Genres
 button sat off-screen; the bottom bar fits Home/Search/Genres/Favorites/Settings
 inline (client `maxInline = 5`). Desktop/tv scopes stay `top`.
+
+## Per-member rows (2026-10-18)
+
+`moonfin-for-you.py` (VPS `/root`, cron `20 7 * * *`) builds four rows from each
+member's own watch state and writes:
+
+```
+data/users/rows-<sha1(uid)[:16]>.json    item lists per row id
+data/users/<sha1(uid)[:16]>.json         homeSections splice (after favorites)
+```
+
+Row ids: `msp-foryou` (taste ranking), `msp-because` (neighbours of the latest
+finish, named "Because You Watched <title>"), `msp-deepcuts` (good fit that the
+rotation rows never surface), `msp-newforme` (recent releases in loved genres).
+
+The shim resolves `_user_rows_doc(uid)` before the shared `rows.json`, so the
+same playlist id returns a different list per member on every platform with no
+client change. Members with no watch history, or personas without a PIN on
+file, are skipped (their layout and the shared rows stay untouched).
+
+Signals: played/resume/favorites -> genre + decade weights with a 180-day
+half-life. Pool: the member's top-6 genre listings plus the rotation rows,
+hydrated through `?Ids=` (list shapes drop `Genres`, batch shapes carry them).
+No TMDB calls. `--selftest` covers scoring, row splitting, dedupe and splice.
+
+The warmer prewarms `Similar+` for each member's NextUp/Resume top 10, so the
+Similar tab opens at ~0.01s instead of a 1.5-4.3s TMDB compute.
