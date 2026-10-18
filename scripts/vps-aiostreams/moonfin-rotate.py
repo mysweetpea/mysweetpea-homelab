@@ -118,6 +118,12 @@ WILDCARD_POOL = [
     ("Stand-Up Comedy", None),
     (None, "Reality TV"),
     (None, "Sitcoms"),
+    # former fixed anchors -> now rotating (owner 2026-10-18: only Trending and
+    # New Releases stay fixed, everything after them rotates)
+    ("Action & Adventure Movies", "Action & Adventure Shows"),
+    ("Horror Movies", "Horror Shows"),
+    ("True Crime Movies", "True Crime Shows"),
+    ("Korean Movies", "K-Dramas"),
 ]
 
 DISPLAY = {"Korean": "Korean Picks", "80s": "The 80s", "90s": "The 90s",
@@ -170,11 +176,13 @@ def pair_display(p):
 
 
 def features_for(seed):
+    """10 rotating pairs per bucket: 1 anime + 3 combos + 2 moods + 2 curated
+    + 2 wildcards. No pair repeats inside a bucket."""
     return (pick(ANIME_POOL, 1, seed * 11 + 1) +
-            pick(COMBO_POOL, 2, seed * 11 + 2) +
-            pick(MOOD_POOL, 1, seed * 11 + 3) +
-            pick(CURATED_POOL, 1, seed * 11 + 4) +
-            pick(WILDCARD_POOL, 1, seed * 11 + 5))
+            pick(COMBO_POOL, 3, seed * 11 + 2) +
+            pick(MOOD_POOL, 2, seed * 11 + 3) +
+            pick(CURATED_POOL, 2, seed * 11 + 4) +
+            pick(WILDCARD_POOL, 2, seed * 11 + 5))
 
 
 def interleave(a, b):
@@ -247,34 +255,17 @@ def most_played(token):
 
 
 def build_slots(seed):
-    anime, c1, c2, mood, curated, wild = features_for(seed)
-    return [
+    feats = features_for(seed)
+    slots = [
         {"id": "msp-trending", "name": "Trending Now",
          "views": ("Trending Movies", "Trending Shows"), "prio": 90, "kind": "core"},
         {"id": "msp-newreleases", "name": "New Releases",
          "views": ("New Releases Movies", "New Releases Shows"), "prio": 95, "kind": "core"},
-        # --- fixed mainstream anchors (2026-10-16) ---
-        {"id": "msp-action", "name": "Action & Adventure",
-         "views": ("Action & Adventure Movies", "Action & Adventure Shows"), "prio": 70, "kind": "fixed"},
-        {"id": "msp-afterdark", "name": "After Dark",
-         "views": ("Horror Movies", "Horror Shows"), "prio": 71, "kind": "fixed"},
-        {"id": "msp-crime", "name": "True Crime Files",
-         "views": ("True Crime Movies", "True Crime Shows"), "prio": 72, "kind": "fixed"},
-        {"id": "msp-kdrama", "name": "K-Dramas",
-         "views": ("Korean Movies", "K-Dramas"), "prio": 73, "kind": "fixed"},
-        {"id": "msp-anime", "name": pair_display(anime),
-         "views": anime, "prio": 10, "kind": "feature"},
-        {"id": "msp-combo1", "name": pair_display(c1),
-         "views": c1, "prio": 20, "kind": "feature"},
-        {"id": "msp-combo2", "name": pair_display(c2),
-         "views": c2, "prio": 21, "kind": "feature"},
-        {"id": "msp-mood", "name": pair_display(mood),
-         "views": mood, "prio": 30, "kind": "feature"},
-        {"id": "msp-curated", "name": pair_display(curated),
-         "views": curated, "prio": 40, "kind": "feature"},
-        {"id": "msp-wildcard", "name": pair_display(wild),
-         "views": wild, "prio": 50, "kind": "feature"},
     ]
+    for i, pair in enumerate(feats, 1):
+        slots.append({"id": "msp-rot%d" % i, "name": pair_display(pair),
+                      "views": pair, "prio": 10 + i, "kind": "feature"})
+    return slots
 
 
 def build_layout(rows):
@@ -418,8 +409,8 @@ def main():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         f1, f2 = features_for(20261016), features_for(20261016)
-        assert f1 == f2 and len(f1) == 6, "features must be deterministic, 6 pairs"
-        assert len(set(t[0] for t in f1)) == 6, "no duplicate pairs in a day"
+        assert f1 == f2 and len(f1) == 10, "features must be deterministic, 10 pairs"
+        assert len(set(map(str, f1))) == 10, "no duplicate pairs in a bucket"
         assert display_name("Anime: Slice of Life Movies") == "Anime: Slice of Life"
         assert display_name("Korean Movies") == "Korean Picks"
         assert display_name("80s Movies") == "The 80s"
@@ -441,12 +432,13 @@ if __name__ == "__main__":
         i_gen = types.index("genres")
         assert i_fav < i_eng < i_gen, "engine rows must sit between favorites and genres"
         assert len(ANIME_POOL) == 13 and len(COMBO_POOL) == 10
-        assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 27
+        assert len(MOOD_POOL) == 5 and len(CURATED_POOL) == 4 and len(WILDCARD_POOL) == 31
         assert pair_display((None, "Sitcoms")) == "Sitcoms"
         assert pair_display(("Stand-Up Comedy", None)) == "Stand-Up Comedy"
         assert len(slots) == 12
-        assert [x["id"] for x in slots if x["kind"] == "fixed"] == \
-            ["msp-action", "msp-afterdark", "msp-crime", "msp-kdrama"]
+        assert [x["id"] for x in slots if x["kind"] == "feature"] == \
+            ["msp-rot%d" % i for i in range(1, 11)], [x["id"] for x in slots]
+        assert len(features_for(21)) == 10 and features_for(21) != features_for(22)
         print("selftest ok")
         sys.exit(0)
     sys.exit(main())

@@ -183,6 +183,9 @@ def _filter(data, path, hdrs):
                 for it in items:
                     n = counts.get(it.get("Id"))
                     if n:
+                        # Moonfin reads ChildCount (flat) or MovieCount/SeriesCount;
+                        # ItemCounts alone is ignored -> "No Genre Found".
+                        it["ChildCount"] = n
                         it["ItemCounts"] = {"ItemCount": n, "RecursiveItemCount": n,
                                             "UnplayedItemCount": n}
             j["Items"] = items

@@ -373,9 +373,15 @@ def write_layout(uid, rows):
             doc = json.load(open(path))
         except Exception:
             doc = {}
-    base = ((doc.get("global") or {}).get("homeSections")
-            or (json.load(open(os.path.join(DATA, "defaults.json")))
-                .get("homeSections")) or [])
+    # The fleet layout (moonfin-rotate.py -> defaults.json) is authoritative:
+    # it carries the current rotating row ids, which change shape between
+    # releases. Fall back to the user's own copy only if defaults is missing.
+    fleet = []
+    try:
+        fleet = json.load(open(os.path.join(DATA, "defaults.json"))).get("homeSections") or []
+    except Exception:
+        fleet = []
+    base = fleet or ((doc.get("global") or {}).get("homeSections") or [])
     for scope in ("global", "desktop", "mobile", "tv"):
         if not isinstance(doc.get(scope), dict):
             doc[scope] = {}
