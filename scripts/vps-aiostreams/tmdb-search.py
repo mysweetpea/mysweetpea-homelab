@@ -65,7 +65,7 @@ DEEP_TTL = 21600          # discover pages change slowly; 6h matches aios catalo
 LIMIT = 20
 # Stremio search results per intent catalog. TMDB pages are 20, so a 55-item
 # window spans 3 pages; the client grid shows one window per catalog.
-SEARCH_WINDOW = 55
+SEARCH_WINDOW = 75
 
 # (catalog key, tmdb provider id, display name, watch region, has_movies, has_shows)
 SERVICES = [

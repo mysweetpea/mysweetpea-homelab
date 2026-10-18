@@ -856,3 +856,7 @@ desktop Dart/VLC/mpv untouched). Verified iOS 25 -> 18, top = 4K HEVC 7.7 Mbps.
 `USENET_SEGMENT_DISK_CACHE_BYTES=4000000000` (were 32 / 2GB). A `custom` profile is
 required — the `balanced`/`high` presets override the individual knobs. Re-reads of
 already-fetched ranges measured 15 MB/s after the change.
+
+## Search window 75/type (2026-10-18)
+tmdb-search.py `SEARCH_WINDOW` 55 -> 75 (4 TMDB pages). Titles and intent
+queries both use it; verified 75+75 = 150 on every client class.

@@ -468,8 +468,8 @@ AVATAR_PALETTE = [
 # languages only if a non-anime seed class gets reported.
 _SIM_CACHE = {}      # item_id -> (ts, payload)
 _SIM_TTL = 86400
-_SIM_MAX = 60
-_SIM_POOL = 80       # candidates collected before scoring (recs + similar)
+_SIM_MAX = 75
+_SIM_POOL = 160      # candidates collected before scoring (recs + similar)
 _SIM_MIN_VOTES = 30  # similar-tail filler below this many TMDB votes = junk farm
 _SIM_TMDB = "https://api.themoviedb.org/3"
 
@@ -585,7 +585,7 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
     seen = {seed}
     rows = []
     for kind in ("recommendations", "similar"):
-        for page in (1, 2):
+        for page in (1, 2, 3, 4):
             for m in _tmdb_results(mtype, seed, kind, page, key):
                 mid = m.get("id")
                 if not mid or mid in seen or m.get("adult"):
@@ -611,23 +611,26 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
     # runs out. Remove it, don't sink it.
     if seed_lang == "ja":
         rows = [r for r in rows if r.get("original_language") == "ja"]
-        if len(rows) < 36:  # backfill: recs/similar feeds are narrow for anime
+        if len(rows) < _SIM_MAX:  # backfill: recs/similar feeds are narrow for anime
             try:
-                disc = _http_get_json(
-                    "%s/discover/movie?%s" % (_SIM_TMDB, urllib.parse.urlencode(
-                        {"api_key": key, "with_original_language": "ja",
-                         "with_genres": "16", "sort_by": "popularity.desc",
-                         "vote_count.gte": 250, "page": 1})),
-                    {}, timeout=8)
-                for m in disc.get("results") or []:
-                    if len(rows) >= _SIM_POOL:
+                for dpage in (1, 2, 3, 4):
+                    if len(rows) >= _SIM_MAX:
                         break
-                    mid = m.get("id")
-                    if not mid or mid in seen or m.get("adult") \
-                            or (m.get("vote_count") or 0) < 250:
-                        continue
-                    seen.add(mid)
-                    rows.append(m)
+                    disc = _http_get_json(
+                        "%s/discover/movie?%s" % (_SIM_TMDB, urllib.parse.urlencode(
+                            {"api_key": key, "with_original_language": "ja",
+                             "with_genres": "16", "sort_by": "popularity.desc",
+                             "vote_count.gte": 250, "page": dpage})),
+                        {}, timeout=8)
+                    for m in disc.get("results") or []:
+                        if len(rows) >= _SIM_MAX:
+                            break
+                        mid = m.get("id")
+                        if not mid or mid in seen or m.get("adult") \
+                                or (m.get("vote_count") or 0) < 250:
+                            continue
+                        seen.add(mid)
+                        rows.append(m)
             except Exception:
                 pass
 
