@@ -151,6 +151,7 @@ extraObjects:
                   - '35\.0\.1'
                   - '35\.0\.0'
                   - '34\.0\.5'
+                  - '34\.0\.4'
                 updateStrategy: semver
                 # HOLD AT 34.x — deliberate major-version gate (reviewed 2026-09-17).
                 # 35.0.0 is a .0 release (published Sep 15) and 15 enabled Nextcloud apps still
