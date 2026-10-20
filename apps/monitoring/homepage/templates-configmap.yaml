@@ -781,6 +781,12 @@ data:
           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/sabnzbd.svg
           server: ''
     - Retired:
+      - RustDesk:
+          id: rustdesk-r
+          href: ''
+          description: Remote desktop server — replaced by direct-IP over NetBird
+          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/rustdesk.svg
+          server: ''
       - Decypharr:
           id: decypharr-r
           href: ''
