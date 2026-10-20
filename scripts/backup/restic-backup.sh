@@ -204,8 +204,6 @@ else
     echo "gotify: pod not found, skipping"
 fi
 
-# 3s. RustDesk identity keys + peer DB (id_ed25519 + db_v2.sqlite3 + RustDesk.toml — CRITICAL: clients verify server pubkey; exec-less container so use busybox probe pod)
-kubectl run rustdesk-backup -n private --rm -i --restart=Never --image=busybox --quiet --command -- sh -c 'tar czf - -C /root . 2>/dev/null' --overrides='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"k3s-worker-b"},"containers":[{"name":"rustdesk-backup","image":"busybox","command":["sh","-c","tar czf - -C /root . 2>/dev/null"],"volumeMounts":[{"name":"data","mountPath":"/root"}]}],"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"rustdesk-data"}}]}}' > "$STAGE/rustdesk-data.tar.gz" 2>/dev/null && echo "rustdesk data: OK ($(du -h $STAGE/rustdesk-data.tar.gz | cut -f1))" || echo "rustdesk data: FAILED"
 
 # 3q. Nextcloud data (user files + DB-adjacent data dir; previews regenerable - excluded)
 mkdir -p "$STAGE/nextcloud"

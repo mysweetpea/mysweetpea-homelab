@@ -46,7 +46,6 @@ watch history. Keeping them off the public internet means:
 
 | Service | What it does |
 |---------|--------------|
-| `rustdesk/` | Self-hosted remote desktop |
 | `flaresolverr/` | Cloudflare-bypass proxy for indexers |
 | `nzbdav/` | Usenet access |
 | `openclaw/` | AI agent gateway |

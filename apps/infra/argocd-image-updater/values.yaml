@@ -316,30 +316,6 @@ extraObjects:
                 helm:
                   name: controllers.main.containers.main.image.repository
                   tag: controllers.main.containers.main.image.tag
-        - namePattern: rustdesk
-          writeBackConfig:
-            method: git:secret:argocd/ssh-git-creds
-            gitConfig:
-              writeBackTarget: helmvalues:apps/private/rustdesk/values.yaml
-          images:
-            - alias: rustdesk-hbbs
-              imageName: rustdesk/rustdesk-server
-              commonUpdateSettings:
-                updateStrategy: newest-build
-                allowTags: "regexp:^1\\.\\d+\\.\\d+$"
-              manifestTargets:
-                helm:
-                  name: controllers.hbbs.containers.main.image.repository
-                  tag: controllers.hbbs.containers.main.image.tag
-            - alias: rustdesk-hbbr
-              imageName: rustdesk/rustdesk-server
-              commonUpdateSettings:
-                updateStrategy: newest-build
-                allowTags: "regexp:^1\\.\\d+\\.\\d+$"
-              manifestTargets:
-                helm:
-                  name: controllers.hbbr.containers.main.image.repository
-                  tag: controllers.hbbr.containers.main.image.tag
         - namePattern: uptime-kuma
           writeBackConfig:
             method: git:secret:argocd/ssh-git-creds

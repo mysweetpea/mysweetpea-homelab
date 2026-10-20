@@ -541,11 +541,6 @@ data:
             - field: connections
               label: Peers
               format: number
-      - RustDesk:
-          id: rustdesk
-          href: ''
-          description: Remote Desktop
-          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/rustdesk.svg
     - Chat:
       - Element:
           id: element
