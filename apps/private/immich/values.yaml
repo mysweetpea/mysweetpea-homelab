@@ -13,7 +13,7 @@ controllers:
     containers:
       main:
         image:
-          tag: v3.3.3
+          tag: v3.3.4
           repository: ghcr.io/immich-app/immich-server
         env:
           # Database connection (immich-postgresql in private namespace)
