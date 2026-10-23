@@ -4,7 +4,7 @@ controllers:
       main:
         image:
           repository: ghcr.io/containers/kubernetes-mcp-server
-          tag: v0.0.67
+          tag: v0.0.69
         args:
         - --port
         - "8080"
