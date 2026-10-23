@@ -9,7 +9,7 @@ controllers:
       main:
         image:
           repository: ghcr.io/open-webui/open-terminal
-          tag: 0.14.3
+          tag: 0.14.4
           pullPolicy: IfNotPresent
         envFrom:
         - secretRef:
