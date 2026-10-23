@@ -463,6 +463,8 @@ extraObjects:
             - alias: mcp-server
               imageName: ghcr.io/containers/kubernetes-mcp-server
               commonUpdateSettings:
+                ignoreTags:
+                  - 'v0\.0\.69'
                 updateStrategy: semver
                 allowTags: "regexp:^v\\d+\\.\\d+\\.\\d+$"
               manifestTargets:
