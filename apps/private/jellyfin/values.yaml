@@ -7,7 +7,7 @@ controllers:
           # JF 12.1 — major DB migration (one-way). Pre-jf12-migration LH snapshot
           # taken 2026-10-02 16:57Z on jellyfin-config-lh. Plugin dirs cleaned
           # while scaled down; 12.x plugin builds reinstalled post-boot.
-          tag: "12.3"
+          tag: "12.4"
         # Device cgroup blocks hostPath-mounted /dev/dri even for root (EPERM on
         # open) - privileged lets the container actually reach the iGPU. Single-
         # tenant node, first-party image; security delta accepted for QSV.
