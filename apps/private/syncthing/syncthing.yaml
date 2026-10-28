@@ -165,3 +165,23 @@ spec:
           protocol: TCP
         - port: 21027
           protocol: UDP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-syncthing-mesh-ingress
+  namespace: private
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: syncthing
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - port: 22000
+          protocol: TCP
+        - port: 22000
+          protocol: UDP
