@@ -63,5 +63,6 @@ $RECYCLE.BIN
   node IPs but *not* MetalLB VIPs, which silently pushes Syncthing onto the public relay. On
   LAN-resident machines run `netbird networks deselect "MetalLB / node LAN" "private"` and restart
   Syncthing.
-- **Family (planned):** one folder per person on this hub, shared only to that person's devices.
-  No accounts or quotas exist — the hub admin (owner) is the only GUI.
+- **Family:** handled by Nextcloud, not this hub (decided Oct 2026 — Syncthing has no accounts,
+  quotas or per-user isolation, which is too much machinery for non-technical relatives).
+  This hub is personal-only: owner's PC, laptop and phone.
