@@ -1,0 +1,167 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-single
+provisioner: driver.longhorn.io
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  fromBackup: ""
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-config
+  namespace: private
+spec:
+  storageClassName: longhorn
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-data
+  namespace: private
+spec:
+  storageClassName: longhorn-single
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: private
+  labels:
+    app: syncthing
+    app.kubernetes.io/name: syncthing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: syncthing
+  template:
+    metadata:
+      labels:
+        app: syncthing
+        app.kubernetes.io/name: syncthing
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: syncthing
+          image: ghcr.io/syncthing/syncthing:2.1.7
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: UMASK
+              value: "002"
+          ports:
+            - name: gui
+              containerPort: 8384
+            - name: sync-tcp
+              containerPort: 22000
+              protocol: TCP
+            - name: sync-quic
+              containerPort: 22000
+              protocol: UDP
+          readinessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            periodSeconds: 20
+          livenessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            initialDelaySeconds: 30
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /var/syncthing/config
+            - name: data
+              mountPath: /var/syncthing/data
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: syncthing-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-gui
+  namespace: private
+spec:
+  selector:
+    app: syncthing
+  ports:
+    - name: gui
+      port: 8384
+      targetPort: gui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-sync
+  namespace: private
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: 192.168.20.217
+spec:
+  type: LoadBalancer
+  selector:
+    app: syncthing
+  ports:
+    - name: sync-tcp
+      port: 22000
+      targetPort: sync-tcp
+      protocol: TCP
+    - name: sync-quic
+      port: 22000
+      targetPort: sync-quic
+      protocol: UDP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-syncthing-egress
+  namespace: private
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: syncthing
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 22000
+          protocol: TCP
+        - port: 22000
+          protocol: UDP
+        - port: 22067
+          protocol: TCP
+        - port: 21027
+          protocol: UDP
