@@ -466,6 +466,7 @@ extraObjects:
                 ignoreTags:
                   - 'v0\.0\.69'
                   - '2026\.10\.6'
+                  - 'v0\.1\.1'
                 updateStrategy: semver
                 allowTags: "regexp:^v\\d+\\.\\d+\\.\\d+$"
               manifestTargets:
