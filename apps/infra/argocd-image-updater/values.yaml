@@ -465,6 +465,7 @@ extraObjects:
               commonUpdateSettings:
                 ignoreTags:
                   - 'v0\.0\.69'
+                  - '2026\.10\.6'
                 updateStrategy: semver
                 allowTags: "regexp:^v\\d+\\.\\d+\\.\\d+$"
               manifestTargets:
