@@ -139,7 +139,15 @@ vaultwarden:
     only: true
     signupsMatchEmail: true
     allowUnknownEmailVerification: false
-    clientCacheExpiration: 0
+    # SSO authenticates once; Vaultwarden then owns the session lifecycle.
+    # With false (default) every client session is bound to the OIDC access
+    # token (60min) and must round-trip authentik through Cloudflare to
+    # refresh - a single failed refresh logs the phone out. That is the
+    # "constantly signed out" symptom. Tradeoff: revoking a user in authentik
+    # no longer kills their live vault session instantly.
+    authOnlyNotSession: true
+    # Cache the OIDC discovery doc for 1h instead of refetching per refresh.
+    clientCacheExpiration: 3600
     existingSecret: "vaultwarden-sso"
   smtp:
     enabled: true
