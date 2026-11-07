@@ -34,16 +34,31 @@ server:
   # pays a cold flow-executor (~10-38s measured). 2026.8 (Rust server) REJECTS
   # -1 ("Value must be positive" — crash-looped, verified) → use 1e9 = never
   # recycles in practice while passing validation.
+  #
+  # ── Nov 7 2026 latency audit ────────────────────────────────────────────────
+  # Measured: flow-page render 250ms pod-local (350ms via CF) = authentik
+  # baseline. The LOGIN SUBMIT is dominated by password hashing — Django
+  # PBKDF2-SHA256 @ 1,000,000 iterations measured at **1604ms per verify** on
+  # this pod. That is a deliberate security cost and is NOT tunable: authentik
+  # hardcodes PASSWORD_HASHERS in authentik/root/settings.py (no config key,
+  # no settings-override hook). Do NOT lower it.
+  # What IS tunable: concurrency. PBKDF2 is single-threaded, so with a 1-core
+  # limit a single login monopolises the pod and starves the other worker.
+  # 2 cores lets two logins hash in parallel; 4 workers raises the concurrent
+  # request ceiling (was 2 workers x 4 threads). Memory was at 836Mi/1Gi (82%)
+  # — raised for headroom so extra workers can't OOM.
   env:
   - name: AUTHENTIK_WEB__MAX_REQUESTS
     value: "1000000000"
+  - name: AUTHENTIK_WEB__WORKERS
+    value: "4"
   resources:
     requests:
-      memory: "512Mi"
-      cpu: "250m"
-    limits:
       memory: "1Gi"
-      cpu: "1000m"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
   metrics:
     enabled: true
 # Worker: 2 replicas — blueprint apply deadlocks with 1 (apply_blueprint blocks
