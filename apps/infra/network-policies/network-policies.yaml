@@ -960,3 +960,25 @@ spec:
         - 192.168.0.0/16
   policyTypes:
   - Egress
+---
+# open-webui -> LiteLLM gateway on the VPS over NetBird (wt0).
+# The shared allow-internet-egress policy only opens 53/80/443/465/587/9001/563,
+# so port 4000 needs its own rule; CGNAT range is not covered by the lan-vpn policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-open-webui-llm-proxy
+  namespace: private
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-webui
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 100.82.13.16/32
+    ports:
+    - port: 4000
+      protocol: TCP
