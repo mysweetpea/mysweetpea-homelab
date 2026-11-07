@@ -114,6 +114,21 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+# The chart hardcodes the probe path to '/' (the full web-vault page) and
+# merges these keys in as siblings - setting httpGet here would emit a
+# duplicate YAML key, so the path stays '/'. With timeoutSeconds:1 the kubelet
+# aborted the response body mid-write, producing ~400 "Connection failed:
+# error writing a body to connection" lines per 45min in the logs. Longer
+# timeout + 3x lower frequency clears that without changing the signal.
+probes:
+  liveness:
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
 vaultwarden:
   domain: "https://vault.mysweetpea.cc"
   allowSignups: false
