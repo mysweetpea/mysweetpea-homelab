@@ -210,7 +210,9 @@ def handle(alert):
     log(event="handled", alert=alert["name"], verdict=v, action=action, seconds=round(time.time() - started, 1))
 
     if v == "fixed":
-        gotify("Homelab fixed: %s" % alert["name"], "%s\n\n%s" % (summary, action), priority=3)
+        # Silent by design: a fix is not news. `kubectl logs deploy/holmes-dispatcher` has the trail;
+        # put the gotify() call back if you ever want a p3 "Homelab fixed: …" ping.
+        log(event="fixed", alert=alert["name"], summary=summary)
     elif v == "escalate":
         gotify("Homelab needs you: %s" % alert["name"], "%s\n\n%s" % (summary, action), priority=8)
     # noop: silent
