@@ -59,7 +59,7 @@ mcpAddons:
     # anything but vps-shell, and the alternative is an agent that cannot touch the
     # VPS at all.
     config:
-      allowedCommands: "delete,patch,scale,rollout,label,annotate,exec"
+      allowedCommands: "get,delete,patch,scale,rollout,label,annotate,exec"
       timeout: "60"
     # Empty = fully autonomous (no approval prompts). This is the whole point.
     approvalRequiredTools: []
