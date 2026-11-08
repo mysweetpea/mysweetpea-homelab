@@ -1,0 +1,68 @@
+# HolmesGPT — homelab autopilot
+# Model: deepseek-v4.1-flash:1017 via the LiteLLM proxy on the VPS (NetBird).
+logLevel: INFO
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+# LLM key comes from this Secret (created imperatively, never in git).
+extraEnvVarsSecrets:
+  - holmes-llm
+
+additionalEnvVars:
+  - name: OPENAI_API_BASE
+    value: "http://100.82.13.16:4000/v1"
+  # Shared secret the dispatcher must present; also stops stray pods using the API.
+  - name: HOLMES_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: holmes-llm
+        key: HOLMES_API_KEY
+
+modelList:
+  deepseek:
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    api_base: "{{ env.OPENAI_API_BASE }}"
+    model: openai/deepseek-v4.1-flash:1017
+    temperature: 0.2
+
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+  robusta:
+    enabled: false
+  internet:
+    enabled: true
+  prometheus/metrics:
+    enabled: false
+  skills:
+    enabled: true
+  connectivity_check:
+    enabled: true
+  bash:
+    enabled: false
+
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    # Mutating verbs Holmes may run without a human. No exec/run/drain/taint/edit.
+    config:
+      allowedCommands: "delete,patch,scale,rollout,label,annotate"
+      timeout: "60"
+    # Empty = fully autonomous (no approval prompts). This is the whole point.
+    approvalRequiredTools: []
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"

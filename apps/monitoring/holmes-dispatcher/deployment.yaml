@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: holmes-dispatcher
+  labels:
+    app: holmes-dispatcher
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: holmes-dispatcher
+  template:
+    metadata:
+      labels:
+        app: holmes-dispatcher
+    spec:
+      containers:
+        - name: dispatcher
+          image: python:3.12-alpine
+          command: ["python3", "/app/dispatcher.py"]
+          env:
+            - name: HOLMES_URL
+              value: "http://holmes-holmes.holmes.svc.cluster.local"
+            - name: HOLMES_MODEL
+              value: "deepseek"
+            - name: GOTIFY_URL
+              value: "http://gotify.private.svc.cluster.local"
+            - name: DEDUPE_SECONDS
+              value: "900"
+            - name: ASK_TIMEOUT
+              value: "240"
+            - name: HOLMES_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-dispatcher
+                  key: HOLMES_API_KEY
+            - name: GOTIFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: holmes-dispatcher
+                  key: GOTIFY_TOKEN
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              cpu: 300m
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+          volumeMounts:
+            - name: src
+              mountPath: /app
+      volumes:
+        - name: src
+          configMap:
+            name: holmes-dispatcher-src

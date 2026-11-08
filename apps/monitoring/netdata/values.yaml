@@ -29,11 +29,24 @@ parent:
       data: |
         SEND_EMAIL="NO"
         SEND_SLACK="NO"
-        SEND_GOTIFY="YES"
-        GOTIFY_APP_URL="http://gotify.private.svc.cluster.local:80"
-        # alarm-notify.sh sources this file as shell — the sealed-secret env var expands here
-        GOTIFY_APP_TOKEN="${GOTIFY_TOKEN}"
-        DEFAULT_RECIPIENT_GOTIFY="alarms"
+
+        # Netdata has no generic webhook notifier, but the stock alarm-notify.sh defines
+        # custom_sender() as a stub "to be overwritten by the config file". WARNING/CRITICAL go to
+        # the autopilot; it investigates, fixes what it can, and only then pings Gotify.
+        SEND_CUSTOM="YES"
+        DEFAULT_RECIPIENT_CUSTOM="autopilot"
+        SEND_GOTIFY="NO"
+
+        _esc() { printf '%s' "$1" | tr '\n\r' '  ' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+        custom_sender() {
+          local body
+          body=$(printf '{"source":"netdata","title":"%s on %s","message":"%s %s: %s","status":"%s"}' \
+            "$(_esc "${name}")" "$(_esc "${host}")" "$(_esc "${status}")" \
+            "$(_esc "${chart}")" "$(_esc "${info}")" "$(_esc "${status}")")
+          curl -s -m 10 -X POST "http://holmes-dispatcher.monitoring.svc.cluster.local/alert" \
+            -H 'Content-Type: application/json' -H 'Accept: application/json' -d "${body}" >/dev/null 2>&1
+        }
 child:
   resources:
     limits:

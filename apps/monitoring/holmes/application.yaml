@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: holmes
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: holmes
+  sources:
+    - chart: holmes
+      repoURL: https://robusta-charts.storage.googleapis.com
+      targetRevision: 0.46.0
+      helm:
+        valueFiles:
+          - $values/apps/monitoring/holmes/values.yaml
+    - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+      targetRevision: HEAD
+      path: apps/monitoring/holmes/manifests
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

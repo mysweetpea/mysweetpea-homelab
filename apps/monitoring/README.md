@@ -23,6 +23,8 @@ three questions continuously:
 | `grafana/` | Metrics dashboards and alerting |
 | `loki/` + `promtail/` | Log aggregation and search |
 | `netdata/` | Real-time per-node and per-container metrics |
+| `holmes/` | HolmesGPT autopilot — investigates alerts and fixes what it can (namespaces, verbs and escalation rules in `values.yaml`) |
+| `holmes-dispatcher/` | `POST /alert` — normalizes Kuma/Grafana/Netdata payloads, drops recoveries, calls Holmes, pings Gotify only on escalate |
 | `ingress-routes/` | Traefik routes for the monitoring UIs |
 
 ## How it fits together

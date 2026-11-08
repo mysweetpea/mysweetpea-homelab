@@ -62,6 +62,18 @@ alerting:
   contactpoints.yaml:
     apiVersion: 1
     contactPoints:
+    # Everything Grafana fires goes to the autopilot first; it investigates, fixes what it can,
+    # and only pushes to Gotify when it needs a human. The dispatcher drops resolve messages.
+    - orgId: 1
+      name: holmes
+      receivers:
+      - uid: holmes-webhook
+        type: webhook
+        settings:
+          url: "http://holmes-dispatcher.monitoring.svc.cluster.local/alert"
+          httpMethod: POST
+        disableResolveMessage: false
+    # Kept for rollback / manual routing: point the policy back at this receiver.
     - orgId: 1
       name: gotify
       receivers:
@@ -77,7 +89,7 @@ alerting:
     apiVersion: 1
     policies:
     - orgId: 1
-      receiver: gotify
+      receiver: holmes
       group_by: ["grafana_folder", "alertname"]
   rules.yaml:
     apiVersion: 1
