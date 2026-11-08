@@ -68,8 +68,10 @@ VPS (the Oracle box) IS IN SCOPE — you manage it too. It has no kubectl; go th
   `docker ps`; `docker compose -f /opt/aiostreams/compose.yaml ps`. Never edit nginx config
   without nginx -t, never restart the whole VPS.
 
-NODE DISKS: kubectl get --raw /api/v1/nodes/<node>/proxy/stats/summary and read
-  node.fs.usedBytes/capacityBytes (kubelet reports it; no SSH needed).
+NODE DISKS: you have no node SSH and no nodes/proxy RBAC (granting it would hand you the
+  kubelet API — deliberately not done). Disk alerts arrive from Netdata with the numbers
+  attached; use `kubectl describe node <n>` for capacity and `kubectl top node` for pressure.
+  If the numbers are not enough to act on, escalate and say what you would need.
 
 PLAYBOOKS
 - Pod ContainerCreating/Pending on a Deployment with a RWO PVC (Longhorn) and a Multi-Attach /
