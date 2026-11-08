@@ -299,7 +299,6 @@ def main():
             '/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s' % (uid, q(F_LONG)),
             '/Users/%s/Items?IncludeItemTypes=%s&SortBy=DatePlayed&SortOrder=Descending&Limit=30&Recursive=true&Fields=%s' % (uid, q('Movie,Episode'), q(F_LONG)),
             '/Users/%s/Items?IncludeItemTypes=Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Recursive=true&Fields=%s&Filters=IsPlayed' % (uid, q('SeriesId,UserData')),
-            '/Items/Latest?Limit=40',
             '/Users/%s/Items?IncludeItemTypes=Movie&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
             '/Users/%s/Items?IncludeItemTypes=Series&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
         )

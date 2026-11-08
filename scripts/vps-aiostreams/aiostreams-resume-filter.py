@@ -56,8 +56,8 @@ def _filter(data):
         if len(items) == len(j["Items"]):
             return data, False
         j["Items"] = items
-        if isinstance(j.get("TotalRecordCount"), int):
-            j["TotalRecordCount"] = len(items)
+        # Keep the upstream TotalRecordCount: the dedupe is page-local, and
+        # presenting the shortened page length as the total hides later series.
         return json.dumps(j, ensure_ascii=False, separators=(",", ":")).encode(), True
     except Exception:
         return data, False
@@ -117,12 +117,12 @@ def _selftest():
     out2 = _dedupe([{"Type": "Episode", "Id": "x", "SeriesId": "A", "SeriesName": "X"},
                     {"Type": "Episode", "Id": "y", "SeriesId": "A", "SeriesName": "X"}])
     assert [i["Id"] for i in out2] == ["x"]
-    # payload shape: TotalRecordCount follows the dedupe
+    # payload shape: dedupe the page, preserve the upstream TotalRecordCount
     body = json.dumps({"Items": items, "TotalRecordCount": 7, "StartIndex": 0}).encode()
     out, changed = _filter(body)
     assert changed
     d = json.loads(out)
-    assert len(d["Items"]) == 3 and d["TotalRecordCount"] == 3, d["TotalRecordCount"]
+    assert len(d["Items"]) == 3 and d["TotalRecordCount"] == 7, d["TotalRecordCount"]
     # untouched when nothing collapses
     solo = json.dumps({"Items": [items[0]], "TotalRecordCount": 1}).encode()
     _, changed2 = _filter(solo)

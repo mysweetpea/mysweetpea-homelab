@@ -29,7 +29,7 @@ DROP = {"Day", "Week"}
 EXCLUDE_VIEWS = {"Movies by Year", "Shows by Year", "Movies by Language", "Shows by Language"}
 CACHE_TTL = 21600.0
 
-_cache = {"t": 0.0, "names": frozenset()}
+_cache = {}   # auth -> {"t": float, "names": frozenset}  (per-user)
 _lock = threading.Lock()
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
        "te", "trailers", "transfer-encoding", "upgrade", "accept-encoding",
@@ -46,11 +46,13 @@ def _upstream(path, hdrs):
 
 
 def _excluded_names(hdrs):
-    """Entry names owned by the year/language libraries. Cached 6h."""
+    """Entry names owned by the year/language libraries. Per-user, cached 6h."""
+    key = _akey(hdrs)
     now = time.time()
     with _lock:
-        if now - _cache["t"] < CACHE_TTL:
-            return _cache["names"]
+        hit = _cache.get(key)
+        if hit and now - hit["t"] < CACHE_TTL:
+            return hit["names"]
     names = set()
     try:
         auth = {k: v for k, v in hdrs.items() if k.lower() == "authorization"}
@@ -66,30 +68,40 @@ def _excluded_names(hdrs):
                         if i.get("Name")
                     )
     except Exception:
-        return _cache["names"]  # keep the last good set
+        hit = _cache.get(key)
+        return hit["names"] if hit else frozenset()  # keep the last good set
     with _lock:
-        _cache["t"] = now
-        _cache["names"] = frozenset(names)
-    return _cache["names"]
+        _cache[key] = {"t": now, "names": frozenset(names)}
+    return _cache[key]["names"]
 
 
-_counts = {"t": 0.0, "map": {}}
-_me = {"t": 0.0, "uid": ""}
+_counts = {}   # auth -> {"t": float, "map": dict}   (per-user; UserData differs)
+_me = {}       # auth -> {"t": float, "uid": str}
+
+
+def _akey(hdrs):
+    for k, v in hdrs.items():
+        if k.lower() == "authorization":
+            return v
+    return ""
 
 
 def _uid(hdrs):
-    """Caller's Jellyfin id (counts need a user context). Cached 6h."""
+    """Caller's Jellyfin id (counts need a user context). Per-user, cached 6h."""
+    key = _akey(hdrs)
     now = time.time()
-    if _me["uid"] and now - _me["t"] < CACHE_TTL:
-        return _me["uid"]
+    hit = _me.get(key)
+    if hit and hit["uid"] and now - hit["t"] < CACHE_TTL:
+        return hit["uid"]
+    uid = ""
     try:
         _st, data = _upstream("/jellyfin/Users/Me", hdrs)
         uid = str(json.loads(data).get("Id") or "").replace("-", "")
-        if uid:
-            _me.update(t=now, uid=uid)
     except Exception:
         pass
-    return _me["uid"]
+    if uid:
+        _me[key] = {"t": now, "uid": uid}
+    return uid
 
 
 def _genre_counts(items, hdrs):
@@ -97,13 +109,16 @@ def _genre_counts(items, hdrs):
     (all_genres_screen -> .where(itemCount > 0)), and AIOStreams sends none,
     which is what made the Genres tab say 'No Genre Found'.
     ponytail: serial per-genre count queries (~0.03s each, 27 genres), cached 6h.
+    Per-user: counts and visibility differ per member, so cache by auth token.
     """
+    key = _akey(hdrs)
     now = time.time()
-    if _counts["map"] and now - _counts["t"] < CACHE_TTL:
-        return _counts["map"]
+    hit = _counts.get(key)
+    if hit and hit["map"] and now - hit["t"] < CACHE_TTL:
+        return hit["map"]
     uid = _uid(hdrs)
     if not uid:
-        return _counts["map"]
+        return (hit or {}).get("map", {})
     out = {}
     for it in items:
         gid = it.get("Id")
@@ -118,8 +133,8 @@ def _genre_counts(items, hdrs):
             n = 0
         out[gid] = max(n, 1)   # never 0: the client re-checks real items per genre
     if out:
-        _counts.update(t=now, map=out)
-    return _counts["map"]
+        _counts[key] = {"t": now, "map": out}
+    return out or (hit or {}).get("map", {})
 
 
 def _is_year(name):

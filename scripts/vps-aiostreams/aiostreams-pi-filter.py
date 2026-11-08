@@ -65,8 +65,9 @@ def _filt_obj(obj, require_h264=False, max_bitrate=None):
 
 def _season_count(series_id, uid, auth):
     now = time.time()
+    key = (series_id, uid)   # per-user: season visibility can differ per member
     with _SEASONS_LOCK:
-        hit = _SEASONS.get(series_id)
+        hit = _SEASONS.get(key)
         if hit and now - hit[1] < _SEASONS_TTL:
             return hit[0]
     path = "/jellyfin/Shows/%s/Seasons" % series_id
@@ -89,7 +90,7 @@ def _season_count(series_id, uid, auth):
         with _SEASONS_LOCK:
             if len(_SEASONS) > 4000:
                 _SEASONS.clear()
-            _SEASONS[series_id] = (n, now)
+            _SEASONS[key] = (n, now)
     return n
 
 
