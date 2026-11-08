@@ -1,0 +1,54 @@
+---
+# vps-shell — the autopilot's only door to the VPS.
+#
+# Holmes runs in a distroless-ish alpine with a read-only rootfs and no ssh client,
+# and the remediation MCP's run_kubectl_command only allows kubectl verbs. So the
+# ssh client lives here and Holmes reaches it with `kubectl exec` (exec was added to
+# allowedCommands for exactly this pod — keep it that way).
+#
+# The key is sealed (sealed-secret-vps-ssh.yaml), is scoped on the VPS to source
+# addresses 10.42.0.0/16 + 100.82.0.0/16 with the `restrict` option, and logs in as
+# `ubuntu` (Oracle images refuse root ssh) with passwordless sudo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vps-shell
+  namespace: holmes
+  labels:
+    app: vps-shell
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vps-shell
+  template:
+    metadata:
+      labels:
+        app: vps-shell
+    spec:
+      containers:
+        - name: shell
+          image: alpine:3.20
+          command:
+            - sh
+            - -c
+            - apk add --no-cache openssh-client >/dev/null 2>&1 && sleep infinity
+          volumeMounts:
+            - name: key
+              mountPath: /ssh
+              readOnly: true
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]  # apk writes its db as root
+      volumes:
+        - name: key
+          secret:
+            secretName: holmes-vps-ssh
+            defaultMode: 0400

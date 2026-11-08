@@ -53,9 +53,13 @@ toolsets:
 mcpAddons:
   kubernetesRemediation:
     enabled: true
-    # Mutating verbs Holmes may run without a human. No exec/run/drain/taint/edit.
+    # Mutating verbs Holmes may run without a human. No run/drain/taint/edit.
+    # `exec` exists ONLY for the vps-shell pod (the autopilot's ssh client to the
+    # VPS). It does widen the surface to any pod; the runbook forbids using it on
+    # anything but vps-shell, and the alternative is an agent that cannot touch the
+    # VPS at all.
     config:
-      allowedCommands: "delete,patch,scale,rollout,label,annotate"
+      allowedCommands: "delete,patch,scale,rollout,label,annotate,exec"
       timeout: "60"
     # Empty = fully autonomous (no approval prompts). This is the whole point.
     approvalRequiredTools: []
