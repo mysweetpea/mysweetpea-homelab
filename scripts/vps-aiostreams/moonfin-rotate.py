@@ -379,6 +379,16 @@ def main():
                                    for k, v in r.items()} for r in rows]}, indent=1))
         return 0
 
+    # Upstream-failure guard: never replace a good home with an empty/partial
+    # one. Every core row (Trending, New Releases) must have real content;
+    # otherwise keep the last good files and try again next run.
+    core_ids = [s["id"] for s in slots if s["kind"] == "core"]
+    present = {r["id"]: len(r["items"]) for r in rows}
+    missing = [c for c in core_ids if present.get(c, 0) < MIN_N]
+    if missing:
+        log("ABORT: core rows empty/missing %r (upstream failure?) - keeping last good home" % missing)
+        return 1
+
     write_atomic(ROWS, json.dumps({"generated": time.time(), "seed": seed,
                                    "rows": rows}, indent=1))
 
@@ -413,8 +423,10 @@ def main():
     log("verify: rows.json %d rows %s" % (len(got), "OK" if ok else "MISMATCH"))
 
     try:
-        subprocess.run(["flock", "-n", "/tmp/aiostreams-warmer.lock", "/usr/bin/python3",
-                        "/root/aiostreams-warmer.py"], timeout=300, capture_output=True)
+        wr = subprocess.run(["flock", "-n", "/tmp/aiostreams-warmer.lock", "/usr/bin/python3",
+                             "/root/aiostreams-warmer.py"], timeout=660, capture_output=True)
+        if wr.returncode != 0:
+            log("warmer exited rc=%s (lock held or error; next hourly run recovers)" % wr.returncode)
     except Exception as exc:
         log("warmer trigger skipped: %s" % exc)
     return 0

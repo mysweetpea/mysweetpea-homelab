@@ -211,6 +211,8 @@ def build_rows(taste, pool, played_ids, seed_item, global_ids, new_ids, limit_ma
     for a, b in zip(movies, series):
         mixed += [a, b]
     mixed += movies[len(series):] + series[len(movies):]
+    # Reserve New Releases for the New-for-Me row instead of spending them here.
+    mixed = [p for p in mixed if p[1].get("Id") not in new_ids]
     take(mixed, "msp-foryou", "Picked for You", sizes["msp-foryou"])
 
     # 2. Because You Watched <seed> - nearest neighbours of the latest finish
@@ -218,7 +220,7 @@ def build_rows(taste, pool, played_ids, seed_item, global_ids, new_ids, limit_ma
         sg = seed_item.get("Genres") or []
         near = [p for p in sorted(
             ((jaccard(sg, it.get("Genres")), it) for it in pool),
-            key=lambda p: p[0], reverse=True) if p[0] > 0]   # shared genre or skip
+            key=lambda p: p[0], reverse=True) if p[0] > 0 and p[1].get("Id") not in new_ids]
         name = "Because You Watched %s" % (seed_item.get("Name") or "It")
         take(near, "msp-because", name, sizes["msp-because"])
 
@@ -430,15 +432,23 @@ def run(dry_run=False):
             if uid == owner_uid:
                 token = owntok
             else:
-                entry = pins.get(name) or pins.get(name.lower()) or {}
-                pin = entry.get("pin") if isinstance(entry, dict) else None
+                entry = next((v for k, v in pins.items()
+                              if isinstance(v, dict) and (
+                                  (v.get("name") or "").lower() == name.lower() or
+                                  k.lower() == name.lower())), None)
+                pin = entry.get("pin") if entry else None
                 if not pin:
                     log("  %-18s skip: no pin on file" % name)
                     continue
                 token, _ = login(name, pin)
             played, resume, favs = fetch_user_state(token, uid)
             if not (played or resume or favs):
-                log("  %-18s skip: no watch history yet" % name)
+                # Confirmed empty (not a fetch failure): clear stale personal rows
+                # and fall back to the fleet layout instead of leaving old ones.
+                log("  %-18s no watch history: clearing personal rows (fleet layout)" % name)
+                if not dry_run:
+                    write_rows(uid, [])
+                    write_layout(uid, [])
                 continue
             taste = taste_profile(played, resume, favs)
             pool = build_pool(token, uid, taste, gids)
@@ -453,9 +463,8 @@ def run(dry_run=False):
                 len(pool), [(r["id"], len(r["items"])) for r in rows]))
             if dry_run:
                 continue
-            if rows:
-                write_rows(uid, rows)
-                write_layout(uid, rows)
+            write_rows(uid, rows)
+            write_layout(uid, rows)
         except Exception as exc:
             log("  %-18s FAILED: %s: %s" % (name, type(exc).__name__, exc))
     log("run done")

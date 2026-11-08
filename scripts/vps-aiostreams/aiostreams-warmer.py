@@ -41,6 +41,7 @@ LOGFILE = '/var/log/aiostreams-warmer.log'
 PINS = '/opt/moonbase-lite/data/pins.json'  # {slug: {name, pin}} written at provisioning
 
 BUDGET_S = 600          # hard cap for the whole run
+_DEADLINE = [None]      # t_start + BUDGET_S, set in main(); caps every call
 VIEW_LIMIT = 120         # never more than this many views
 GENRE_PREWARM = 30        # genre grid page-1 prewarm: full clean-list coverage
 META_BATCH = 40         # ids per /Items?Ids= call
@@ -89,6 +90,10 @@ def log(msg):
 
 
 def call(path, token=None, timeout=90, method='GET', body=None):
+    if _DEADLINE[0] is not None:
+        # Enforce the run budget per-call: a slow upstream near the deadline
+        # gets a short timeout instead of overrunning the whole run.
+        timeout = max(5, min(timeout, _DEADLINE[0] - time.time()))
     hdr = {'X-Aios-Warm': '1', 'Authorization': 'MediaBrowser Token="%s"' % token} if token else {'X-Aios-Warm': '1', 'Authorization': 'MediaBrowser'}
     data = json.dumps(body).encode() if body is not None else None
     if data:
@@ -141,6 +146,7 @@ def login_persona(slug, pin):
 
 def main():
     t_start = time.time()
+    _DEADLINE[0] = t_start + BUDGET_S
     ok = bad = meta_ok = meta_bad = 0
     global MOUNT
     try:
@@ -299,6 +305,7 @@ def main():
             '/Users/%s/Items?IncludeItemTypes=BoxSet&Limit=50&Recursive=true&Fields=%s' % (uid, q(F_LONG)),
             '/Users/%s/Items?IncludeItemTypes=%s&SortBy=DatePlayed&SortOrder=Descending&Limit=30&Recursive=true&Fields=%s' % (uid, q('Movie,Episode'), q(F_LONG)),
             '/Users/%s/Items?IncludeItemTypes=Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=100&Recursive=true&Fields=%s&Filters=IsPlayed' % (uid, q('SeriesId,UserData')),
+            '/Items/Latest?Limit=40',
             '/Users/%s/Items?IncludeItemTypes=Movie&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
             '/Users/%s/Items?IncludeItemTypes=Series&SortBy=ProductionYear%%2CSortName&SortOrder=Descending&Limit=30&Recursive=true' % uid,
         )
