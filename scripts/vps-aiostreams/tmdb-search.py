@@ -389,7 +389,7 @@ DYNAMIC_CATALOGS = [
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.8.0",
+    "version": "1.8.1",
     "name": "TMDB Search",
     "description": "Fast TMDB search, deep streaming catalogs and full TMDB meta for AIOStreams",
     "resources": ["catalog", "meta"],
@@ -720,6 +720,8 @@ def metas_for(kind, term, skip=0):
             out = discover_window(kind, params, f"intent:{intent}:{_today()}", skip)
         else:
             out = discover_window(kind, params, f"intent:{intent}", skip)
+        if out is None:
+            return None
         print(f"tmdb-search: intent {term!r} -> {intent} -> {len(out)}", flush=True)
         return out
     ck = (kind, term.lower(), skip)
@@ -727,6 +729,8 @@ def metas_for(kind, term, skip=0):
     if hit and time.time() - hit[0] < CACHE_TTL:
         return hit[1]
     out = _search_window(kind, term, skip)
+    if out is None:
+        return None   # upstream failure: propagate, never cache as empty
     if not out and skip == 0:
         # misspell rescue, cheapest first (live audit 2026-10-16: TMDB turns
         # away "sprited away", "intersteller", "chines drama" with zero hits).
@@ -735,16 +739,28 @@ def metas_for(kind, term, skip=0):
         fi = fuzzy_intent(term)
         if fi:
             params = INTENTS.get(fi, (None, None))[0 if kind == "movie" else 1]
-            if params and params != "__DYNAMIC__":
-                fout = discover_window(kind, params, f"intent:{fi}", 0)
+            if params:
+                if params == "__DYNAMIC__":
+                    params = _new_releases_params(kind, _today())
+                    fout = discover_window(kind, params, f"intent:{fi}:{_today()}", 0)
+                else:
+                    fout = discover_window(kind, params, f"intent:{fi}", 0)
                 if fout:
                     print(f"tmdb-search: fuzzy-intent {term!r} -> {fi} -> {len(fout)}", flush=True)
                     out = fout
         if not out:
             out = _fuzzy_title(kind, term)
+    _trim(_cache, 4000)
     _cache[ck] = (time.time(), out)
     print(f"tmdb-search: {kind} {term!r} -> {len(out)}", flush=True)
     return out
+
+
+def _trim(cache, cap):
+    """Bound a TTL cache's growth (TTL only affects hits, not memory)."""
+    if len(cache) > cap:
+        for k in list(cache)[: cap // 4]:
+            cache.pop(k, None)
 
 
 def _search_page(kind, term, page):
@@ -764,6 +780,7 @@ def _search_page(kind, term, page):
         print(f"tmdb-search: {kind} {term!r} p{page} failed: {e}", flush=True)
         return None
     metas = _metas(data.get("results"), "movie" if kind == "movie" else "series")
+    _trim(_pcache, 4000)
     _pcache[k] = (time.time(), metas)
     return metas
 
@@ -781,6 +798,8 @@ def _search_window(kind, term, skip, want=SEARCH_WINDOW):
     out, p = [], page
     while len(out) < want + off and p <= 500:
         chunk = _search_page(kind, term, p)
+        if chunk is None:
+            return None   # upstream failure: propagate, never cache as empty
         if not chunk:
             break
         out += chunk
@@ -802,6 +821,7 @@ def _discover_page(kind, params, cache_key, page):
         print(f"tmdb-search: discover {cache_key} p{page} failed: {e}", flush=True)
         return None  # not cached; recovery is immediate
     metas = _metas(data.get("results"), "movie" if kind == "movie" else "series")
+    _trim(_dcache, 4000)
     _dcache[k] = (time.time(), metas)
     return metas
 
@@ -814,7 +834,7 @@ def discover_metas(kind, params, cache_key, skip):
         return []
     first = _discover_page(kind, params, cache_key, page)
     if first is None:
-        return []
+        return None   # upstream failure: propagate, never cache as empty
     out = first[off:off + LIMIT]
     if off and len(out) < LIMIT:
         nxt = _discover_page(kind, params, cache_key, page + 1)
@@ -836,6 +856,8 @@ def discover_window(kind, params, cache_key, skip, want=SEARCH_WINDOW):
     out, p = [], page
     while len(out) < want + off and p <= 500:   # TMDB hard cap
         chunk = _discover_page(kind, params, cache_key, p)
+        if chunk is None:
+            return None   # upstream failure: propagate, never cache as empty
         if not chunk:
             break
         out += chunk
@@ -898,7 +920,11 @@ def _base_meta(d, kind):
     imdb = (d.get("external_ids") or {}).get("imdb_id")
     year = (d.get("release_date") or d.get("first_air_date") or "")[:4]
     if kind == "series":
-        release_info = year + ("" if d.get("status") in ("Ended", "Canceled") else "-")
+        last = (d.get("last_air_date") or "")[:4]
+        if d.get("status") in ("Ended", "Canceled"):
+            release_info = year + ("-" + last if last and last != year else "")
+        else:
+            release_info = year + "-"
     else:
         release_info = year
     genres = [g.get("name") for g in d.get("genres") or [] if g.get("name")]
@@ -912,9 +938,14 @@ def _base_meta(d, kind):
              if c.get("profile_path") else None}
             for c in (credits.get("cast") or [])[:12]]
     writers = [c.get("name") for c in (d.get("created_by") or []) if c.get("name")]
+    directors = []
     if not writers:
         writers = [c.get("name") for c in (credits.get("crew") or [])
-                   if c.get("job") in ("Director", "Screenplay", "Writer")][:4]
+                   if c.get("job") in ("Screenplay", "Writer")][:4]
+    if kind == "movie":
+        directors = [c.get("name") for c in (credits.get("crew") or [])
+                     if c.get("job") == "Director"][:2]
+    writers = list(dict.fromkeys(writers))  # dedupe, keep order
     rating = d.get("vote_average")
     meta = {
         "id": f"tmdb:{tid}", "type": kind,
@@ -927,6 +958,7 @@ def _base_meta(d, kind):
         "imdbRating": f"{rating:.1f}" if rating else None,
         "status": d.get("status"),
         "writer": writers or None,
+        "director": directors or None,
         "country": ", ".join(d.get("origin_country") or []) or None,
         "app_extras": {"cast": cast},
     }
@@ -1013,7 +1045,12 @@ def _series_meta(tmdb_id):
 
 
 def _meta_for(kind, tmdb_id):
-    ck = (kind, str(tmdb_id))
+    # Episode-style ids (tmdb:456:20:1) resolve to their series; canonicalize to
+    # the base numeric id so the cache key and TMDB path never fragment.
+    tmdb_id = str(tmdb_id).split(":")[0]
+    if not tmdb_id.isdigit():
+        return None
+    ck = (kind, tmdb_id)
     hit = _meta_cache.get(ck)
     if hit and time.time() - hit[0] < META_TTL:
         return hit[1]
@@ -1046,6 +1083,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _metas_response(self, metas):
+        if metas is None:
+            # Upstream failure: 503 with NO cacheMaxAge (never cache an outage
+            # as an empty catalog). 200/[] is reserved for genuine empty results.
+            return self._send({"err": "upstream failure"}, code=503)
+        return self._send({"metas": metas, "cacheMaxAge": 3600})
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         parts = [urllib.parse.unquote(p) for p in u.path.strip("/").split("/")]
@@ -1072,22 +1116,19 @@ class Handler(BaseHTTPRequestHandler):
                     term = _search_term(parts[3:], u)
                     if not term:
                         return self._send({"metas": []})
-                    return self._send({"metas": metas_for(kind, term, _parsed_skip(parts, u)),
-                                       "cacheMaxAge": 3600})
+                    return self._metas_response(metas_for(kind, term, _parsed_skip(parts, u)))
                 skip = _parsed_skip(parts, u)
                 if (stype, cid) in CATALOG_DEFS:
                     provider_id, region = CATALOG_DEFS[(stype, cid)]
                     params = {"with_watch_providers": str(provider_id), "watch_region": region,
                               "sort_by": "popularity.desc"}
-                    return self._send({"metas": discover_metas(kind, params, f"svc:{provider_id}:{region}", skip),
-                                       "cacheMaxAge": 3600})
+                    return self._metas_response(discover_metas(kind, params, f"svc:{provider_id}:{region}", skip))
                 if cid in DYNAMIC_DEFS:
                     today = _today()
-                    return self._send({"metas": discover_metas(kind, DYNAMIC_DEFS[cid](today),
-                                       f"dyn:{cid}:{today}", skip), "cacheMaxAge": 3600})
+                    return self._metas_response(discover_metas(kind, DYNAMIC_DEFS[cid](today),
+                                       f"dyn:{cid}:{today}", skip))
                 if (stype, cid) in DISCOVER_DEFS:
-                    return self._send({"metas": discover_metas(kind, DISCOVER_DEFS[(stype, cid)], f"cid:{cid}", skip),
-                                       "cacheMaxAge": 3600})
+                    return self._metas_response(discover_metas(kind, DISCOVER_DEFS[(stype, cid)], f"cid:{cid}", skip))
             return self._send({"metas": []})  # unknown catalog type/id
         if not parts or parts == [""]:
             return self._send({"ok": True, "service": "tmdb-search"})
@@ -1190,7 +1231,7 @@ def _selftest():
     assert mm["imdb_id"] == "tt0245429" and mm["ageRating"] == "PG"
     assert mm["runtime"] == "125min" and mm["genres"] == ["Animation"]
     assert mm["poster"].endswith("/p.jpg") and mm["background"].endswith("/b.jpg")
-    assert mm["writer"] == ["D"] and mm["trailers"][0]["source"] == "k"
+    assert mm["director"] == ["D"] and mm["writer"] is None and mm["trailers"][0]["source"] == "k"
     eps = _episodes_from({"season/1": {"episodes": [
         {"season_number": 1, "episode_number": 2, "name": "E2",
          "air_date": "2020-01-01", "still_path": "/s.jpg", "overview": "o"}]}},
