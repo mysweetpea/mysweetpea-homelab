@@ -93,6 +93,10 @@ for sub in ("users", "notifications", "themes"):
 SCOPES = ("global", "desktop", "mobile", "tv")
 SCHEMA_VERSION = 1
 _io_lock = threading.Lock()
+_settings_lock = threading.Lock()   # settings read-modify-write transactions
+_config_lock = threading.Lock()     # aios config GET->modify->PUT transactions
+_app_pin_lock = threading.Lock()    # app-pin read-modify-write
+_pin_fails_lock = threading.Lock()  # lockout counters
 _subscribers: "list[queue.Queue]" = []
 _auth_cache: "dict[str, tuple[float, dict | None]]" = {}
 _PLAYLIST_ITEMS_RE = re.compile(r"(?:^|/)Playlists/([^/]+)/Items$")
@@ -233,7 +237,10 @@ def _http_get_json(url: str, headers: dict, timeout: int = 8):
 
 
 def whoami(auth_header: str):
-    """-> (user_dict|None, ok). ok=False only on definitive rejection."""
+    """-> (user_dict|None, ok). FAIL CLOSED: any upstream error rejects the
+    caller (per-user settings/PINs and credential-bearing files must never be
+    reachable through a shared 'anonymous'). Upstream errors are NOT cached,
+    so the next request retries immediately; definitive 401/403/404 are."""
     if not auth_header:
         return None, False
     now = time.time()
@@ -243,7 +250,10 @@ def whoami(auth_header: str):
     url = CFG["aios_url"].rstrip("/") + "/jellyfin/Users/Me"
     try:
         data = _http_get_json(url, {"Authorization": auth_header})
-        user = {"id": str(data.get("Id") or data.get("id") or ""),
+        uid = str(data.get("Id") or data.get("id") or "")
+        if not uid:
+            return None, False
+        user = {"id": uid,
                 "name": data.get("Name") or data.get("name") or "",
                 "persona": bool(data.get("Persona") or data.get("persona"))}
         _auth_cache[auth_header] = (now, user)
@@ -251,16 +261,15 @@ def whoami(auth_header: str):
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403, 404):
             _auth_cache[auth_header] = (now, None)
-            return None, False
-        print(f"whoami upstream {exc.code}; failing open", flush=True)
-        return None, True
+        else:
+            print(f"whoami upstream {exc.code}; rejecting (not cached)", flush=True)
+        return None, False
     except ValueError:
-        # HTML/undecodable body = misrouted request, not an outage: fail closed.
         _auth_cache[auth_header] = (now, None)
         return None, False
     except Exception as exc:
-        print(f"whoami unreachable ({exc}); failing open", flush=True)
-        return None, True
+        print(f"whoami unreachable ({exc}); rejecting (not cached)", flush=True)
+        return None, False
 
 
 # --------------------------------------------------------------------------
@@ -301,6 +310,7 @@ def persona_directory(force=False):
     try:
         tok = _service_token_get()
         if not tok:
+            _persona_dir["primary"] = None  # fail closed: no stale admin
             return _persona_dir
         auth = {"Authorization": 'MediaBrowser Token="%s"' % tok}
         base = CFG["aios_url"].rstrip("/")
@@ -314,26 +324,36 @@ def persona_directory(force=False):
                 m[uid] = str(u.get("Name") or "")
         _persona_dir.update(ts=now, map=m, primary=primary)
     except Exception as exc:
+        # Names may stay cached for display, but a failed refresh must not
+        # retain admin privileges: fail closed until a fresh snapshot succeeds.
+        _persona_dir["primary"] = None
         print("persona directory refresh failed: %s" % exc, flush=True)
     return _persona_dir
 
 
 def _pin_lock_remaining(pid):
-    rec = _pin_fails.get(pid)
-    if not rec:
-        return 0
-    count, _first, last = rec
-    if count < 5:
-        return 0
-    return max(0, int(60 - (time.time() - last)))
+    with _pin_fails_lock:
+        rec = _pin_fails.get(pid)
+        if not rec:
+            return 0
+        count, _first, last = rec
+        if count < 5:
+            return 0
+        return max(0, int(60 - (time.time() - last)))
 
 
 def _pin_fail(pid):
-    now = time.time()
-    count, first, _last = _pin_fails.get(pid, (0, now, now))
-    if now - first > 600:
-        count, first = 0, now
-    _pin_fails[pid] = (count + 1, first, now)
+    with _pin_fails_lock:
+        now = time.time()
+        count, first, _last = _pin_fails.get(pid, (0, now, now))
+        if now - first > 600:
+            count, first = 0, now
+        _pin_fails[pid] = (count + 1, first, now)
+
+
+def _pin_clear_fails(pid):
+    with _pin_fails_lock:
+        _pin_fails.pop(pid, None)
 
 
 # --------------------------------------------------------------------------
@@ -673,6 +693,12 @@ def _tmdb_results(mtype: str, tmdb_id: int, kind: str, page: int, key: str):
         return []
 
 
+def _kw_ids(d):
+    kw = d.get("keywords") or {}
+    items = kw.get("keywords") or kw.get("results") or []  # TV uses 'results'
+    return {k.get("id") for k in items if k.get("id")}
+
+
 def _tmdb_seed_signals(mtype: str, tmdb_id: int, key: str):
     """Seed's (genre ids, keyword ids, company ids, collection id, language).
     All-empty on failure -> the relevance pass degrades to source order."""
@@ -683,8 +709,7 @@ def _tmdb_seed_signals(mtype: str, tmdb_id: int, key: str):
                            {}, timeout=8)
     except Exception:
         return set(), set(), set(), None, None
-    kws = {k.get("id") for k in ((d.get("keywords") or {}).get("keywords") or [])
-           if k.get("id")}
+    kws = _kw_ids(d)
     cos = {c.get("id") for c in d.get("production_companies") or [] if c.get("id")}
     coll = (d.get("belongs_to_collection") or {}).get("id")
     return ({int(g["id"]) for g in d.get("genres") or []}, kws, cos, coll,
@@ -766,7 +791,7 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
                     if len(rows) >= _SIM_MAX:
                         break
                     disc = _http_get_json(
-                        "%s/discover/movie?%s" % (_SIM_TMDB, urllib.parse.urlencode(
+                        "%s/discover/%s?%s" % (_SIM_TMDB, mtype, urllib.parse.urlencode(
                             {"api_key": key, "with_original_language": "ja",
                              "with_genres": "16", "sort_by": "popularity.desc",
                              "vote_count.gte": 250, "page": dpage})),
@@ -815,6 +840,10 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
 
     # v3 relevance pass (2026-10-16): score every candidate with one parallel
     # TMDB detail call (keywords + companies + collection). See header comment.
+    if not rows:
+        # Upstream outage or genuinely empty: fall back to stock /Similar and
+        # never cache an outage as an empty 24h result.
+        return None, "no candidates"
     if rows and (seed_kws or seed_cos or seed_genres):
         def _cand_signals(r):
             try:
@@ -825,8 +854,7 @@ def similar_plus(auth_header: str, caller: dict, item_id: str):
                                           "append_to_response": "keywords"})),
                     {}, timeout=8)
                 return (r.get("id"),
-                        {k.get("id") for k in ((d.get("keywords") or {}).get("keywords") or [])
-                         if k.get("id")},
+                        _kw_ids(d),
                         {c.get("id") for c in d.get("production_companies") or [] if c.get("id")},
                         (d.get("belongs_to_collection") or {}).get("id"))
             except Exception:
@@ -986,7 +1014,11 @@ def _app_pins_path():
 
 
 def _app_pins_read():
-    pins = _read_json(_app_pins_path(), {})
+    path = _app_pins_path()
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as fh:
+        pins = json.load(fh)   # malformed -> raises; never silently erased
     return pins if isinstance(pins, dict) else {}
 
 
@@ -1004,16 +1036,18 @@ def _app_pins_write(pins):
 
 
 def _app_pin_set(uid, pin):
-    pins = _app_pins_read()
-    pins[uid] = str(pin)
-    _app_pins_write(pins)
+    with _app_pin_lock:
+        pins = _app_pins_read()
+        pins[uid] = str(pin)
+        _app_pins_write(pins)
 
 
 def _app_pin_delete(uid):
-    pins = _app_pins_read()
-    if uid in pins:
-        del pins[uid]
-        _app_pins_write(pins)
+    with _app_pin_lock:
+        pins = _app_pins_read()
+        if uid in pins:
+            del pins[uid]
+            _app_pins_write(pins)
 
 
 def pins_update(pid, name, pin):
@@ -1095,6 +1129,13 @@ def _aios_user_data(data):
 
 
 def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
+    # Whole GET->modify->PUT is a transaction: concurrent provisioning must not
+    # drop personas or unrelated config changes.
+    with _config_lock:
+        return _aios_persona_op(pid, name, remove, _valid_pin)
+
+
+def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
     """Add or remove a persona in the AIOStreams user config. -> (ok, dict)"""
     try:
         user_data = _aios_user_data(_aios_config_request("GET"))
@@ -1111,21 +1152,24 @@ def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
             pin = None
         else:
             if existing is not None:
+                changed = False
                 if not existing.get("avatar"):
                     avatar_url = make_avatar_png(pid, name or pid)
                     if avatar_url:
                         existing["avatar"] = avatar_url
-                    else:
-                        return True, {"success": True, "exists": True, "persona": pid, "pin": pins_lookup(pid)}
-                if pins_lookup(pid):
-                    return True, {"success": True, "exists": True, "persona": pid, "pin": pins_lookup(pid)}
-                # Persona exists but no PIN is recoverable (PIN removed, or
-                # pins.json lost). Issue a fresh one instead of pin:None so
-                # the member can always sign back in. Falls through to the PUT.
-                if not pins_file_ok():
-                    return False, "pins.json unreadable; not rotating the lock"
-                pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
-                existing["lock"] = pin
+                        changed = True
+                pin = pins_lookup(pid)
+                if not pin:
+                    # Persona exists but no PIN recoverable -> issue a fresh one
+                    # and persist it (self-heal). Never rotate on an unreadable
+                    # pins.json (a transient read failure must not change a PIN).
+                    if not pins_file_ok():
+                        return False, "pins.json unreadable; not rotating the lock"
+                    pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
+                    existing["lock"] = pin
+                    changed = True
+                if not changed:
+                    return True, {"success": True, "exists": True, "persona": pid, "pin": pin}
             else:
                 pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
                 entry = {"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin}
@@ -1146,7 +1190,10 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "moonbase-lite"
 
     def log_message(self, fmt, *args):  # quieter logs, still useful
-        sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
+        msg = fmt % args
+        # never write credential query values into the request log
+        msg = re.sub(r"([?&](?:ApiKey|api_key)=)[^&\s]+", r"\1<redacted>", msg)
+        sys.stderr.write("%s %s\n" % (self.address_string(), msg))
 
     # -- plumbing ----------------------------------------------------------
     def _send(self, code: int, obj, ctype="application/json", cache="no-store"):
@@ -1174,6 +1221,22 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
+
+    def _read_body_strict(self):
+        """(dict, None) on success; (None, error) on malformed/non-object JSON."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        if n <= 0 or n > 2_000_000:
+            return None, "empty or oversized body"
+        try:
+            data = json.loads(self.rfile.read(n).decode("utf-8"))
+        except Exception:
+            return None, "invalid JSON"
+        if not isinstance(data, dict):
+            return None, "body must be an object"
+        return data, None
 
     def _caller(self):
         auth = self.headers.get("Authorization", "")
@@ -1309,11 +1372,15 @@ class Handler(BaseHTTPRequestHandler):
         caller, ok = self._caller()
         if not ok:
             return
-        rows = self._rows_doc().get("rows") or []
+        # Per-user rows first, then shared-only rows (same resolution as items).
+        user_rows = self._user_rows_doc(caller.get("id") or "").get("rows") or []
+        shared = self._rows_doc().get("rows") or []
+        seen = {r.get("id") for r in user_rows}
+        rows = list(user_rows) + [r for r in shared if r.get("id") not in seen]
         items = [{"Id": r.get("id"), "Name": r.get("name"), "Type": "Playlist",
                   "MediaType": "Video", "ChildCount": len(r.get("items") or []),
                   "RecursiveItemCount": len(r.get("items") or [])}
-                 for r in rows]
+                 for r in rows if r.get("items")]
         self._send(200, {"Items": items, "TotalRecordCount": len(items),
                          "StartIndex": 0})
 
@@ -1536,19 +1603,21 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if rel in ("/Settings", "/settings") and method == "POST":
-            body = self._read_body()
+            body, err = self._read_body_strict()
+            if body is None:
+                return self._send(400, {"error": err})
             payload = body.get("settings") or body.get("Settings") or body
-            doc = load_user(uid)
-            touched = []
-            for key in list(payload.keys()):
-                low = key.lower()
-                if low in SCOPES and isinstance(payload[key], dict):
-                    merge_flat(doc[low], {k: v for k, v in payload[key].items() if k != "homeSections"})
-                    touched.append(low)
-                elif low in ("hiddencontentbaselines", "hiddenContentBaselines".lower(),
-                             "syncenabled", "syncEnabled".lower()):
-                    doc[key if low in SCOPES else low] = payload[key]
-            save_user(uid, doc)
+            with _settings_lock:
+                doc = load_user(uid)
+                touched = []
+                for key in list(payload.keys()):
+                    low = key.lower()
+                    if low in SCOPES and isinstance(payload[key], dict):
+                        merge_flat(doc[low], {k: v for k, v in payload[key].items() if k != "homeSections"})
+                        touched.append(low)
+                    elif low in ("hiddencontentbaselines", "syncenabled"):
+                        doc[key if low in SCOPES else low] = payload[key]
+                save_user(uid, doc)
             broadcast({"type": "settingsUpdated", "userId": uid,
                        "scopes": touched or ["global"]})
             self._send(200, {"success": True})
@@ -1580,7 +1649,9 @@ class Handler(BaseHTTPRequestHandler):
             if scope not in ("global", "desktop", "mobile", "tv"):
                 self._send(404, {"error": "unknown scope"})
                 return
-            body = self._read_body()
+            body, err = self._read_body_strict()
+            if body is None:
+                return self._send(400, {"error": err})
             flat = body.get("profile") or body.get("Profile") or {}
             if not isinstance(flat, dict):
                 self._send(400, {"error": "profile must be an object"})
@@ -1591,9 +1662,10 @@ class Handler(BaseHTTPRequestHandler):
                          flat.get("showFavoritesButton"), len(flat)), flush=True)
             except Exception:
                 pass
-            doc = load_user(uid)
-            merge_flat(doc[scope], {k: v for k, v in flat.items() if k != "homeSections"})
-            save_user(uid, doc)
+            with _settings_lock:
+                doc = load_user(uid)
+                merge_flat(doc[scope], {k: v for k, v in flat.items() if k != "homeSections"})
+                save_user(uid, doc)
             broadcast({"type": "settingsUpdated", "userId": uid, "scopes": [scope]})
             self._send(200, {"success": True, "profile": scope})
             return
@@ -1603,9 +1675,10 @@ class Handler(BaseHTTPRequestHandler):
             if scope not in ("global", "desktop", "mobile", "tv"):
                 self._send(404, {"error": "unknown scope"})
                 return
-            doc = load_user(uid)
-            doc[scope] = {}
-            save_user(uid, doc)
+            with _settings_lock:
+                doc = load_user(uid)
+                doc[scope] = {}
+                save_user(uid, doc)
             broadcast({"type": "settingsUpdated", "userId": uid, "scopes": [scope]})
             self._send(200, {"success": True})
             return
@@ -1620,21 +1693,23 @@ class Handler(BaseHTTPRequestHandler):
             defaults = load_defaults()
             users_dir = os.path.join(DATA_DIR, "users")
             count = 0
-            for name in os.listdir(users_dir):
-                if not name.endswith(".json"):
-                    continue
-                fp = os.path.join(users_dir, name)
-                doc = _read_json(fp, None)
-                if not isinstance(doc, dict):
-                    continue
-                for scope in SCOPES:
-                    if overwrite or not doc.get(scope):
-                        doc[scope] = dict(defaults) if overwrite else merge_flat(
-                            doc.get(scope) or {}, defaults)
-                    else:
-                        merge_flat(doc[scope], defaults)
-                _write_json(fp, doc)
-                count += 1
+            with _settings_lock:
+                for name in os.listdir(users_dir):
+                    # rows-*.json are generated content rows, not settings.
+                    if not name.endswith(".json") or name.startswith("rows-"):
+                        continue
+                    fp = os.path.join(users_dir, name)
+                    doc = _read_json(fp, None)
+                    if not isinstance(doc, dict):
+                        continue
+                    for scope in SCOPES:
+                        if overwrite or not doc.get(scope):
+                            doc[scope] = dict(defaults) if overwrite else merge_flat(
+                                doc.get(scope) or {}, defaults)
+                        else:
+                            merge_flat(doc[scope], defaults)
+                    _write_json(fp, doc)
+                    count += 1
             broadcast({"type": "settingsUpdated", "scopes": list(SCOPES)})
             self._send(200, {"success": True, "users": count})
             return
@@ -1653,6 +1728,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if rel.startswith("/Themes/") and method == "GET":
             tid = rel.split("/", 2)[-1]
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", tid):
+                return self._send(400, {"error": "invalid theme id"})
             t = _read_json(os.path.join(DATA_DIR, "themes", tid + ".json"), None)
             if t is None:
                 self._send(404, {"error": "theme not found"})
@@ -1666,9 +1743,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             theme = self._read_body()
             tid = str(theme.get("id") or "").strip()
-            if not tid:
-                self._send(400, {"error": "theme id required"})
-                return
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", tid):
+                return self._send(400, {"error": "invalid theme id"})
             _write_json(os.path.join(DATA_DIR, "themes", tid + ".json"), theme)
             broadcast({"type": "themesChanged"})
             self._send(200, {"success": True, "id": tid})
@@ -1770,7 +1846,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(429, {"retryAfterSeconds": remaining})
             entered = str(self._read_body().get("pin") or "")
             if entered == current:
-                _pin_fails.pop(uid, None)
+                _pin_clear_fails(uid)
                 return self._send(200, {"valid": True})
             _pin_fail(uid)
             remaining = _pin_lock_remaining(uid)
@@ -1798,7 +1874,7 @@ class Handler(BaseHTTPRequestHandler):
                 _app_pin_set(uid, new)
             else:
                 _app_pin_delete(uid)
-            _pin_fails.pop(uid, None)
+            _pin_clear_fails(uid)
             return self._send(200, {"success": True})
 
         return self._send(404, {"error": "not found"})
@@ -1822,8 +1898,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "invalid username"})
             return
         pin = str(body.get("pin") or "").strip()
-        if pin and not re.fullmatch(r"[0-9]{4,12}", pin):
-            self._send(400, {"error": "pin must be 4-12 digits"})
+        if pin and not re.fullmatch(r"[0-9]{6}", pin):
+            self._send(400, {"error": "pin must be exactly 6 digits"})
             return
         tier = str(body.get("tier") or "").strip().lower()
         allowed = [str(t).strip().lower() for t in CFG.get("provision_tiers", ["sweetpea"])]
