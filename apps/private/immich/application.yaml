@@ -21,6 +21,8 @@ spec:
       targetRevision: HEAD
       path: apps/private/immich
       directory:
+        exclude: application.yaml
+      directory:
         include: immich-lb.yaml
   destination:
     server: https://kubernetes.default.svc

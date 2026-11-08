@@ -16,6 +16,8 @@ spec:
     repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     path: apps/private/immich-postgresql
+    directory:
+      exclude: application.yaml
   syncPolicy:
     automated:
       prune: true

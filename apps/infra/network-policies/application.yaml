@@ -11,6 +11,8 @@ spec:
   source:
     repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     path: apps/infra/network-policies
+    directory:
+      exclude: application.yaml
     targetRevision: HEAD
   syncPolicy:
     automated:

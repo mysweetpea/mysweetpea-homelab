@@ -12,6 +12,8 @@ spec:
     repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     path: apps/dmz/matrix-rtc
+    directory:
+      exclude: application.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: dmz
