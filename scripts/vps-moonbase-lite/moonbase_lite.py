@@ -28,9 +28,9 @@ Endpoints (all under /Moonfin/):
   GET  Tmdb/StudioImage/{id}      -> PNG logo bytes (negative id = TV network)
   GET  Tmdb/Reviews             -> TMDB user reviews (Moonfin 3.0 detail pages)
   GET  Tmdb/PersonLinks         -> person homepage + social links
-  GET/PUT/DELETE Pin            -> server-side PINs (Moonfin 3.0, personas)
-  POST Pin/Verify               -> check a persona PIN (5-strike/60s lockout)
-  DELETE Users/{uid}/Pin        -> admin: clear a member's forgotten PIN
+  GET/PUT/DELETE Pin            -> app-lock PINs (Moonfin 3.0, 4-12 digits, per uid)
+  POST Pin/Verify               -> check the app-lock PIN (5-strike/60s lockout)
+  DELETE Users/{uid}/Pin        -> self or admin: clear a forgotten app PIN
 
 Auth: the client's Authorization header (or ?ApiKey= query token, for image
 widgets that cannot set headers) is validated against the AIOStreams
@@ -981,6 +981,41 @@ def pins_file_ok():
         return False
 
 
+def _app_pins_path():
+    return os.path.join(DATA_DIR, "app_pins.json")
+
+
+def _app_pins_read():
+    pins = _read_json(_app_pins_path(), {})
+    return pins if isinstance(pins, dict) else {}
+
+
+def _app_pin_get(uid):
+    v = _app_pins_read().get(uid)
+    return str(v) if isinstance(v, str) and v else None
+
+
+def _app_pins_write(pins):
+    tmp = _app_pins_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(pins, fh)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, _app_pins_path())
+
+
+def _app_pin_set(uid, pin):
+    pins = _app_pins_read()
+    pins[uid] = str(pin)
+    _app_pins_write(pins)
+
+
+def _app_pin_delete(uid):
+    pins = _app_pins_read()
+    if uid in pins:
+        del pins[uid]
+        _app_pins_write(pins)
+
+
 def pins_update(pid, name, pin):
     """Best-effort persistence of persona PINs for the media warmer (0600).
 
@@ -1100,30 +1135,6 @@ def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
                 personas.append(entry)
         _aios_config_request("PUT", {"config": user_data})
         return True, {"success": True, "persona": pid, "pin": pin}
-    except Exception as exc:
-        return False, f"config api failed: {exc}"
-
-
-def aios_persona_pin_op(key: str, new_pin: str):
-    """Set (or clear, new_pin == '') a persona's PIN. `key` = persona id or
-    display name (case-insensitive). Read-modify-write, same as provisioning."""
-    try:
-        user_data = _aios_user_data(_aios_config_request("GET"))
-        personas = (user_data.get("jellyfin") or {}).get("personas") or []
-        k = (key or "").strip().lower()
-        entry = next((p for p in personas if isinstance(p, dict) and k and
-                      (str(p.get("id") or "").lower() == k or
-                       str(p.get("name") or "").lower() == k)), None)
-        if entry is None:
-            return False, "persona not found"
-        if new_pin:
-            entry["lock"] = new_pin
-        else:
-            # AIOStreams rejects lock:'' with HTTP 400; dropping the key is
-            # what actually unlocks a persona (pinSignIn only gates locked ones).
-            entry.pop("lock", None)
-        _aios_config_request("PUT", {"config": user_data})
-        return True, str(entry.get("id") or key)
     except Exception as exc:
         return False, f"config api failed: {exc}"
 
@@ -1732,75 +1743,62 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send(404, {"error": "not found"})
 
-    # -- server-side PINs (Moonfin 3.0 ServerPinService) ----------------------
+    # -- app-lock PINs (Moonfin 3.0 ServerPinService) -------------------------
     def _pin_routes(self, method, rel, caller):
+        uid = caller["id"]
         other = re.fullmatch(r"/Users/([^/]+)/Pin", rel)
         if other:
             if method != "DELETE":
                 return self._send(405, {"error": "DELETE only"})
-            if not caller["admin"]:
+            target_uid = other.group(1)
+            # Self-service: a member who just signed in may clear their own
+            # forgotten app PIN; admins may clear anyone's.
+            if not caller["admin"] and uid != target_uid:
                 return self._send(403, {"error": "admin required"})
-            target = persona_directory()["map"].get(other.group(1))
-            if not target:
-                return self._send(404, {"error": "persona not found"})
-            ok, slug = aios_persona_pin_op(target, "")
-            if ok:
-                pins_update(slug, None, None)
-                return self._send(200, {"success": True})
-            return self._send(502, {"error": slug})
+            _app_pin_delete(target_uid)
+            return self._send(200, {"success": True})
 
-        pid = caller.get("persona")   # display name; None for the primary account
         if rel == "/Pin" and method == "GET":
-            return self._send(200, {"enabled": bool(pid and pins_lookup(pid))})
+            return self._send(200, {"enabled": _app_pin_get(uid) is not None})
 
         if rel == "/Pin/Verify" and method == "POST":
-            current = pins_lookup(pid) if pid else None
-            if not current:
+            current = _app_pin_get(uid)
+            if current is None:
                 return self._send(404, {"error": "No PIN is set"})
-            remaining = _pin_lock_remaining(pid)
+            remaining = _pin_lock_remaining(uid)
             if remaining:
                 return self._send(429, {"retryAfterSeconds": remaining})
             entered = str(self._read_body().get("pin") or "")
             if entered == current:
-                _pin_fails.pop(pid, None)
+                _pin_fails.pop(uid, None)
                 return self._send(200, {"valid": True})
-            _pin_fail(pid)
-            remaining = _pin_lock_remaining(pid)
+            _pin_fail(uid)
+            remaining = _pin_lock_remaining(uid)
             if remaining:
                 return self._send(429, {"retryAfterSeconds": remaining})
             return self._send(200, {"valid": False})
 
         if rel == "/Pin" and method in ("PUT", "DELETE"):
-            if not pid:
-                return self._send(400, {"error": "PIN sign-in is only for personas"})
             body = self._read_body()
             supplied = str(body.get("currentPin") or "")
-            current = pins_lookup(pid)
-            remaining = _pin_lock_remaining(pid)
+            current = _app_pin_get(uid)
+            remaining = _pin_lock_remaining(uid)
             if remaining:
                 return self._send(429, {"retryAfterSeconds": remaining})
-            if current and supplied != current:
-                _pin_fail(pid)
-                remaining = _pin_lock_remaining(pid)
+            if current is not None and supplied != current:
+                _pin_fail(uid)
+                remaining = _pin_lock_remaining(uid)
                 if remaining:
                     return self._send(429, {"retryAfterSeconds": remaining})
                 return self._send(403, {"error": "The current PIN is wrong"})
             if method == "PUT":
                 new = str(body.get("pin") or "")
-                if not re.fullmatch(r"[0-9]{6,12}", new):
-                    return self._send(400, {"error": "pin must be 6-12 digits"})
-                ok, slug = aios_persona_pin_op(pid, new)
-                if ok:
-                    # aios_persona_pin_op returns the persona's slug id; keying
-                    # by display name would fork a second entry (id != name).
-                    pins_update(slug, pid, new)
+                if not re.fullmatch(r"[0-9]{4,12}", new):
+                    return self._send(400, {"error": "pin must be 4-12 digits"})
+                _app_pin_set(uid, new)
             else:
-                ok, slug = aios_persona_pin_op(pid, "")
-                if ok:
-                    pins_update(slug, None, None)
-            if not ok:
-                return self._send(502, {"error": slug})
-            _pin_fails.pop(pid, None)
+                _app_pin_delete(uid)
+            _pin_fails.pop(uid, None)
             return self._send(200, {"success": True})
 
         return self._send(404, {"error": "not found"})
