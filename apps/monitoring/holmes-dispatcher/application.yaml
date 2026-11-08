@@ -12,8 +12,6 @@ spec:
     repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     path: apps/monitoring/holmes-dispatcher
-    directory:
-      exclude: application.yaml
   syncPolicy:
     automated:
       prune: true

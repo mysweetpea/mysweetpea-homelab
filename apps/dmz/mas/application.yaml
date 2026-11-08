@@ -14,8 +14,6 @@ spec:
     repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     path: apps/dmz/mas
-    directory:
-      exclude: application.yaml
   syncPolicy:
     automated:
       prune: true
