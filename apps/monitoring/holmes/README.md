@@ -4,7 +4,7 @@
 
 ```
 Kuma (webhook) ─┐
-Grafana ────────┼─▶ holmes-dispatcher /alert ──▶ HolmesGPT ──┬─ fixed    → Gotify p3
+Grafana ────────┼─▶ holmes-dispatcher /alert ──▶ HolmesGPT ──┬─ fixed    → log only
 Netdata ────────┘        (drops recoveries,                   ├─ noop     → silence
                           dedupes 15 min)                     └─ escalate → Gotify p8
 ```
