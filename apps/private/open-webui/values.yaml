@@ -22,10 +22,14 @@ controllers:
           WEBUI_NAME: "MySweetPea AI"
           # SSO-only: disable local account creation (Authentik is the only identity source)
           ENABLE_SIGNUP: "false"
-          # ── Z.AI GLM via OpenAI-compatible API (coding-plan endpoint) ──
-          # paas/v4 = PAYG (empty balance); plan quota lives on the coding
-          # endpoint. Verified live Oct 2 2026: models list + chat both 200.
-          OPENAI_API_BASE_URL: https://api.z.ai/api/coding/paas/v4
+          # ── LLM backend: LiteLLM gateway on the VPS (NetBird 100.82.13.16) ──
+          # Every client (hermes, opencode, hindsight, this) goes through one
+          # metered lane; the proxy holds the upstream credentials, so no
+          # provider plan key lives in the cluster. Reached over the mesh —
+          # netpol allow-open-webui-llm-proxy opens :4000 to that /32 only.
+          # OPENAI_API_KEY comes from the open-webui-integrations secret
+          # (its own LiteLLM virtual key, so spend is attributed per client).
+          OPENAI_API_BASE_URL: http://100.82.13.16:4000/v1
           # ── Web search: SearXNG (dmz LB, JSON format enabled) ──
           ENABLE_WEB_SEARCH: "true"
           WEB_SEARCH_ENGINE: searxng
