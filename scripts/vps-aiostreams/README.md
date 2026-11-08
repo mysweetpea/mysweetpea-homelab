@@ -904,6 +904,13 @@ queries both use it; verified 75+75 = 150 on every client class.
     the avatar-backfill path no longer risks appending a duplicate persona.
   - codec_map.json regenerated from Moonfin 3.0 synced_fields.dart: 336 fields
     (31 new, 3 retired).
+  - NEW detail-page surfaces: /Moonfin/Tmdb/Reviews (TMDB user reviews) and
+    /Moonfin/Tmdb/PersonLinks (homepage + socials), with the matching Ping
+    capability flags. Both verified live (Spirited Away reviews, Tom Hanks
+    socials). tmdbAvailable stays FALSE on purpose: the tmdb_* home rows route
+    taps to Seerr, which does not exist here.
+  - Self-heal guard: Provision only rotates a PIN when pins.json parsed AND
+    has no entry, never on a transient read/permission failure.
 - **Known upstream timing**: AIOStreams caches the resolved config in-process
   (~5 min), so a newly provisioned persona or a rotated PIN can take up to
   ~5 min to authenticate. The PIN card already tells members to wait+retry.

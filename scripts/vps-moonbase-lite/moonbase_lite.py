@@ -26,6 +26,11 @@ Endpoints (all under /Moonfin/):
   POST/DELETE Notifications/Register -> accepted no-op (no push delivery here)
   GET  Tmdb/ProductionCompanies   -> companies+networks [{id,name,hasLogo}] (needs tmdb.key)
   GET  Tmdb/StudioImage/{id}      -> PNG logo bytes (negative id = TV network)
+  GET  Tmdb/Reviews             -> TMDB user reviews (Moonfin 3.0 detail pages)
+  GET  Tmdb/PersonLinks         -> person homepage + social links
+  GET/PUT/DELETE Pin            -> server-side PINs (Moonfin 3.0, personas)
+  POST Pin/Verify               -> check a persona PIN (5-strike/60s lockout)
+  DELETE Users/{uid}/Pin        -> admin: clear a member's forgotten PIN
 
 Auth: the client's Authorization header (or ?ApiKey= query token, for image
 widgets that cannot set headers) is validated against the AIOStreams
@@ -360,6 +365,76 @@ def tmdb_key():
 
 _TMDB_NEXT_CACHE = {}
 _TMDB_NEXT_TTL = 6 * 3600  # matches the Moonbase plugin's NextEpisode cache
+
+
+# ---- tmdb: user reviews + person external links (Moonfin 3.0) -------------
+_REV_CACHE = {}
+_PERSON_CACHE = {}
+
+
+def tmdb_reviews(tmdb_id, mtype, language, key):
+    """TMDB user reviews, shaped exactly like Moonfin 3.0 parseTmdbReviews."""
+    ck = (mtype, tmdb_id, language)
+    hit = _REV_CACHE.get(ck)
+    if hit and time.time() - hit[0] < 21600:
+        return hit[1]
+    kind = "tv" if mtype == "tv" else "movie"
+    url = ("https://api.themoviedb.org/3/%s/%d/reviews?api_key=%s&page=1"
+           % (kind, tmdb_id, key))
+    if language:
+        url += "&language=" + urllib.parse.quote(language)
+    try:
+        data = _http_get_json(url, {}, timeout=10)
+    except Exception as exc:
+        return {"reviews": [], "error": str(exc)}
+    out = []
+    for r in (data.get("results") or [])[:10]:
+        content = r.get("content") or ""
+        if not content:
+            continue
+        det = r.get("author_details") or {}
+        avatar = det.get("avatar_path")
+        avatar_url = None
+        if avatar:
+            avatar_url = (avatar[1:] if avatar.startswith("/http")
+                          else "https://image.tmdb.org/t/p/w45" + avatar)
+        out.append({
+            "author": r.get("author") or "",
+            "rating": det.get("rating"),
+            "content": content,
+            "createdAt": r.get("created_at"),
+            "avatarUrl": avatar_url,
+            "url": r.get("url"),
+        })
+    doc = {"reviews": out}
+    _REV_CACHE[ck] = (time.time(), doc)
+    return doc
+
+
+def tmdb_person_links(tmdb_id, key):
+    """Person homepage + socials, Moonfin 3.0 TmdbPersonAccounts shape."""
+    hit = _PERSON_CACHE.get(tmdb_id)
+    if hit and time.time() - hit[0] < 21600:
+        return hit[1]
+    url = ("https://api.themoviedb.org/3/person/%d?api_key=%s&append_to_response=external_ids"
+           % (tmdb_id, key))
+    try:
+        d = _http_get_json(url, {}, timeout=10)
+    except Exception as exc:
+        return {"error": str(exc)}
+    ext = d.get("external_ids") or {}
+    doc = {
+        "imdbId": ext.get("imdb_id"),
+        "homepage": d.get("homepage"),
+        "instagram": ext.get("instagram_id"),
+        "twitter": ext.get("twitter_id"),
+        "facebook": ext.get("facebook_id"),
+        "tiktok": ext.get("tiktok_id"),
+        "youtube": ext.get("youtube_id"),
+    }
+    doc = {k: v for k, v in doc.items() if v}
+    _PERSON_CACHE[tmdb_id] = (time.time(), doc)
+    return doc
 
 
 def tmdb_next_episode(tmdb_id: str, key: str) -> dict:
@@ -895,6 +970,17 @@ def pins_lookup(pid):
         return None
 
 
+def pins_file_ok():
+    """True when pins.json parsed successfully (distinguishes 'no entry' from
+    'could not read'). Self-heal must never rotate a valid PIN on a transient
+    read/permission failure."""
+    try:
+        pins = _read_json(os.path.join(DATA_DIR, "pins.json"), None)
+        return isinstance(pins, dict)
+    except Exception:
+        return False
+
+
 def pins_update(pid, name, pin):
     """Best-effort persistence of persona PINs for the media warmer (0600).
 
@@ -1001,6 +1087,8 @@ def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
                 # Persona exists but no PIN is recoverable (PIN removed, or
                 # pins.json lost). Issue a fresh one instead of pin:None so
                 # the member can always sign back in. Falls through to the PUT.
+                if not pins_file_ok():
+                    return False, "pins.json unreadable; not rotating the lock"
                 pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
                 existing["lock"] = pin
             else:
@@ -1298,6 +1386,8 @@ class Handler(BaseHTTPRequestHandler):
                 "mdblistAvailable": bool(CFG.get("mdblist_key")),
                 "tmdbAvailable": False,
                 "tmdbThumbsSupported": False,
+                "tmdbPersonLinksSupported": bool(tmdb_key()),
+                "tmdbReviewsSupported": bool(tmdb_key()),
                 "messagesSupported": True,
                 "recommendationsSupported": False,
                 "defaultSettings": defaults or None,
@@ -1393,6 +1483,36 @@ class Handler(BaseHTTPRequestHandler):
                            cache="public, max-age=31536000, immutable")
             else:
                 self._send(404, {"error": "no logo"})
+            return
+
+        # ---- tmdb: user reviews (Moonfin 3.0 detail pages) -----------------
+        if method == "GET" and rel == "/Tmdb/Reviews":
+            tmdb_id = (query.get("tmdbId") or [""])[0].strip()
+            mtype = (query.get("type") or ["movie"])[0].strip().lower()
+            language = (query.get("language") or [""])[0].strip()
+            if not tmdb_id.isdigit():
+                self._send(400, {"error": "tmdbId required"})
+                return
+            resolved = resolve_profile(uid, "mobile")
+            key = (resolved.get("tmdbApiKey") or tmdb_key() or "").strip()
+            if not key:
+                self._send(200, {"reviews": []})
+                return
+            self._send(200, tmdb_reviews(int(tmdb_id), mtype, language, key))
+            return
+
+        # ---- tmdb: person external links (person detail pages) -------------
+        if method == "GET" and rel == "/Tmdb/PersonLinks":
+            tmdb_id = (query.get("tmdbId") or [""])[0].strip()
+            if not tmdb_id.isdigit():
+                self._send(400, {"error": "tmdbId required"})
+                return
+            resolved = resolve_profile(uid, "mobile")
+            key = (resolved.get("tmdbApiKey") or tmdb_key() or "").strip()
+            if not key:
+                self._send(200, {})
+                return
+            self._send(200, tmdb_person_links(int(tmdb_id), key))
             return
 
         # ---- settings -------------------------------------------------------
