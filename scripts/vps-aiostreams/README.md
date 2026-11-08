@@ -860,3 +860,50 @@ already-fetched ranges measured 15 MB/s after the change.
 ## Search window 75/type (2026-10-18)
 tmdb-search.py `SEARCH_WINDOW` 55 -> 75 (4 TMDB pages). Titles and intent
 queries both use it; verified 75+75 = 150 on every client class.
+
+## Self-hosted meta + persona/PIN correctness (2026-11-08)
+
+- **tmdb-search.py v1.8.0 adds a `meta` resource.** AIOStreams was depending on
+  the public `tmdb.elfhosted.com` addon for `tmdb:` meta, which started
+  429-ing this VPS (~930 meta failures/day, all at warmer/burst times).
+  `/meta/{movie|series}/tmdb:<id>.json` is now built straight from the TMDB API:
+  full fields (genres, runtime, ratings, age rating, cast, logo, trailers,
+  backdrop) and ALL episodes incl. specials. TMDB caps `append_to_response`
+  at 20 resources, so a big show takes base+15 seasons then 15-season chunks
+  (Simpsons: 3 calls, 898 episodes, 0.4s). Episode video ids keep the upstream
+  `imdb:season:episode` form, so watch-state keys and minted item ids do NOT
+  move. `idPrefixes:["tmdb:"]` is required or aios warns per call. Preset
+  wiring: `tmdb-addon` is now catalog-only (its Year/Language catalogs stay);
+  our custom preset has `["catalog","meta"]`. Since the switch: zero
+  "all candidate addons failed" and zero idPrefix warnings. Smoke suite now
+  16/16 incl. meta and all 161 catalogs.
+- **Rate limiter**: `.env` gained `USER_API_RATE_LIMIT_MAX_REQUESTS=60` +
+  `USER_API_RATE_LIMIT_WINDOW=5`. The dashboard's PIN card bursts 5-7 config
+  reads/sec and the default 5/5s bucket 429'd the tail (95x 502/day).
+  Verified 12/12 rapid reads return 200.
+- **compose.yaml**: aios memory 1536M -> 2560M (host has 12 GB, was at 74%).
+- **moonfin-for-you.py (new in repo) + moonfin-rotate.py**: personas sign in
+  on the MOUNT path (`/<config-uuid>/<encpw>`); the bare lane 401s every
+  persona, so taste rows and household Most Played silently skipped members.
+  Verified: the persona now gets its own 4 taste rows + layout, and
+  `persona login failed` no longer appears in the rotate log.
+- **moonbase_lite.py**:
+  - `/Users/Me` carries no persona marker, so `is_admin` was True for every
+    caller -> any member could call `Admin/PushDefaults`/`Admin/Themes`.
+    Now a cached uid->persona directory (service token, 5 min, forced refresh
+    on unknown uid) decides admin = primary account only. Fail CLOSED.
+  - `/Moonfin/Pin` (+ `/Pin/Verify`, `PUT`, `DELETE`, `DELETE /Users/{uid}/Pin`)
+    implements the Moonfin 3.0 ServerPinService contract against pins.json +
+    the aios persona lock, with a 5-strike/60s lockout. Lifecycle verified
+    end-to-end with a throwaway persona (8/8): issue, verify, rotate (single
+    pins entry, no id-vs-name fork), wrong-currentPin 403, clear, enabled=false.
+  - `do_PUT` added (BaseHTTPRequestHandler has no default PUT -> 501).
+  - Config reads now retry once on 429 (they used to be the 502 source).
+  - Provisioning self-heals: an existing persona whose PIN is unrecoverable
+    (removed, or pins.json lost) gets a fresh PIN instead of `pin:None`, and
+    the avatar-backfill path no longer risks appending a duplicate persona.
+  - codec_map.json regenerated from Moonfin 3.0 synced_fields.dart: 336 fields
+    (31 new, 3 retired).
+- **Known upstream timing**: AIOStreams caches the resolved config in-process
+  (~5 min), so a newly provisioned persona or a rotated PIN can take up to
+  ~5 min to authenticate. The PIN card already tells members to wait+retry.

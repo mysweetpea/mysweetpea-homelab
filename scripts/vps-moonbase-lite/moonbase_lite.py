@@ -259,6 +259,79 @@ def whoami(auth_header: str):
 
 
 # --------------------------------------------------------------------------
+# persona directory: uid -> persona display name, primary uid, admin detection
+# --------------------------------------------------------------------------
+_persona_dir = {"ts": 0.0, "map": {}, "primary": ""}
+_service_token = {"ts": 0.0, "tok": ""}
+_pin_fails = {}
+
+
+def _service_token_get():
+    if time.time() - _service_token["ts"] < 3000 and _service_token["tok"]:
+        return _service_token["tok"]
+    uuid = CFG.get("config_uuid")
+    pw = CFG.get("config_password")
+    if not uuid or not pw:
+        return ""
+    body = json.dumps({"Username": uuid, "Pw": pw}).encode()
+    req = urllib.request.Request(
+        CFG["aios_url"].rstrip("/") + "/jellyfin/Users/AuthenticateByName",
+        data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        tok = json.loads(resp.read().decode())["AccessToken"]
+    _service_token.update(ts=time.time(), tok=tok)
+    return tok
+
+
+def persona_directory(force=False):
+    """uid -> persona name, plus the primary account's uid, cached 5 min.
+
+    /Users/Me has NO persona marker, so the uid map from /Users is the only
+    reliable way to tell a persona from the primary account. Fail CLOSED:
+    when the directory is unavailable nobody is an admin.
+    """
+    now = time.time()
+    if not force and now - _persona_dir["ts"] < 300 and _persona_dir["primary"]:
+        return _persona_dir
+    try:
+        tok = _service_token_get()
+        if not tok:
+            return _persona_dir
+        auth = {"Authorization": 'MediaBrowser Token="%s"' % tok}
+        base = CFG["aios_url"].rstrip("/")
+        users = _http_get_json(base + "/jellyfin/Users", auth)
+        me = _http_get_json(base + "/jellyfin/Users/Me", auth)
+        primary = str(me.get("Id") or "")
+        m = {}
+        for u in users or []:
+            uid = str(u.get("Id") or "")
+            if uid and uid != primary:
+                m[uid] = str(u.get("Name") or "")
+        _persona_dir.update(ts=now, map=m, primary=primary)
+    except Exception as exc:
+        print("persona directory refresh failed: %s" % exc, flush=True)
+    return _persona_dir
+
+
+def _pin_lock_remaining(pid):
+    rec = _pin_fails.get(pid)
+    if not rec:
+        return 0
+    count, _first, last = rec
+    if count < 5:
+        return 0
+    return max(0, int(60 - (time.time() - last)))
+
+
+def _pin_fail(pid):
+    now = time.time()
+    count, first, _last = _pin_fails.get(pid, (0, now, now))
+    if now - first > 600:
+        count, first = 0, now
+    _pin_fails[pid] = (count + 1, first, now)
+
+
+# --------------------------------------------------------------------------
 # SSE broadcast
 # --------------------------------------------------------------------------
 def broadcast(event: dict):
@@ -800,6 +873,28 @@ def remove_avatar(slug: str) -> None:
 # --------------------------------------------------------------------------
 # AIOStreams config API: personas
 # --------------------------------------------------------------------------
+def pins_lookup(pid):
+    """Read a stored persona PIN back out of pins.json (0600).
+
+    The dashboard's "generate pin" button calls Provision on every visit, so
+    the shim must be able to hand back the PIN it already issued - otherwise
+    the second visit reports pin:None and the member is locked out of a
+    persona that still requires that PIN.
+    """
+    try:
+        pins = _read_json(os.path.join(DATA_DIR, "pins.json"), {})
+        rec = pins.get(pid) if isinstance(pins, dict) else None
+        if rec is None and isinstance(pins, dict):
+            # personas are addressed by display name on /Users; pins.json is
+            # keyed by slug id, so fall back to a case-insensitive name match
+            k = str(pid or "").strip().lower()
+            rec = next((v for v in pins.values() if isinstance(v, dict) and
+                        str(v.get("name") or "").strip().lower() == k), None)
+        return (rec or {}).get("pin") if isinstance(rec, dict) else None
+    except Exception:
+        return None
+
+
 def pins_update(pid, name, pin):
     """Best-effort persistence of persona PINs for the media warmer (0600).
 
@@ -836,25 +931,52 @@ def _aios_config_auth():
     return "Basic " + _b64.b64encode(f"{uuid}:{pw}".encode()).decode()
 
 
-def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
-    """Add or remove a persona in the AIOStreams user config. -> (ok, dict)"""
+def _aios_config_request(method="GET", payload=None):
+    """GET/PUT /api/v1/user with one retry on the user-api rate-limit bucket.
+
+    The dashboard's PIN card used to 502 whenever a burst exceeded the
+    default 5 req/5s bucket; the ceiling is raised server-side AND retried
+    here so a busy moment never shows a member an error page.
+    """
     auth = _aios_config_auth()
     if not auth:
-        return False, "config credentials not configured"
+        raise RuntimeError("config credentials not configured")
     base = CFG["aios_url"].rstrip("/")
     hdrs = {"Authorization": auth, "User-Agent": "moonbase-lite/1.0"}
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    if data:
+        hdrs["Content-Type"] = "application/json"
+    last_exc = None
+    for _attempt in (1, 2):
+        req = urllib.request.Request(base + "/api/v1/user", data=data,
+                                     headers=hdrs, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+            return json.loads(raw.decode("utf-8")) if method == "GET" else True
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            if exc.code == 429:
+                time.sleep(3 if method == "GET" else 5)
+                continue
+            raise
+    raise last_exc
+
+
+def _aios_user_data(data):
+    root = data.get("data") if isinstance(data, dict) else None
+    user_data = (root or {}).get("userData") or (root or {}).get("config")
+    if user_data is None and isinstance(data, dict):
+        user_data = data.get("userData") or data.get("config")
+    if not isinstance(user_data, dict):
+        raise RuntimeError("unexpected config response shape")
+    return user_data
+
+
+def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
+    """Add or remove a persona in the AIOStreams user config. -> (ok, dict)"""
     try:
-        req = urllib.request.Request(base + "/api/v1/user", headers=hdrs)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        root = data.get("data") if isinstance(data, dict) else None
-        user_data = None
-        if isinstance(root, dict):
-            user_data = root.get("userData") or root.get("config")
-        if user_data is None and isinstance(data, dict):
-            user_data = data.get("userData") or data.get("config")
-        if not isinstance(user_data, dict):
-            return False, "unexpected config response shape"
+        user_data = _aios_user_data(_aios_config_request("GET"))
         jf = user_data.setdefault("jellyfin", {})
         personas = jf.setdefault("personas", [])
         if not isinstance(personas, list):
@@ -870,36 +992,50 @@ def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
             if existing is not None:
                 if not existing.get("avatar"):
                     avatar_url = make_avatar_png(pid, name or pid)
-                    if not avatar_url:
-                        return True, {"success": True, "exists": True, "persona": pid, "pin": None}
-                    existing["avatar"] = avatar_url
-                else:
-                    return True, {"success": True, "exists": True, "persona": pid, "pin": None}
-            pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
-            entry = {"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin}
-            avatar_url = make_avatar_png(pid, name or pid)
-            if avatar_url:
-                entry["avatar"] = avatar_url
-            personas.append(entry)
-        payload = json.dumps({"config": user_data}).encode("utf-8")
-        last_exc = None
-        for attempt in (1, 2):  # AIOStreams API bursts to 429; one retry covers household signup storms
-            req = urllib.request.Request(base + "/api/v1/user", data=payload, method="PUT",
-                                         headers={**hdrs, "Content-Type": "application/json"})
-            try:
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    resp.read()
-                last_exc = None
-                break
-            except urllib.error.HTTPError as exc:
-                last_exc = exc
-                if exc.code == 429:
-                    time.sleep(5)
-                    continue
-                raise
-        if last_exc is not None:
-            raise last_exc
+                    if avatar_url:
+                        existing["avatar"] = avatar_url
+                    else:
+                        return True, {"success": True, "exists": True, "persona": pid, "pin": pins_lookup(pid)}
+                if pins_lookup(pid):
+                    return True, {"success": True, "exists": True, "persona": pid, "pin": pins_lookup(pid)}
+                # Persona exists but no PIN is recoverable (PIN removed, or
+                # pins.json lost). Issue a fresh one instead of pin:None so
+                # the member can always sign back in. Falls through to the PUT.
+                pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
+                existing["lock"] = pin
+            else:
+                pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
+                entry = {"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin}
+                avatar_url = make_avatar_png(pid, name or pid)
+                if avatar_url:
+                    entry["avatar"] = avatar_url
+                personas.append(entry)
+        _aios_config_request("PUT", {"config": user_data})
         return True, {"success": True, "persona": pid, "pin": pin}
+    except Exception as exc:
+        return False, f"config api failed: {exc}"
+
+
+def aios_persona_pin_op(key: str, new_pin: str):
+    """Set (or clear, new_pin == '') a persona's PIN. `key` = persona id or
+    display name (case-insensitive). Read-modify-write, same as provisioning."""
+    try:
+        user_data = _aios_user_data(_aios_config_request("GET"))
+        personas = (user_data.get("jellyfin") or {}).get("personas") or []
+        k = (key or "").strip().lower()
+        entry = next((p for p in personas if isinstance(p, dict) and k and
+                      (str(p.get("id") or "").lower() == k or
+                       str(p.get("name") or "").lower() == k)), None)
+        if entry is None:
+            return False, "persona not found"
+        if new_pin:
+            entry["lock"] = new_pin
+        else:
+            # AIOStreams rejects lock:'' with HTTP 400; dropping the key is
+            # what actually unlocks a persona (pinSignIn only gates locked ones).
+            entry.pop("lock", None)
+        _aios_config_request("PUT", {"config": user_data})
+        return True, str(entry.get("id") or key)
     except Exception as exc:
         return False, f"config api failed: {exc}"
 
@@ -953,8 +1089,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(401, {"error": "A valid user token is required"})
             return None, False
         uid = (user or {}).get("id") or "anonymous"
-        is_admin = not (user or {}).get("persona")
-        return {"id": uid, "admin": is_admin, "user": user}, True
+        d = persona_directory()
+        is_admin = bool(d["primary"]) and uid == d["primary"]
+        persona = None if is_admin else d["map"].get(uid)
+        if not is_admin and persona is None and time.time() - d["ts"] > 15:
+            # uid missing from the snapshot: a persona provisioned since the
+            # last refresh (new members' PINs must work immediately, not in 5 min)
+            d = persona_directory(force=True)
+            is_admin = bool(d["primary"]) and uid == d["primary"]
+            persona = None if is_admin else d["map"].get(uid)
+        return {"id": uid, "admin": is_admin, "persona": persona, "user": user}, True
 
     # -- Similar+ (2026-10-15) ---------------------------------------------
     def _similar_plus_route(self, path, query):
@@ -1080,6 +1224,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self._route("POST")
 
+    def do_PUT(self):
+        self._route("PUT")
+
     def do_DELETE(self):
         self._route("DELETE")
 
@@ -1120,7 +1267,6 @@ class Handler(BaseHTTPRequestHandler):
         caller, ok = self._caller()
         if not ok:
             return
-        uid = caller["id"]
 
         try:
             self._dispatch(method, rel, query, caller)
@@ -1131,6 +1277,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method, rel, query, caller):
         uid = caller["id"]
+
+        # ---- server-side PINs (Moonfin 3.0 ServerPinService) --------------
+        if rel in ("/Pin", "/Pin/Verify") or re.fullmatch(r"/Users/[^/]+/Pin", rel):
+            self._pin_routes(method, rel, caller)
+            return
 
         # ---- ping / defaults ----------------------------------------------
         if method == "GET" and rel == "/Ping":
@@ -1303,6 +1454,12 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(flat, dict):
                 self._send(400, {"error": "profile must be an object"})
                 return
+            try:
+                print("PROFILE PUSH scope=%s genres=%r navpos=%r fav=%r keys=%d"
+                      % (scope, flat.get("showGenresButton"), flat.get("navbarPosition"),
+                         flat.get("showFavoritesButton"), len(flat)), flush=True)
+            except Exception:
+                pass
             doc = load_user(uid)
             merge_flat(doc[scope], {k: v for k, v in flat.items() if k != "homeSections"})
             save_user(uid, doc)
@@ -1454,6 +1611,79 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._send(404, {"error": "not found"})
+
+    # -- server-side PINs (Moonfin 3.0 ServerPinService) ----------------------
+    def _pin_routes(self, method, rel, caller):
+        other = re.fullmatch(r"/Users/([^/]+)/Pin", rel)
+        if other:
+            if method != "DELETE":
+                return self._send(405, {"error": "DELETE only"})
+            if not caller["admin"]:
+                return self._send(403, {"error": "admin required"})
+            target = persona_directory()["map"].get(other.group(1))
+            if not target:
+                return self._send(404, {"error": "persona not found"})
+            ok, slug = aios_persona_pin_op(target, "")
+            if ok:
+                pins_update(slug, None, None)
+                return self._send(200, {"success": True})
+            return self._send(502, {"error": slug})
+
+        pid = caller.get("persona")   # display name; None for the primary account
+        if rel == "/Pin" and method == "GET":
+            return self._send(200, {"enabled": bool(pid and pins_lookup(pid))})
+
+        if rel == "/Pin/Verify" and method == "POST":
+            current = pins_lookup(pid) if pid else None
+            if not current:
+                return self._send(404, {"error": "No PIN is set"})
+            remaining = _pin_lock_remaining(pid)
+            if remaining:
+                return self._send(429, {"retryAfterSeconds": remaining})
+            entered = str(self._read_body().get("pin") or "")
+            if entered == current:
+                _pin_fails.pop(pid, None)
+                return self._send(200, {"valid": True})
+            _pin_fail(pid)
+            remaining = _pin_lock_remaining(pid)
+            if remaining:
+                return self._send(429, {"retryAfterSeconds": remaining})
+            return self._send(200, {"valid": False})
+
+        if rel == "/Pin" and method in ("PUT", "DELETE"):
+            if not pid:
+                return self._send(400, {"error": "PIN sign-in is only for personas"})
+            body = self._read_body()
+            supplied = str(body.get("currentPin") or "")
+            current = pins_lookup(pid)
+            remaining = _pin_lock_remaining(pid)
+            if remaining:
+                return self._send(429, {"retryAfterSeconds": remaining})
+            if current and supplied != current:
+                _pin_fail(pid)
+                remaining = _pin_lock_remaining(pid)
+                if remaining:
+                    return self._send(429, {"retryAfterSeconds": remaining})
+                return self._send(403, {"error": "The current PIN is wrong"})
+            if method == "PUT":
+                new = str(body.get("pin") or "")
+                if not re.fullmatch(r"[0-9]{6,12}", new):
+                    return self._send(400, {"error": "pin must be 6-12 digits"})
+                ok, slug = aios_persona_pin_op(pid, new)
+                if ok:
+                    # aios_persona_pin_op returns the persona's slug id; keying
+                    # by display name would fork a second entry (id != name).
+                    pins_update(slug, pid, new)
+            else:
+                ok, slug = aios_persona_pin_op(pid, "")
+                if ok:
+                    pins_update(slug, None, None)
+            if not ok:
+                return self._send(502, {"error": slug})
+            _pin_fails.pop(pid, None)
+            return self._send(200, {"success": True})
+
+        return self._send(404, {"error": "not found"})
 
     # -- provisioning ----------------------------------------------------------
     def _provision(self, method):

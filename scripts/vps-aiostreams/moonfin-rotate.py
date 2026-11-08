@@ -44,6 +44,10 @@ PINS = os.path.join(DATA, "pins.json")
 STATE = "/root/.moonfin-rotate-state.json"
 LOG = "/var/log/moonfin-rotate.log"
 
+# PIN sign-in only works on the mount path; the bare lane 401s every persona
+# (2026-11-08: household Most Played silently counted the owner only).
+MOUNT = ""
+
 SERVER_ID = "https://aiostreams.mysweetpea.cc/jellyfin"
 TOP_N = 30      # items per row (after dedupe)
 MIN_N = 8       # drop a row thinner than this
@@ -233,7 +237,7 @@ def most_played(token):
                     try:
                         body = json.dumps({"Username": e.get("name") or slug,
                                            "Pw": e["pin"]}).encode()
-                        tokens.append(fetch("/Users/AuthenticateByName", data=body)["AccessToken"])
+                        tokens.append(fetch(MOUNT + "/Users/AuthenticateByName", data=body)["AccessToken"])
                     except Exception as exc:
                         log("mostplayed: persona login failed (%s): %s" % (slug, type(exc).__name__))
     except (OSError, ValueError):
@@ -307,7 +311,7 @@ def write_atomic(path, text):
 
 
 def main():
-    global CREDS_BASE
+    global CREDS_BASE, MOUNT
     dry = "--dry-run" in sys.argv
     # 14-day buckets (owner 2026-10-18): the feature rows should drift every
     # ~2 weeks, not daily. The job still runs daily so new releases keep flowing
@@ -317,8 +321,13 @@ def main():
                ((date.today() - _epoch).days // 14 + 1))
     creds = json.load(open(CREDS))
     CREDS_BASE = creds["base"].rstrip("/")
+    try:
+        _encpw = open("/opt/aiostreams/.warm-encpw").read().strip()
+        MOUNT = f"/{creds['uuid']}/{_encpw}" if _encpw else ""
+    except OSError:
+        MOUNT = ""
     body = json.dumps({"Username": creds["uuid"], "Pw": creds["password"]}).encode()
-    tok = fetch("/Users/AuthenticateByName", data=body)["AccessToken"]
+    tok = fetch(MOUNT + "/Users/AuthenticateByName", data=body)["AccessToken"]
     name2id = {v.get("Name"): v.get("Id")
                for v in fetch("/UserViews", token=tok).get("Items", []) if v.get("Name")}
 

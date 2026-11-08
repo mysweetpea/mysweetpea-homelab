@@ -389,11 +389,12 @@ DYNAMIC_CATALOGS = [
 
 MANIFEST = {
     "id": "org.mysweetpea.tmdb-search",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "name": "TMDB Search",
-    "description": "Fast TMDB search and deep streaming catalogs for AIOStreams",
-    "resources": ["catalog"],
+    "description": "Fast TMDB search, deep streaming catalogs and full TMDB meta for AIOStreams",
+    "resources": ["catalog", "meta"],
     "types": ["movie", "series"],
+    "idPrefixes": ["tmdb:"],
     "catalogs": [
         {"type": "movie", "id": "search", "name": "Search",
          "extra": [{"name": "search", "isRequired": True}]},
@@ -872,6 +873,168 @@ def _search_term(parts, u):
     return term.strip()
 
 
+# ---------------------------------------------------------------------------
+# Meta resource (v1.8.0): full Stremio meta for tmdb:<id>, built straight from
+# the TMDB API. Replaces the public tmdb.elfhosted.com addon, which started
+# 429-ing this VPS (~900 meta failures/day 2026-11-08). Episode video ids keep
+# the upstream `imdb:season:episode` form so existing watch-state keys and
+# minted item ids do NOT move when the provider changes.
+# ---------------------------------------------------------------------------
+META_TTL = 21600
+_meta_cache = {}
+
+
+def _tmdb(path, params=None):
+    q = dict(params or {})
+    q["api_key"] = _key()
+    url = f"{TMDB}{path}?{urllib.parse.urlencode(q)}"
+    with urllib.request.urlopen(url, timeout=TMDB_TIMEOUT) as r:
+        return json.loads(r.read().decode())
+
+
+def _base_meta(d, kind):
+    """Shared TMDB -> Stremio field mapping for movies and series."""
+    tid = d.get("id")
+    imdb = (d.get("external_ids") or {}).get("imdb_id")
+    year = (d.get("release_date") or d.get("first_air_date") or "")[:4]
+    if kind == "series":
+        release_info = year + ("" if d.get("status") in ("Ended", "Canceled") else "-")
+    else:
+        release_info = year
+    genres = [g.get("name") for g in d.get("genres") or [] if g.get("name")]
+    runtime = d.get("runtime")
+    if not runtime:
+        erts = d.get("episode_run_time") or []
+        runtime = erts[0] if erts else None
+    credits = d.get("credits") or {}
+    cast = [{"name": c.get("name"), "character": c.get("character"),
+             "profile": ("https://image.tmdb.org/t/p/w185" + c["profile_path"])
+             if c.get("profile_path") else None}
+            for c in (credits.get("cast") or [])[:12]]
+    writers = [c.get("name") for c in (d.get("created_by") or []) if c.get("name")]
+    if not writers:
+        writers = [c.get("name") for c in (credits.get("crew") or [])
+                   if c.get("job") in ("Director", "Screenplay", "Writer")][:4]
+    rating = d.get("vote_average")
+    meta = {
+        "id": f"tmdb:{tid}", "type": kind,
+        "name": d.get("title") or d.get("name") or "",
+        "description": d.get("overview") or "",
+        "genres": genres, "genre": genres,
+        "releaseInfo": release_info,
+        "released": d.get("release_date") or d.get("first_air_date") or None,
+        "runtime": f"{runtime}min" if runtime else None,
+        "imdbRating": f"{rating:.1f}" if rating else None,
+        "status": d.get("status"),
+        "writer": writers or None,
+        "country": ", ".join(d.get("origin_country") or []) or None,
+        "app_extras": {"cast": cast},
+    }
+    if imdb:
+        meta["imdb_id"] = imdb
+        meta["links"] = [{"name": meta["imdbRating"] or "IMDb", "category": "imdb",
+                          "url": f"https://imdb.com/title/{imdb}"}]
+    if d.get("poster_path"):
+        meta["poster"] = "https://image.tmdb.org/t/p/w500" + d["poster_path"]
+    if d.get("backdrop_path"):
+        meta["background"] = "https://image.tmdb.org/t/p/original" + d["backdrop_path"]
+    logos = (d.get("images") or {}).get("logos") or []
+    if logos:
+        pick = next((l for l in logos if l.get("iso_639_1") == "en"), logos[0])
+        if pick.get("file_path"):
+            meta["logo"] = "https://image.tmdb.org/t/p/w500" + pick["file_path"]
+    trailers = [v for v in (d.get("videos") or {}).get("results", [])
+                if v.get("type") == "Trailer" and v.get("site") == "YouTube"]
+    if trailers:
+        meta["trailers"] = [{"source": v["key"], "type": "Trailer"} for v in trailers[:3]]
+    return meta, imdb
+
+
+def _movie_meta(d):
+    meta, _imdb = _base_meta(d, "movie")
+    for rd in (d.get("release_dates") or {}).get("results", []):
+        if rd.get("iso_3166_1") == "US":
+            cert = next((x.get("certification") for x in rd.get("release_dates", [])
+                         if x.get("certification")), None)
+            if cert:
+                meta["ageRating"] = cert
+            break
+    return meta
+
+
+def _episodes_from(d, imdb_id, total_seasons):
+    """season/N documents -> Stremio video list, upstream id format preserved."""
+    videos = []
+    for n in range(0, total_seasons + 1):
+        for ep in (d.get(f"season/{n}") or {}).get("episodes") or []:
+            sn = ep.get("season_number", n)
+            en = ep.get("episode_number")
+            if en is None:
+                continue
+            vid = {
+                "id": f"{imdb_id}:{sn}:{en}",
+                "name": ep.get("name") or f"Episode {en}",
+                "season": sn, "number": en, "episode": en,
+                "overview": ep.get("overview") or "",
+                "description": ep.get("overview") or "",
+            }
+            if ep.get("still_path"):
+                vid["thumbnail"] = "https://image.tmdb.org/t/p/w500" + ep["still_path"]
+            if ep.get("air_date"):
+                vid["released"] = ep["air_date"] + "T00:00:00.000Z"
+            if ep.get("runtime"):
+                vid["runtime"] = f"{ep['runtime']}min"
+            videos.append(vid)
+    return videos
+
+
+def _series_meta(tmdb_id):
+    # TMDB caps append_to_response at 20 resources: base fields + 16 seasons
+    # per call, then the remaining seasons in 16-season chunks.
+    def call(appends):
+        return _tmdb(f"/tv/{tmdb_id}", {"append_to_response": ",".join(appends)})
+    base = ["external_ids", "credits", "videos", "content_ratings", "images"]
+    d = call(base + [f"season/{n}" for n in range(0, 15)])
+    total = d.get("number_of_seasons") or 0
+    for start in range(15, total + 1, 15):
+        more = call([f"season/{n}" for n in range(start, min(start + 15, total + 1))])
+        for k, v in more.items():
+            if k.startswith("season/"):
+                d[k] = v
+    meta, imdb = _base_meta(d, "series")
+    videos = _episodes_from(d, imdb or f"tmdb:{tmdb_id}", total)
+    if videos:
+        meta["videos"] = videos
+    for cr in (d.get("content_ratings") or {}).get("results", []):
+        if cr.get("iso_3166_1") == "US" and cr.get("rating"):
+            meta["ageRating"] = cr["rating"]
+            break
+    return meta
+
+
+def _meta_for(kind, tmdb_id):
+    ck = (kind, str(tmdb_id))
+    hit = _meta_cache.get(ck)
+    if hit and time.time() - hit[0] < META_TTL:
+        return hit[1]
+    try:
+        if kind == "movie":
+            d = _tmdb(f"/movie/{tmdb_id}",
+                      {"append_to_response": "external_ids,credits,videos,release_dates,images"})
+            meta = _movie_meta(d)
+        else:
+            meta = _series_meta(tmdb_id)
+    except Exception as e:
+        print(f"tmdb-search: meta {kind} {tmdb_id} failed: {e}", flush=True)
+        return None   # not cached: the next caller retries immediately
+    if meta:
+        if len(_meta_cache) > 4000:  # ponytail: simple insertion-order trim
+            for k in list(_meta_cache)[:1000]:
+                _meta_cache.pop(k, None)
+        _meta_cache[ck] = (time.time(), meta)
+    return meta
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -888,6 +1051,16 @@ class Handler(BaseHTTPRequestHandler):
         parts = [urllib.parse.unquote(p) for p in u.path.strip("/").split("/")]
         if parts == ["manifest.json"]:
             return self._send(MANIFEST)
+        if len(parts) >= 3 and parts[0] == "meta":
+            stype = parts[1]
+            mid = parts[2]
+            if mid.endswith(".json"):
+                mid = mid[:-5]
+            if stype in ("movie", "series") and mid.startswith("tmdb:"):
+                meta = _meta_for(stype, mid[5:])
+                if meta:
+                    return self._send({"meta": meta})
+            return self._send({"err": "not found"}, code=404)
         if len(parts) >= 3 and parts[0] == "catalog":
             stype = parts[1]
             kind = {"movie": "movie", "series": "tv"}.get(stype)
@@ -1000,7 +1173,36 @@ def _selftest():
     assert len(MANIFEST["catalogs"]) == 2 + len(DEEP_CATALOGS) + 136 + len(DYNAMIC_CATALOGS)
     ids = [(c["type"], c["id"]) for c in MANIFEST["catalogs"]]
     assert len(ids) == len(set(ids)), "duplicate (type, id) catalog entries"
-    print("selftest ok: %d catalogs (%d discover)" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))
+
+    # meta resource (v1.8.0): field mapping + upstream episode-id preservation
+    assert "meta" in MANIFEST["resources"]
+    md = {"id": 129, "title": "Spirited Away", "overview": "x",
+          "genres": [{"name": "Animation"}], "release_date": "2001-07-20",
+          "runtime": 125, "vote_average": 8.5, "poster_path": "/p.jpg",
+          "backdrop_path": "/b.jpg", "external_ids": {"imdb_id": "tt0245429"},
+          "credits": {"cast": [{"name": "A", "character": "B", "profile_path": None}],
+                      "crew": [{"name": "D", "job": "Director"}]},
+          "videos": {"results": [{"type": "Trailer", "site": "YouTube", "key": "k"}]},
+          "release_dates": {"results": [{"iso_3166_1": "US",
+                                         "release_dates": [{"certification": "PG"}]}]}}
+    mm = _movie_meta(md)
+    assert mm["id"] == "tmdb:129" and mm["type"] == "movie"
+    assert mm["imdb_id"] == "tt0245429" and mm["ageRating"] == "PG"
+    assert mm["runtime"] == "125min" and mm["genres"] == ["Animation"]
+    assert mm["poster"].endswith("/p.jpg") and mm["background"].endswith("/b.jpg")
+    assert mm["writer"] == ["D"] and mm["trailers"][0]["source"] == "k"
+    eps = _episodes_from({"season/1": {"episodes": [
+        {"season_number": 1, "episode_number": 2, "name": "E2",
+         "air_date": "2020-01-01", "still_path": "/s.jpg", "overview": "o"}]}},
+        "tt1234567", 1)
+    assert eps[0]["id"] == "tt1234567:1:2" and eps[0]["released"].startswith("2020-01-01")
+    assert eps[0]["thumbnail"].endswith("/s.jpg")
+    # series season batching: specials (0) through N, no gaps, <=20 appends/call
+    windows = [list(range(0, 15))] + [list(range(s, min(s + 15, 34)))
+                                     for s in range(15, 34, 15)]
+    assert sorted({n for w in windows for n in w}) == list(range(0, 34))
+    assert all(len(w) + 5 <= 20 for w in windows)
+    print("selftest ok: %d catalogs (%d discover) + meta" % (len(MANIFEST["catalogs"]), len(DISCOVER_CATALOGS)))
 
 
 if __name__ == "__main__":
