@@ -50,6 +50,26 @@ Backup of the pre-change database: `/app/data/kuma.db.bak-holmes-20261108` on th
    the model report a fake "kubectl OOM". `curl` defaults to `Accept: */*`.
 2. **Scope kubectl queries to a namespace.** Cluster-wide reads inside Holmes are unreliable; the
    dispatcher's prompt says so explicitly.
+3. **`[*]` wildcards crash the query tool for real.** `containerStatuses[*].ready` in a
+   `kubernetes_tabular_query` column or a jsonpath/jq expression takes the tool process out with a
+   Go OOM (measured: same query with `[0]` succeeds instantly, `[*]` dies). Unrelated to #1 — both
+   look like "OOM" in the transcript. Use `[0]`, `describe`, or `-o wide`.
+4. **`fetch_pod_logs` needs an explicit `start_time`.** Without it the tool parses a `null` and
+   raises `ParserError: Unknown string format: null`.
+
+## Where alerts come from now
+
+Two feeders, one brain:
+
+| source | path | who acts |
+|---|---|---|
+| Uptime Kuma (46 monitors) | notification `Holmes autopilot` → `/alert` | Holmes |
+| update-sentinel: RWO/volume attach stall on a rollout | `DISPATCH_URL` → `/alert` (falls back to Gotify if the dispatcher is down) | Holmes |
+
+The sentinel still owns the *rollback* decision (bad image) and still pages on that — it knows the
+image is fine during an infra stall, so it hands that class over instead of telling you to ask
+Hermes. It waits `MIN_INFRA_AGE_S` (180s) first: those attaches usually clear on their own, and an
+LLM call is more expensive than a push.
 
 ## Debugging
 

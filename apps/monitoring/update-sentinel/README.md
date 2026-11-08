@@ -21,6 +21,11 @@ down and stays down until a human notices.
    auto-sync then rolls the workload back to the last good image.
 4. **Notify** — Gotify app "Update Sentinel" (id 13): green on verified, red on rollback,
    amber on cooldown/circuit-breaker/manual-attention states.
+   **Exception: infra stalls.** A pod stuck in ContainerCreating on a RWO volume is not a
+   rollback case and not a "you" case — that is the multi-attach class Holmes can clear
+   (scale the old ReplicaSet to 0). Those go to the autopilot via `DISPATCH_URL`
+   (`holmes-dispatcher/alert`) after `MIN_INFRA_AGE_S` seconds, with Gotify as the
+   automatic fallback if the dispatcher is unreachable. Rolling back still pages.
 
 ## Safety rails
 

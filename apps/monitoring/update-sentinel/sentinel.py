@@ -31,6 +31,11 @@ GIT_REPO_URL = os.environ.get("GIT_REPO_URL", "git@github.com:mysweetpea/mysweet
 SSH_KEY_FILE = os.environ.get("SSH_KEY_FILE", "/tmp/id_ed25519")
 GOTIFY_URL = os.environ.get("GOTIFY_URL", "http://gotify.private.svc.cluster.local")
 GOTIFY_TOKEN = os.environ.get("GOTIFY_TOKEN", "")
+# Cluster-internal stalls go to the autopilot (Holmes), not the phone. Empty = old
+# behave (Gotify only). The dispatcher fail-opens to Gotify itself, and push() falls
+# back here if the dispatcher is unreachable.
+DISPATCH_URL = os.environ.get("DISPATCH_URL", "")
+MIN_INFRA_AGE_S = int(os.environ.get("MIN_INFRA_AGE_S", "180"))
 POD_NS = os.environ.get("POD_NS", "monitoring")
 STATE_CM = os.environ.get("STATE_CM", "update-sentinel-state")
 UPDATER_CR = os.environ.get("UPDATER_CR", "homelab-image-updater")
@@ -382,7 +387,25 @@ def healthy(app, expect_tag=None):
     return True, why2, "ok"
 
 
-def notify_once(state, key, hours, title, message, priority):
+def push(title, message, priority):
+    """Sink for cluster-internal faults: hand them to the autopilot, fall back to Gotify
+    if the dispatcher is down. Same contract as notify() — True = delivered somewhere."""
+    if DISPATCH_URL:
+        body = json.dumps({"source": "update-sentinel", "status": "firing",
+                           "title": title[:200], "message": message[:1500]}).encode()
+        req = urllib.request.Request(DISPATCH_URL, data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                resp.read()
+            log("INFO", f"dispatched to autopilot: {title}")
+            return True
+        except (urllib.error.URLError, OSError) as e:
+            log("WARN", f"dispatch failed ({e}); falling back to gotify")
+    return notify(title, message, priority)
+
+
+def notify_once(state, key, hours, title, message, priority, sink=None):
     """Dedupe: only push when this key has not been pushed within `hours`.
     Records intent in state (persisted by the caller via save_state)."""
     now = datetime.now(timezone.utc)
@@ -399,7 +422,7 @@ def notify_once(state, key, hours, title, message, priority):
     for k in [k for k, v in seen.items()
               if _parse_ts(v) < cutoff]:
         del seen[k]
-    return notify(title, message, priority)
+    return (sink or notify)(title, message, priority)
 
 
 def _parse_ts(v):
@@ -632,6 +655,7 @@ def process_alias(alias, entry, state, cr):
     deadline = time.time() + grace_s
     last_why = "not checked"
     last_cls = "unknown"
+    infra_since = None
     while True:
         ok, why, cls = healthy(app, expect_tag=new_version)
         last_why, last_cls = why, cls
@@ -656,6 +680,14 @@ def process_alias(alias, entry, state, cr):
         if last_cls == "infra":
             # volume-attach / scheduling stall — the IMAGE is fine; rolling back
             # cannot help and loses the update (the n8n 2.40.3 false rollback).
+            # Transient attaches clear in ~2-3 min, so wait MIN_INFRA_AGE_S before
+            # waking the autopilot — it costs an LLM call, not just a push.
+            infra_since = infra_since or time.time()
+            if time.time() - infra_since < MIN_INFRA_AGE_S and time.time() < deadline:
+                log("INFO", f"{alias} infra stall ({why}); "
+                            f"waiting {MIN_INFRA_AGE_S}s before dispatch")
+                time.sleep(POLL_INTERVAL_S)
+                continue
             break
         if time.time() >= deadline:
             break
@@ -663,13 +695,18 @@ def process_alias(alias, entry, state, cr):
         time.sleep(POLL_INTERVAL_S)
 
     if last_cls == "infra":
+        # Hand it to the autopilot, not the phone: this is the RWO multi-attach class
+        # Holmes can clear (scale the old ReplicaSet to 0). push() falls back to Gotify
+        # if the dispatcher is down, so the alert is never lost.
+        workload = f"{app.get('workload_kind', 'Deployment')}/{app.get('workload') or alias} in ns {app['ns']}"
         notify_once(state, f"infra:{alias}", 6,
                     f"🧱 {alias} update stuck on infra (NOT rolling back)",
                     f"{last_why}\n"
+                    f"workload: {workload}\n"
                     "The new image is fine — this is a cluster/volume issue "
-                    "(RWO attach class). Rolling back cannot help; the rollout "
-                    "completes when the pod attaches. If it stays stuck >1h, "
-                    "ask Hermes to clear the stall.", 6)
+                    "(RWO attach class). Rolling back cannot help. Clear it by scaling "
+                    "the OLD ReplicaSet (the one still holding the volume) to 0.", 6,
+                    sink=push)
         log("WARN", f"{alias}: infra stall, no rollback ({last_why})")
         return
     if last_cls == "pending":

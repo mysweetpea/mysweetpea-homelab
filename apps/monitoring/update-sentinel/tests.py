@@ -88,5 +88,37 @@ state["notified"]["cooldown:searxng"] = (datetime.now(timezone.utc) - timedelta(
 r3 = sent.notify_once(state, "cooldown:searxng", 6, "t3", "m3", 7)
 check("after 6h fires again", r3 is True)
 
+print("== push() routes cluster stalls to the autopilot ==")
+class FakeResp:
+    def read(self): return b"{}"
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+posted = {}
+def fake_urlopen(req, timeout=None):
+    posted["url"] = req.full_url
+    posted["body"] = json.loads(req.data.decode())
+    return FakeResp()
+
+notified = {}
+sent.notify = lambda t, m, p: notified.setdefault("called", True) and True
+import urllib.request
+real_urlopen = urllib.request.urlopen
+sent.DISPATCH_URL = "http://dispatcher/alert"
+urllib.request.urlopen = fake_urlopen
+check("dispatch returns True", sent.push("t", "m", 6) is True)
+check("posts to dispatcher", posted.get("url") == "http://dispatcher/alert")
+check("payload is a firing alert the dispatcher can normalize",
+      posted["body"]["status"] == "firing" and posted["body"]["title"] == "t")
+check("no gotify on dispatch success", "called" not in notified)
+
+sent.DISPATCH_URL = "http://dispatcher/alert"
+def boom(req, timeout=None): raise OSError("down")
+urllib.request.urlopen = boom
+notified.clear()
+check("falls back to gotify when dispatcher is down",
+      sent.push("t", "m", 6) is True and notified.get("called") is True)
+urllib.request.urlopen = real_urlopen
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
