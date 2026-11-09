@@ -59,6 +59,33 @@ server:
     limits:
       memory: "2Gi"
       cpu: "2000m"
+  # ── Nov 9 2026: liveness probe was killing the server under login load ──────
+  # /-/health/live/ proxies to the Python backend, so a PBKDF2-heavy login or a
+  # cold flow-plan build pushed it past the chart's 3s timeout; 3 consecutive
+  # misses = kubelet SIGTERM = cold restart, which made the NEXT login pay the
+  # cold authorize (~4.5s measured) and occasionally 503. Loosen the probe
+  # timeouts; readiness still pulls the pod out of the Service when genuinely
+  # unhealthy. Chart tpl()s the path expressions — keep them verbatim.
+  livenessProbe:
+    failureThreshold: 6
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 10
+    httpGet:
+      path: "{{ .Values.authentik.web.path }}-/health/live/"
+      port: http
+      scheme: HTTP
+  readinessProbe:
+    failureThreshold: 6
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 5
+    httpGet:
+      path: "{{ .Values.authentik.web.path }}-/health/ready/"
+      port: http
+      scheme: HTTP
   metrics:
     enabled: true
 # Worker: 2 replicas — blueprint apply deadlocks with 1 (apply_blueprint blocks
