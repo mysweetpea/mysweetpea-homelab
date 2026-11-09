@@ -53,11 +53,14 @@ nextcloud:
         --clientsecret-file="/run/secrets/nextcloud-oidc/client-secret" \
         --discoveryuri="https://auth.mysweetpea.cc/application/o/nextcloud/.well-known/openid-configuration" \
         --endsessionendpointuri="https://auth.mysweetpea.cc/application/o/nextcloud/end-session/" \
-        --scope="openid email profile" \
+        --scope="openid email profile groups" \
         --unique-uid=1 \
         --mapping-display-name=name \
         --mapping-email=email \
-        --mapping-uid=sub
+        --mapping-uid=sub \
+        --mapping-groups=groups \
+        --group-provisioning=1 \
+        --group-whitelist-regex="^(sweetpea|seedling)$"
       # Ensure the SSO user (created on first Authentik login) is in the admin group
       SSO_UID=$(php /var/www/html/occ user:list --output=json | php -r '$d=json_decode(stream_get_contents(STDIN), true); foreach ($d as $uid => $name) { if ($name === "authentik Default Admin") { echo $uid; break; } }')
       if [ -n "$SSO_UID" ]; then
