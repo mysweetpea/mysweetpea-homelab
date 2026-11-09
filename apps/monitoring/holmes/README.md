@@ -71,6 +71,17 @@ image is fine during an infra stall, so it hands that class over instead of tell
 Hermes. It waits `MIN_INFRA_AGE_S` (180s) first: those attaches usually clear on their own, and an
 LLM call is more expensive than a push.
 
+## Page batching
+
+`PAGE_WINDOW` (default 180s) collapses bursts: the **first** escalation of a burst pages immediately,
+everything else inside the window ships as one `Homelab needs you: N more in the same window` digest
+when it closes. Learned the hard way on 2026-11-08: cluster DNS wobbled for ~5 minutes, ten monitors
+went DOWN together and the phone got ten pushes in 90 seconds — ten services failing at once is one
+incident. Individual analysis still runs per alert (one of them *was* the real fault: jellyfin's 502
+came from a dead NetBird LAN route on the VPS, fixed by restarting netbird), only the paging is merged.
+`ask()` also retries once on a connection/5xx error before falling back to "autopilot down", because
+the LiteLLM proxy it talks to lives behind that same NetBird link.
+
 ## Debugging
 
 ```bash

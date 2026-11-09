@@ -179,12 +179,23 @@ def ask(alert):
         RUNBOOK
         + "\nALERT\nsource: %s\nname: %s\ndetail: %s\n" % (alert["source"], alert["name"], alert["detail"][:1500])
     )
-    return http_json(
-        HOLMES_URL + "/api/chat",
-        {"ask": prompt, "model": MODEL, "response_format": SCHEMA},
-        {"X-API-Key": HOLMES_KEY},
-        ASK_TIMEOUT,
-    )
+    # One retry: a single 500/connection blip (the LiteLLM proxy is on the VPS, reachable
+    # only over NetBird — the same link that breaks when it pages us) used to forward the
+    # raw alert to the phone as "autopilot down".
+    last = None
+    for attempt in range(2):
+        try:
+            return http_json(
+                HOLMES_URL + "/api/chat",
+                {"ask": prompt, "model": MODEL, "response_format": SCHEMA},
+                {"X-API-Key": HOLMES_KEY},
+                ASK_TIMEOUT,
+            )
+        except (urllib.error.URLError, OSError) as e:
+            last = e
+            if attempt == 0:
+                time.sleep(5)
+    raise last
 
 
 def parse_verdict(raw):
@@ -215,13 +226,53 @@ def parse_verdict(raw):
     return None
 
 
+# ---- page batching -------------------------------------------------------------
+# 2026-11-08 23:15: cluster DNS died for ~5 min, ten monitors went DOWN together and the
+# phone got ten "Homelab needs you" pushes in 90 seconds. Ten services failing at once is
+# ONE incident. First alert of a burst pages immediately (never delayed); everything else
+# in the same PAGE_WINDOW ships as a single digest when the window closes.
+PAGE_WINDOW = int(os.environ.get("PAGE_WINDOW", "180"))
+_pg = {"window_start": 0.0, "extra": [], "timer": None}
+_pg_lock = threading.Lock()
+
+
+def page(title, body, priority=8):
+    now = time.time()
+    with _pg_lock:
+        if now - _pg["window_start"] > PAGE_WINDOW:      # first of a new burst
+            _pg["window_start"] = now
+            _pg["extra"] = []
+            send_now = True
+        else:
+            _pg["extra"].append((title, body))
+            send_now = False
+            if _pg["timer"] is None:
+                delay = max(1.0, _pg["window_start"] + PAGE_WINDOW - now)
+                _pg["timer"] = threading.Timer(delay, flush_pages)
+                _pg["timer"].daemon = True
+                _pg["timer"].start()
+    if send_now:
+        gotify(title, body, priority)
+
+
+def flush_pages():
+    with _pg_lock:
+        extra, _pg["extra"], _pg["timer"] = _pg["extra"], [], None
+    if not extra:
+        return
+    lines = "\n".join("- %s: %s" % (t.split(": ", 1)[-1], b.splitlines()[0][:150])
+                      for t, b in extra)
+    log(event="page_digest", count=len(extra))
+    gotify("Homelab needs you: %d more in the same window" % len(extra), lines, 7)
+
+
 def handle(alert):
     started = time.time()
     try:
         resp = ask(alert)
     except Exception as e:
         log(level="error", event="holmes_failed", alert=alert["name"], error=str(e)[:300])
-        gotify(
+        page(
             "Homelab (autopilot down): %s" % alert["name"],
             "Holmes call failed, raw alert follows.\n\n%s" % alert["detail"][:1500],
         )
@@ -243,7 +294,7 @@ def handle(alert):
         # put the gotify() call back if you ever want a p3 "Homelab fixed: …" ping.
         log(event="fixed", alert=alert["name"], summary=summary)
     elif v == "escalate":
-        gotify("Homelab needs you: %s" % alert["name"], "%s\n\n%s" % (summary, action), priority=8)
+        page("Homelab needs you: %s" % alert["name"], "%s\n\n%s" % (summary, action))
     # noop: silent
 
 
@@ -316,6 +367,18 @@ if __name__ == "__main__":
         assert normalize(kuma, "")[0]["status"] == "recovery"
         graf = {"status": "firing", "alerts": [{"status": "firing", "labels": {"alertname": "HighCPU"}, "startedAt": "x"}]}
         assert normalize(graf, "")[0]["name"] == "HighCPU"
+
+        # page batching: first of a burst goes out immediately, the rest become one digest
+        sent = []
+        gotify = lambda t, m, p=8: sent.append((t, m))
+        _pg.update(window_start=0.0, extra=[], timer=None)
+        for n in ("a", "b", "c"):
+            page("Homelab needs you: %s" % n, "summary %s" % n)
+        assert len(sent) == 1 and "a" in sent[0][0], sent
+        assert len(_pg["extra"]) == 2
+        flush_pages()
+        assert len(sent) == 2 and "2 more" in sent[1][0] and "- b:" in sent[1][1], sent
+        assert _pg["timer"] is None and _pg["extra"] == []
         print("selftest ok")
         raise SystemExit(0)
 
