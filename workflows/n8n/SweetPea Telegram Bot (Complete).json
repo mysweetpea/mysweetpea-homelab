@@ -129,7 +129,7 @@
       ],
       "webhookId": "tg-tg-help",
       "parameters": {
-        "text": "🤖 *SweetPea Admin Bot*\n══════════════════════════\n\n🔑 `/invite sweetpea` — Sweet Pea tier code (family/friends)\n🌱 `/invite seedling` — Seedling tier code (manual override)\n🌿 `/refer [fam|pea] <name> <email>` — Referral: mints a code and emails it (bare `/refer` lists pending)\n\n📋 `/pending` — Donors awaiting verification\n✅ `/verify <id>` — Approve donor → generate code → email\n❌ `/reject <id>` — Reject donor → email rejection\n\n📊 `/status <username or email>` — Donor details\n📧 `/resend <username or email>` — Reset password & resend\n🚫 `/suspend <username or email>` — Disable access\n🟢 `/unsuspend <username or email>` — Re-enable access\n\n📜 `/list` — Active donors\n👥 `/allsubs` — All donors\n🔢 `/count` — Database dashboard\n\n🔑 `/allcodes` — Every code\n🟢 `/available` — Unused codes\n🔴 `/usedcodes` — Redeemed codes\n🔍 `/search <query>` — Find donor by name, username, or email\n\n🗑️ `/delsub <username or email>` — Remove donor\n🗑️ `/delcode <code>` — Remove code\n🖥️ `/dbstatus` — Database health\n\n🚨 `/incident <title>, <desc>` — Post an incident\n✅ `/resolve <id>` — Resolve an incident\n\n❓ `/help` — This menu\n\n_Tip: for donor commands you can use either the username or the email address._",
+        "text": "🤖 *SweetPea Admin Bot*\n══════════════════════════\n\n🔑 `/invite sweetpea` — Sweet Pea tier code (family/friends)\n🌱 `/invite seedling` — Seedling tier code (manual override)\n🌿 `/refer [fam|pea] &lt;name&gt; &lt;email&gt;` — Referral: mints a code and emails it (bare `/refer` lists pending)\n\n📋 `/pending` — Donors awaiting verification\n✅ `/verify &lt;id&gt;` — Approve donor → generate code → email\n❌ `/reject &lt;id&gt;` — Reject donor → email rejection\n\n📊 `/status &lt;username or email&gt;` — Donor details\n📧 `/resend &lt;username or email&gt;` — Reset password & resend\n🚫 `/suspend &lt;username or email&gt;` — Disable access\n🟢 `/unsuspend &lt;username or email&gt;` — Re-enable access\n\n📜 `/list` — Active donors\n👥 `/allsubs` — All donors\n🔢 `/count` — Database dashboard\n\n🔑 `/allcodes` — Every code\n🟢 `/available` — Unused codes\n🔴 `/usedcodes` — Redeemed codes\n🔍 `/search &lt;query&gt;` — Find donor by name, username, or email\n\n🗑️ `/delsub &lt;username or email&gt;` — Remove donor\n🗑️ `/delcode &lt;code&gt;` — Remove code\n🖥️ `/dbstatus` — Database health\n\n🚨 `/incident &lt;title&gt;, &lt;desc&gt;` — Post an incident\n✅ `/resolve &lt;id&gt;` — Resolve an incident\n\n❓ `/help` — This menu\n\n_Tip: for donor commands you can use either the username or the email address._",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -454,7 +454,7 @@
       ],
       "webhookId": "tg-tg-statu",
       "parameters": {
-        "text": "=📊 *Status Lookup*\n──────────────────────────\n\nUsage: `/status <username or email>`",
+        "text": "=📊 *Status Lookup*\n──────────────────────────\n\nUsage: `/status &lt;username or email&gt;`",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -715,7 +715,7 @@
       ],
       "webhookId": "tg-tg-resen",
       "parameters": {
-        "text": "=📧 *Resend Command*\n──────────────────────────\n\nUsage: `/resend <username or email>`",
+        "text": "=📧 *Resend Command*\n──────────────────────────\n\nUsage: `/resend &lt;username or email&gt;`",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -933,7 +933,7 @@
       ],
       "webhookId": "tg-tg-suspe",
       "parameters": {
-        "text": "=🚫 *Suspend Command*\n──────────────────────────\n\nUsage: `/suspend <username or email>`",
+        "text": "=🚫 *Suspend Command*\n──────────────────────────\n\nUsage: `/suspend &lt;username or email&gt;`",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -1151,7 +1151,7 @@
       ],
       "webhookId": "tg-tg-unsus",
       "parameters": {
-        "text": "=🟢 *Unsuspend Command*\n──────────────────────────\n\nUsage: `/unsuspend <username or email>`",
+        "text": "=🟢 *Unsuspend Command*\n──────────────────────────\n\nUsage: `/unsuspend &lt;username or email&gt;`",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -1622,7 +1622,7 @@
       ],
       "webhookId": "tg-tg-searc",
       "parameters": {
-        "text": "=🔍 *Search Command*\n──────────────────────────\n\nUsage: `/search <query>`\n\n_Search by name, username, or email._",
+        "text": "=🔍 *Search Command*\n──────────────────────────\n\nUsage: `/search &lt;query&gt;`\n\n_Search by name, username, or email._",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -2416,7 +2416,7 @@
       ],
       "webhookId": "tg-tg-verif",
       "parameters": {
-        "text": "=⚠️ *Verify Command* ──────────────────────────  Usage: `/verify <id>` — uses the donor's tier  ·  `/verify <id> sweetpea` or `/verify <id> seedling` to pick one  Use `/pending` to see donor IDs.",
+        "text": "=⚠️ *Verify Command* ──────────────────────────  Usage: `/verify &lt;id&gt;` — uses the donor's tier  ·  `/verify &lt;id&gt; sweetpea` or `/verify &lt;id&gt; seedling` to pick one  Use `/pending` to see donor IDs.",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -2625,7 +2625,7 @@
       ],
       "webhookId": "tg-tg-rejec",
       "parameters": {
-        "text": "=⚠️ *Reject Command*\n──────────────────────────\n\nUsage: `/reject <id>`\n\nUse `/pending` to see donor IDs.",
+        "text": "=⚠️ *Reject Command*\n──────────────────────────\n\nUsage: `/reject &lt;id&gt;`\n\nUse `/pending` to see donor IDs.",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -2766,7 +2766,7 @@
       ],
       "webhookId": "tg-tg-rejec",
       "parameters": {
-        "text": "==⚠️ *Resolve Command*\n──────────────────────────\n\nUsage: `/resolve <id>`\n\nUse `/incident` to see active incidents and their IDs.",
+        "text": "==⚠️ *Resolve Command*\n──────────────────────────\n\nUsage: `/resolve &lt;id&gt;`\n\nUse `/incident` to see active incidents and their IDs.",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -4605,7 +4605,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "05571cd2-44ff-45d3-8935-acc8993400af",
+  "versionId": "bb2cb961-7b09-4840-81bc-af6a357efbb8",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "fbcbb570d3c4d02836cf7b18fe1c11743532a362cdeb07b67a4d9dc4b22c3cf9"
