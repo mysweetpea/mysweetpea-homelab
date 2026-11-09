@@ -129,7 +129,7 @@
       ],
       "webhookId": "tg-tg-help",
       "parameters": {
-        "text": "🤖 *SweetPea Admin Bot*\n══════════════════════════\n\n🔑 `/invite sweetpea` — Sweet Pea tier code (family/friends)\n🌱 `/invite seedling` — Seedling tier code (manual override)\n🌿 `/refer <name>` — Referral code for someone you saw on Gotify\n\n📋 `/pending` — Donors awaiting verification\n✅ `/verify <id>` — Approve donor → generate code → email\n❌ `/reject <id>` — Reject donor → email rejection\n\n📊 `/status <username or email>` — Donor details\n📧 `/resend <username or email>` — Reset password & resend\n🚫 `/suspend <username or email>` — Disable access\n🟢 `/unsuspend <username or email>` — Re-enable access\n\n📜 `/list` — Active donors\n👥 `/allsubs` — All donors\n🔢 `/count` — Database dashboard\n\n🔑 `/allcodes` — Every code\n🟢 `/available` — Unused codes\n🔴 `/usedcodes` — Redeemed codes\n🔍 `/search <query>` — Find donor by name, username, or email\n\n🗑️ `/delsub <username or email>` — Remove donor\n🗑️ `/delcode <code>` — Remove code\n🖥️ `/dbstatus` — Database health\n\n🚨 `/incident <title>, <desc>` — Post an incident\n✅ `/resolve <id>` — Resolve an incident\n\n❓ `/help` — This menu\n\n_Tip: for donor commands you can use either the username or the email address._",
+        "text": "🤖 *SweetPea Admin Bot*\n══════════════════════════\n\n🔑 `/invite sweetpea` — Sweet Pea tier code (family/friends)\n🌱 `/invite seedling` — Seedling tier code (manual override)\n🌿 `/refer [fam|pea] <name>` — Referral code (bare `/refer` lists pending)\n\n📋 `/pending` — Donors awaiting verification\n✅ `/verify <id>` — Approve donor → generate code → email\n❌ `/reject <id>` — Reject donor → email rejection\n\n📊 `/status <username or email>` — Donor details\n📧 `/resend <username or email>` — Reset password & resend\n🚫 `/suspend <username or email>` — Disable access\n🟢 `/unsuspend <username or email>` — Re-enable access\n\n📜 `/list` — Active donors\n👥 `/allsubs` — All donors\n🔢 `/count` — Database dashboard\n\n🔑 `/allcodes` — Every code\n🟢 `/available` — Unused codes\n🔴 `/usedcodes` — Redeemed codes\n🔍 `/search <query>` — Find donor by name, username, or email\n\n🗑️ `/delsub <username or email>` — Remove donor\n🗑️ `/delcode <code>` — Remove code\n🖥️ `/dbstatus` — Database health\n\n🚨 `/incident <title>, <desc>` — Post an incident\n✅ `/resolve <id>` — Resolve an incident\n\n❓ `/help` — This menu\n\n_Tip: for donor commands you can use either the username or the email address._",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -3132,7 +3132,7 @@
                 "type": "boolean",
                 "operation": "equals"
               },
-              "leftValue": "={{ $json.args.length >= 1 }}",
+              "leftValue": "={{ $json.args.length >= 1 && !(['sweetpea','seedling','fam','pea'].includes(String($json.args[0]||'').toLowerCase()) && $json.args.length < 2) }}",
               "rightValue": true
             }
           ]
@@ -3149,7 +3149,7 @@
         7296
       ],
       "parameters": {
-        "jsCode": "const item = $input.first();\nconst label = (item.json.args || []).join(' ').trim().slice(0, 60);\nconst chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';\nlet code = 'FAM-';\nfor (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));\nreturn [{ json: { ...item.json, code, tier: 'sweetpea', label } }];"
+        "jsCode": "const item = $input.first();\nconst TIERS = { fam: 'sweetpea', sweetpea: 'sweetpea', pea: 'seedling', seedling: 'seedling' };\nlet args = (item.json.args || []).slice();\nlet tier = 'sweetpea';\nconst head = String(args[0] || '').toLowerCase();\nif (TIERS[head]) { tier = TIERS[head]; args = args.slice(1); }\nconst label = args.join(' ').trim().slice(0, 60);\nconst prefix = tier === 'sweetpea' ? 'FAM-' : 'PEA-';\nconst chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';\nlet code = prefix;\nfor (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));\nreturn [{ json: { ...item.json, code, tier, label } }];"
       },
       "typeVersion": 2
     },
@@ -3183,7 +3183,7 @@
         7296
       ],
       "parameters": {
-        "text": "={{ \"🌿 REFERRAL CODE\\n══════════════════════════\\n\\n👤 For:   \" + $('Generate Refer Code').item.json.label + \"\\n🎟 Code:  \" + ($json.code || 'collision, rerun /refer') + \"\\n\\n🔗 https://mysweetpea.cc/redeem.html\\n\\n_Send them the code. Single use._\" }}",
+        "text": "={{ \"🌿 REFERRAL CODE\\n══════════════════════════\\n\\n👤 For:   \" + $('Generate Refer Code').item.json.label + \"\\n🏷 Tier:  \" + ($json.tier === \"sweetpea\" ? \"🌸 Sweet Pea\" : \"🌱 Seedling\") + \"\\n🎟 Code:  \" + ($json.code || \"collision, rerun /refer\") + \"\\n\\n🔗 https://mysweetpea.cc/redeem.html\\n\\n_Send them the code. Single use._\" }}",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "appendAttribution": false
@@ -3198,17 +3198,55 @@
       "typeVersion": 1
     },
     {
-      "id": "5eced615-4542-4f45-bdc2-278936c4b46a",
-      "name": "Reply Refer Bad",
-      "type": "n8n-nodes-base.telegram",
+      "id": "1fcd9bac-ac26-4b2b-8dc8-eba82516863d",
+      "name": "Fetch Pending Referrals",
+      "type": "n8n-nodes-base.httpRequest",
+      "onError": "continueRegularOutput",
       "position": [
         256,
         7464
       ],
       "parameters": {
-        "text": "=⚠️ Usage: `/refer <name>`\nMints a Sweet Pea code for a referral you saw on Gotify.",
+        "url": "https://dashboard.mysweetpea.cc/api/referral/pending",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-msp-internal",
+              "value": "7e9eb6ff34b0212b33710ab5c380de82"
+            }
+          ]
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "2afede77-338e-47c4-b7c8-3bdf1ab90476",
+      "name": "Format Referral List",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        448,
+        7464
+      ],
+      "parameters": {
+        "jsCode": "const j = ($input.first() || {}).json || {};\nconst rows = Array.isArray(j.referrals) ? j.referrals : (j.body && Array.isArray(j.body.referrals) ? j.body.referrals : []);\nlet text = '🌿 *REFERRALS*\\n──────────────────────────\\n\\n';\nif (!rows.length) { text += 'No pending referrals.\\n'; }\nelse {\n  rows.slice(0, 10).forEach((r) => {\n    let d = '';\n    try { d = ' · ' + new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) {}\n    text += '• *' + r.name + '* — ' + r.service + '\\n   by ' + (r.byName || '?') + d + '\\n';\n  });\n  if (rows.length > 10) text += '\\n_' + (rows.length - 10) + ' more pending._\\n';\n}\ntext += '\\nUsage: `/refer [fam|pea] <name>`\\nMints a code for one of the above.';\nreturn [{ json: { text } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "ed1a5eda-d6ca-4334-b617-fc90d3732750",
+      "name": "Reply Referral List",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        736,
+        7464
+      ],
+      "parameters": {
+        "text": "={{ $json.text }}",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
+          "parse_mode": "Markdown",
           "appendAttribution": false
         }
       },
@@ -3457,7 +3495,7 @@
         ],
         [
           {
-            "node": "Reply Refer Bad",
+            "node": "Fetch Pending Referrals",
             "type": "main",
             "index": 0
           }
@@ -4458,6 +4496,17 @@
         ]
       ]
     },
+    "Format Referral List": {
+      "main": [
+        [
+          {
+            "node": "Reply Referral List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Generate Verify Code": {
       "main": [
         [
@@ -4501,6 +4550,17 @@
           }
         ]
       ]
+    },
+    "Fetch Pending Referrals": {
+      "main": [
+        [
+          {
+            "node": "Format Referral List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -4509,7 +4569,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "dd3493e3-d1d1-4cfb-90ad-28e89788f6f0",
+  "versionId": "a86b02b7-85dd-4162-a4ce-1710f7dbc3ff",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "fbcbb570d3c4d02836cf7b18fe1c11743532a362cdeb07b67a4d9dc4b22c3cf9"
