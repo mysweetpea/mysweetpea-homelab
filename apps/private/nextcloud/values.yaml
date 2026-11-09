@@ -60,7 +60,7 @@ nextcloud:
         --mapping-uid=sub \
         --mapping-groups=groups \
         --group-provisioning=1 \
-        --group-whitelist-regex="^(sweetpea|seedling|iqbal-family)$"
+        --group-whitelist-regex="^(sweetpea|seedling|iqbal-family|[0-9a-f]{64})$"
       # Ensure the SSO user (created on first Authentik login) is in the admin group
       SSO_UID=$(php /var/www/html/occ user:list --output=json | php -r '$d=json_decode(stream_get_contents(STDIN), true); foreach ($d as $uid => $name) { if ($name === "authentik Default Admin") { echo $uid; break; } }')
       if [ -n "$SSO_UID" ]; then
