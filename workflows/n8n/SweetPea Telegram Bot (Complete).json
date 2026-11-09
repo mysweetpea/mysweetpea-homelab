@@ -129,7 +129,7 @@
       ],
       "webhookId": "tg-tg-help",
       "parameters": {
-        "text": "🤖 *SweetPea Admin Bot*\n══════════════════════════\n\n🔑 `/invite sweetpea` — Sweet Pea tier code (family/friends)\n🌱 `/invite seedling` — Seedling tier code (manual override)\n🌿 `/refer [fam|pea] &lt;name&gt; &lt;email&gt;` — Referral: mints a code and emails it (bare `/refer` lists pending)\n\n📋 `/pending` — Donors awaiting verification\n✅ `/verify &lt;id&gt;` — Approve donor → generate code → email\n❌ `/reject &lt;id&gt;` — Reject donor → email rejection\n\n📊 `/status &lt;username or email&gt;` — Donor details\n📧 `/resend &lt;username or email&gt;` — Reset password & resend\n🚫 `/suspend &lt;username or email&gt;` — Disable access\n🟢 `/unsuspend &lt;username or email&gt;` — Re-enable access\n\n📜 `/list` — Active donors\n👥 `/allsubs` — All donors\n🔢 `/count` — Database dashboard\n\n🔑 `/allcodes` — Every code\n🟢 `/available` — Unused codes\n🔴 `/usedcodes` — Redeemed codes\n🔍 `/search &lt;query&gt;` — Find donor by name, username, or email\n\n🗑️ `/delsub &lt;username or email&gt;` — Remove donor\n🗑️ `/delcode &lt;code&gt;` — Remove code\n🖥️ `/dbstatus` — Database health\n\n🚨 `/incident &lt;title&gt;, &lt;desc&gt;` — Post an incident\n✅ `/resolve &lt;id&gt;` — Resolve an incident\n\n❓ `/help` — This menu\n\n_Tip: for donor commands you can use either the username or the email address._",
+        "text": "🤖 *SweetPea Admin Bot*\n══════════════════════════\n\n🔑 `/invite sweetpea` — Sweet Pea tier code (family/friends)\n🌱 `/invite seedling` — Seedling tier code (manual override)\n🌿 `/refer [fam|pea] &lt;name&gt; &lt;email&gt;` — Mints a code and emails the invite (bare `/refer` lists pending)\n\n📋 `/pending` — Donors awaiting verification\n✅ `/verify &lt;id&gt; [sweetpea|seedling]` — Approve donor → generate code → email\n❌ `/reject &lt;id&gt;` — Reject donor → email rejection\n\n📊 `/status &lt;username or email&gt;` — Donor details\n📧 `/resend &lt;username or email&gt;` — Reset password &amp; resend\n🚫 `/suspend &lt;username or email&gt;` — Disable access\n🟢 `/unsuspend &lt;username or email&gt;` — Re-enable access\n\n📜 `/list` — Active donors\n👥 `/allsubs` — All donors\n🔢 `/count` — Database dashboard\n\n🔑 `/allcodes` — Every code\n🟢 `/available` — Unused codes\n🔴 `/usedcodes` — Redeemed codes\n🔍 `/search &lt;query&gt;` — Find donor by name, username, or email\n\n🗑️ `/delsub &lt;username or email&gt;` — Remove donor\n🗑️ `/delcode &lt;code&gt;` — Remove code\n🖥️ `/dbstatus` — Database health\n\n🚨 `/incident &lt;title&gt;, &lt;desc&gt;` — Post an incident (bare `/incident` lists open ones)\n✅ `/resolve &lt;id&gt;` — Resolve an incident\n🗑️ `/delinc &lt;id&gt;` — Delete an incident\n\n❓ `/help` — This menu\n\n_Tip: for donor commands you can use either the username or the email address._",
         "chatId": "={{ $('Parse Command').item.json.chatId }}",
         "additionalFields": {
           "parse_mode": "HTML",
@@ -1884,7 +1884,7 @@
         4208
       ],
       "parameters": {
-        "jsCode": "const rows = $input.all().map(i => i.json).filter(r => r.is_real);\nif (rows.length === 0) return [{ json: { text: '📭 *NO DONORS*\\n──────────────────────────\\n\\nNothing to delete.' } }];\nlet text = `🗑️ *DELETE DONOR*\\n══════════════════════════\\n\\nUsage: /delsub <username or email>\\n\\nOr tap a command below:\\n\\n`;\nrows.forEach((r) => { const id = r.username || r.email; text += `• /delsub \\`${id}\\` · *${r.name}*\\n`; });\nreturn [{ json: { text: text.trim() } }];"
+        "jsCode": "const rows = $input.all().map(i => i.json).filter(r => r.is_real);\nif (rows.length === 0) return [{ json: { text: '📭 *NO DONORS*\\n──────────────────────────\\n\\nNothing to delete.' } }];\nlet text = `🗑️ *DELETE DONOR*\\n══════════════════════════\\n\\nUsage: /delsub &lt;username or email&gt;\\n\\nOr tap a command below:\\n\\n`;\nrows.forEach((r) => { const id = r.username || r.email; text += `• /delsub \\`${id}\\` · *${r.name}*\\n`; });\nreturn [{ json: { text: text.trim() } }];"
       },
       "typeVersion": 2
     },
@@ -2101,7 +2101,7 @@
         4624
       ],
       "parameters": {
-        "jsCode": "const rows = $input.all().map(i => i.json).filter(r => r.is_real);\nif (rows.length === 0) return [{ json: { text: '📭 *NO CODES*\\n──────────────────────────\\n\\nNothing to delete.' } }];\nlet text = `🗑️ *DELETE INVITE CODE*\\n══════════════════════════\\n\\nUsage: /delcode <code>\\n\\nOr tap a command below:\\n\\n`;\nrows.forEach((r) => {\n  const tier = r.tier === 'sweetpea' ? '🌸' : '🌱';\n  const status = r.used ? '🔴 Used' : '🟢 Available';\n  text += `• /delcode \\`${r.code}\\` · ${tier} · ${status}\\n`;\n});\nreturn [{ json: { text: text.trim() } }];"
+        "jsCode": "const rows = $input.all().map(i => i.json).filter(r => r.is_real);\nif (rows.length === 0) return [{ json: { text: '📭 *NO CODES*\\n──────────────────────────\\n\\nNothing to delete.' } }];\nlet text = `🗑️ *DELETE INVITE CODE*\\n══════════════════════════\\n\\nUsage: /delcode &lt;code&gt;\\n\\nOr tap a command below:\\n\\n`;\nrows.forEach((r) => {\n  const tier = r.tier === 'sweetpea' ? '🌸' : '🌱';\n  const status = r.used ? '🔴 Used' : '🟢 Available';\n  text += `• /delcode \\`${r.code}\\` · ${tier} · ${status}\\n`;\n});\nreturn [{ json: { text: text.trim() } }];"
       },
       "typeVersion": 2
     },
@@ -2849,7 +2849,7 @@
         6544
       ],
       "parameters": {
-        "jsCode": "const args = $json.args || [];\nconst id = (args[0] || '').trim();\nif (!id || !/^\\d+$/.test(id)) {\n  return [{ json: { reply: 'Usage: /resolve <incident_id>' } }];\n}\nreturn [{ json: { incident_id: parseInt(id, 10), reply: null } }];"
+        "jsCode": "const args = $json.args || [];\nconst id = (args[0] || '').trim();\nif (!id || !/^\\d+$/.test(id)) {\n  return [{ json: { reply: 'Usage: /resolve &lt;incident_id&gt;' } }];\n}\nreturn [{ json: { incident_id: parseInt(id, 10), reply: null } }];"
       },
       "typeVersion": 2
     },
@@ -3014,7 +3014,7 @@
         7232
       ],
       "parameters": {
-        "jsCode": "// Parse: /delinc <id>\n// Parse Command already strips the command word into args (e.g. ['5'])\nconst args = $json.args || [];\nconst id = (args[0] || '').trim();\nif (!id || !/^\\d+$/.test(id)) {\n  return [{ json: { reply: 'Usage: /delinc <incident_id>' } }];\n}\nreturn [{ json: { incident_id: parseInt(id, 10), reply: null } }];"
+        "jsCode": "// Parse: /delinc <id>\n// Parse Command already strips the command word into args (e.g. ['5'])\nconst args = $json.args || [];\nconst id = (args[0] || '').trim();\nif (!id || !/^\\d+$/.test(id)) {\n  return [{ json: { reply: 'Usage: /delinc &lt;incident_id&gt;' } }];\n}\nreturn [{ json: { incident_id: parseInt(id, 10), reply: null } }];"
       },
       "typeVersion": 2
     },
@@ -3027,7 +3027,7 @@
         7232
       ],
       "parameters": {
-        "query": "WITH deleted AS (DELETE FROM incidents WHERE id = {{ $json.incident_id }} RETURNING id, title) SELECT id, title, true as deleted FROM deleted UNION ALL SELECT NULL, NULL, false WHERE NOT EXISTS (SELECT 1 FROM deleted)",
+        "query": "WITH deleted AS (DELETE FROM incidents WHERE id = {{ Number($json.incident_id) || -1 }} RETURNING id, title) SELECT id, title, true as deleted FROM deleted UNION ALL SELECT NULL, NULL, false WHERE NOT EXISTS (SELECT 1 FROM deleted)",
         "options": {},
         "operation": "executeQuery"
       },
@@ -3048,7 +3048,7 @@
         7232
       ],
       "parameters": {
-        "jsCode": "const rows = $input.all();\nconst first = rows[0] && rows[0].json;\nif (!first || !first.deleted) {\n  return [{ json: { reply: 'No incident found with that ID.' } }];\n}\nreturn [{ json: { reply: 'Incident deleted: ' + first.title } }];"
+        "jsCode": "const rows = $input.all();\nconst first = rows[0] && rows[0].json;\nif (!first || !first.deleted) {\n  return [{ json: { reply: 'No incident found with that ID. Usage: /delinc &lt;incident_id&gt;' } }];\n}\nreturn [{ json: { reply: 'Incident deleted: ' + first.title } }];"
       },
       "typeVersion": 2
     },
@@ -3103,7 +3103,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const update = $input.first().json.body || $input.first().json;\nconst msg = update.message;\nconst ADMIN_ID = 6485376162;\nif (!msg || !msg.text || msg.from?.id !== ADMIN_ID) {\n  return [{ json: { command: '__noop__' } }];\n}\nconst text = msg.text.trim();\nconst chatId = msg.chat?.id;\nconst fromId = msg.from?.id;\nconst parts = text.split(/\\s+/);\nconst cmd = parts[0].replace('/', '').toLowerCase();\nconst VALID = ['start','help','invite','refer','status','resend','suspend','unsuspend','list','allsubs','count','allcodes','available','usedcodes','search','dbstatus','delsub','delcode','pending','verify','reject','incident','resolve','delinc'];\nreturn [{ json: { command: VALID.includes(cmd) ? cmd : 'unknown', args: parts.slice(1), chatId, fromId, rawText: text } }];"
+        "jsCode": "const update = $input.first().json.body || $input.first().json;\nconst msg = update.message;\nconst ADMIN_ID = 6485376162;\nif (!msg || !msg.text || msg.from?.id !== ADMIN_ID) {\n  return [{ json: { command: '__noop__' } }];\n}\nconst text = msg.text.trim();\nconst chatId = msg.chat?.id;\nconst fromId = msg.from?.id;\nconst parts = text.split(/\\s+/);\nconst cmd = parts[0].replace('/', '').toLowerCase().split('@')[0];\nconst VALID = ['start','help','invite','refer','status','resend','suspend','unsuspend','list','allsubs','count','allcodes','available','usedcodes','search','dbstatus','delsub','delcode','pending','verify','reject','incident','resolve','delinc'];\nreturn [{ json: { command: VALID.includes(cmd) ? cmd : 'unknown', args: parts.slice(1), chatId, fromId, rawText: text } }];"
       },
       "typeVersion": 2
     },
@@ -3230,7 +3230,7 @@
         7464
       ],
       "parameters": {
-        "jsCode": "const j = ($input.first() || {}).json || {};\nconst rows = Array.isArray(j.referrals) ? j.referrals : (j.body && Array.isArray(j.body.referrals) ? j.body.referrals : []);\nlet text = '🌿 *REFERRALS*\\n──────────────────────────\\n\\n';\nif (!rows.length) { text += 'No pending referrals.\\n'; }\nelse {\n  rows.slice(0, 10).forEach((r) => {\n    let d = '';\n    try { d = ' · ' + new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) {}\n    text += '• *' + r.name + '* — ' + r.service + '\\n   by ' + (r.byName || '?') + d + '\\n';\n  });\n  if (rows.length > 10) text += '\\n_' + (rows.length - 10) + ' more pending._\\n';\n}\ntext += '\\nUsage: `/refer [fam|pea] <name> <email>`\\nMints a code for one of the above.';\nreturn [{ json: { text } }];"
+        "jsCode": "const j = ($input.first() || {}).json || {};\nconst rows = Array.isArray(j.referrals) ? j.referrals : (j.body && Array.isArray(j.body.referrals) ? j.body.referrals : []);\nlet text = '🌿 *REFERRALS*\\n──────────────────────────\\n\\n';\nif (!rows.length) { text += 'No pending referrals.\\n'; }\nelse {\n  rows.slice(0, 10).forEach((r) => {\n    let d = '';\n    try { d = ' · ' + new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) {}\n    text += '• *' + r.name + '* — ' + r.service + '\\n   by ' + (r.byName || '?') + d + '\\n';\n  });\n  if (rows.length > 10) text += '\\n_' + (rows.length - 10) + ' more pending._\\n';\n}\ntext += '\\nUsage: `/refer [fam|pea] &lt;name&gt; &lt;email&gt;`\\nMints a code for one of the above.';\nreturn [{ json: { text } }];"
       },
       "typeVersion": 2
     },
@@ -3282,6 +3282,64 @@
         }
       },
       "typeVersion": 2
+    },
+    {
+      "id": "9b37fcbd-db7e-4704-8858-10c6cd3291d1",
+      "name": "Incident Bad?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -124,
+        5976
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "version": 1,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c-if-incbad",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.reply }}",
+              "rightValue": ""
+            }
+          ]
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "d95e4a1f-bc59-41cd-bc24-f526eb54e39b",
+      "name": "Reply Incident Bad",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        56,
+        5896
+      ],
+      "parameters": {
+        "text": "={{ $json.reply }}",
+        "chatId": "={{ $('Parse Command').item.json.chatId }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "FUUsFBCeIMGrp3Pz",
+          "name": "Telegram"
+        }
+      },
+      "typeVersion": 1
     }
   ],
   "pinData": {},
@@ -3645,6 +3703,24 @@
         [
           {
             "node": "Save to DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incident Bad?": {
+      "main": [
+        [
+          {
+            "node": "Reply Incident Bad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List Mode?",
             "type": "main",
             "index": 0
           }
@@ -4182,7 +4258,7 @@
       "main": [
         [
           {
-            "node": "List Mode?",
+            "node": "Incident Bad?",
             "type": "main",
             "index": 0
           }
@@ -4605,7 +4681,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "bb2cb961-7b09-4840-81bc-af6a357efbb8",
+  "versionId": "48d7ffb6-46bd-4f70-8060-922a42cad9e3",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "fbcbb570d3c4d02836cf7b18fe1c11743532a362cdeb07b67a4d9dc4b22c3cf9"
