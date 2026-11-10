@@ -16,7 +16,9 @@ nextcloud:
   # opcache had only 14 MB of 128 MB free with 74 apps (3.2k scripts) — headroom
   # so app updates can't evict/restart the cache.
   phpConfigs:
-    99-mysweetpea-perf.ini: |
+    # zz- prefix: conf.d is read alphabetically and the image's
+    # opcache-recommended.ini (sets 128 MB / 10000 files) must load first.
+    zz-mysweetpea-perf.ini: |
       opcache.memory_consumption=256
       opcache.max_accelerated_files=32531
       opcache.interned_strings_buffer=64
