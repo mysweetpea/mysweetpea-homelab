@@ -162,19 +162,45 @@ data:
 
 
       def cmd_help(chat):
-          return ("<b>Gardener Admin</b>\n"
-                  "Managing the garden from inside.\n\n"
-                  "<b>/family list</b> — groups and folders\n"
-                  "<b>/family new</b> <code>&lt;slug&gt;</code> <code>&lt;Folder Name&gt;</code>\n"
-                  "   e.g. <code>/family new khan-family Khan Family</code>\n"
-                  "<b>/family add</b> <code>&lt;slug&gt;</code> <code>&lt;username&gt;</code>\n"
-                  "<b>/family remove</b> <code>&lt;slug&gt;</code> <code>&lt;username&gt;</code>\n"
-                  "<b>/whoami</b> — your chat id")
+          return (
+              "🌿 <b>Gardener Admin</b>\n"
+              "<i>Member management for MySweetPea</i>\n"
+              "━━━━━━━━━━━━━━━━━━━━\n"
+              "👥 <b>Members and folders</b>\n\n"
+              "<b>/family list</b>\n"
+              "Shows the member tiers, every private folder and how many people are in each. "
+              "Start here when you forget what exists.\n\n"
+              "<b>/family add</b> <code>slug username</code>\n"
+              "Lets one member into one private folder.\n"
+              "• <code>slug</code> is the short group name, e.g. <code>iqbal-family</code>\n"
+              "• <code>username</code> is their MySweetPea login, e.g. <code>komal</code>\n"
+              "Access is instant if they have signed in to Nextcloud before, otherwise it "
+              "applies at their first sign-in.\n"
+              "Example: <code>/family add iqbal-family komal</code>\n\n"
+              "<b>/family remove</b> <code>slug username</code>\n"
+              "Takes that access away again, in Nextcloud and in the login system.\n"
+              "Example: <code>/family remove iqbal-family komal</code>\n\n"
+              "━━━━━━━━━━━━━━━━━━━━\n"
+              "🗂 <b>Creating a private folder</b>\n\n"
+              "<b>/family new</b> <code>slug Folder Name</code>\n"
+              "Creates a new private folder inside the shared one, plus the group that decides "
+              "who can see it.\n"
+              "• <code>slug</code> — lowercase letters, digits and dashes; the permanent internal name\n"
+              "• <code>Folder Name</code> — what members actually see\n"
+              "Example: <code>/family new khan-family Khan Family</code>\n"
+              "Every member can open the shared folder, but only people you add afterwards can "
+              "see this sub-folder; nobody else is told it exists.\n\n"
+              "━━━━━━━━━━━━━━━━━━━━\n"
+              "⚙️ <b>Housekeeping</b>\n\n"
+              "<b>/whoami</b> — your Telegram chat id (needed to authorise another device)\n"
+              "<b>/help</b> — this page\n\n"
+              "<i>Only the admin account can use these commands.</i>"
+          )
 
 
       def cmd_list():
           st, d = ak("GET", "/core/groups/?ordering=name&page_size=100")
-          lines = ["<b>Groups</b>"]
+          groups, folders = [], folder_list()
           if st == 200:
               for g in d.get("results", []):
                   name = g["name"]
@@ -183,36 +209,37 @@ data:
                       continue
                   st2, grp = ak("GET", "/core/groups/%s/" % g["pk"])
                   members = (grp.get("users_obj") or []) if st2 == 200 else []
-                  lines.append("• <code>%s</code> — %d" % (html.escape(name), len(members)))
-          lines.append("\n<b>Folders in Shared</b>")
-          for f in folder_list():
-              lines.append("• %s" % html.escape(f))
-          if len(lines) == 2:
-              lines.append("• (none)")
-          return "\n".join(lines)
+                  groups.append((name, len(members)))
+
+          out = ["🌿 <b>Garden members and folders</b>", "━━━━━━━━━━━━━━━━━━━━", "👥 <b>Groups</b>"]
+          for name, n in groups:
+              out.append("• <code>%s</code> — %d %s" % (
+                  html.escape(name), n, "member" if n == 1 else "members"))
+          out += ["", "🗂 <b>Inside the shared folder</b>"]
+          out += ["• %s" % html.escape(f) for f in folders] if folders else ["• (empty)"]
+          out += ["", "<i>Add someone: /family add &lt;slug&gt; &lt;username&gt;</i>"]
+          return "\n".join(out)
 
 
       def cmd_new(chat, args):
           if len(args) < 2:
-              return "Usage: <code>/family new khan-family Khan Family</code>"
+              return ("Usage: <code>/family new &lt;slug&gt; &lt;Folder Name&gt;</code>\n"
+                      "Example: <code>/family new khan-family Khan Family</code>")
           slug, name = args[0], " ".join(args[1:]).strip()
           if not SLUG_RE.match(slug):
-              return "Bad slug. Lowercase letters, digits, dashes (2-31 chars)."
+              return ("Bad slug: use lowercase letters, digits and dashes (2-31 characters), "
+                      "e.g. <code>khan-family</code>.")
           if not (1 <= len(name) <= 40) or "/" in name:
-              return "Bad folder name (1-40 chars, no slashes)."
+              return "Bad folder name (1-40 characters, no slashes)."
           if name in folder_list():
               return "A folder named <b>%s</b> already exists." % html.escape(name)
 
           gid_ = gid(slug)
-          steps = []
-          g = ak_group(slug)
-          if g is None:
+          created = ak_group(slug) is None
+          if created:
               st, _ = ak("POST", "/core/groups/", {"name": slug, "is_superuser": False})
               if st not in (200, 201):
-                  return "authentik group create failed (%s)" % st
-              steps.append("authentik group created")
-          else:
-              steps.append("authentik group existed")
+                  return "⚠️ authentik group create failed (%s)" % st
 
           occ("group:add", gid_, "--display-name=" + slug)
           nc_sh("mkdir -p %s && chown -R www-data:www-data %s" % (
@@ -223,35 +250,44 @@ data:
           occ("groupfolders:permissions", "-g", gid_, FOLDER_ID, name,
               "--", "+read", "+write", "+create", "+delete", "+share")
 
-          return ("<b>%s</b> ready.\n%s\n\nMembers see it only after:\n"
-                  "<code>/family add %s &lt;username&gt;</code>") % (
-              html.escape(name), " · ".join(steps), slug)
+          return (
+              "✅ <b>%s</b> is ready\n"
+              "━━━━━━━━━━━━━━━━━━━━\n"
+              "• private group <code>%s</code> %s\n"
+              "• folder added to the shared space\n"
+              "• visible only to its members\n\n"
+              "<b>Next:</b> <code>/family add %s &lt;username&gt;</code>"
+          ) % (html.escape(name), html.escape(slug),
+               "created" if created else "already existed", html.escape(slug))
 
 
       def cmd_add(chat, args, remove=False):
+          verb = "remove" if remove else "add"
           if len(args) < 2:
-              return "Usage: <code>/family %s &lt;slug&gt; &lt;username&gt;</code>" % ("remove" if remove else "add")
+              return ("Usage: <code>/family %s &lt;slug&gt; &lt;username&gt;</code>\n"
+                      "Example: <code>/family %s iqbal-family komal</code>") % (verb, verb)
           slug, username = args[0], args[1]
           if not SLUG_RE.match(slug):
-              return "Bad slug."
+              return "Bad slug: use lowercase letters, digits and dashes."
           g = ak_group(slug)
           if g is None:
-              return "No family group <code>%s</code>." % html.escape(slug)
+              return ("No family group <code>%s</code>.\n"
+                      "Create it first: <code>/family new %s &lt;Folder Name&gt;</code>"
+                      % (html.escape(slug), html.escape(slug)))
           u = ak_user(username)
           if u is None:
-              return "No garden member <code>%s</code>." % html.escape(username)
+              return ("No garden member called <code>%s</code>.\n"
+                      "Check the spelling of their MySweetPea username." % html.escape(username))
 
           if remove:
               ak("POST", "/core/groups/%s/remove_user/" % g["pk"], {"pk": u["pk"]})
-              out = "removed"
           else:
               st, _ = ak("POST", "/core/groups/%s/add_user/" % g["pk"], {"pk": u["pk"]})
               if st not in (200, 204):
-                  return "authentik membership failed (%s)" % st
-              out = "added"
+                  return "⚠️ login-system membership failed (%s)" % st
 
           # Nextcloud side: match the NC account by email, else it applies at first login.
-          nc_note = "applies at their first NC login"
+          nc_note = "Nextcloud: applies at their first sign-in"
           try:
               listing = json.loads(occ("user:list", "--info", "--output=json"))
               email = (u.get("email") or "").lower()
@@ -259,12 +295,14 @@ data:
                           if (v.get("email") or "").lower() == email), "")
               if ncu:
                   occ("group:" + ("removeuser" if remove else "adduser"), gid(slug), ncu)
-                  nc_note = "Nextcloud access %s now" % ("removed" if remove else "granted")
+                  nc_note = "Nextcloud: %s" % ("access removed" if remove else "access granted")
           except Exception as e:  # noqa: BLE001 - NC side is best effort
-              nc_note = "Nextcloud side skipped (%s)" % str(e)[:80]
+              nc_note = "Nextcloud: skipped (%s)" % str(e)[:80]
 
-          return "<b>%s</b> %s <code>%s</code>.\n%s" % (
-              html.escape(username), out, html.escape(slug), nc_note)
+          head = ("🚪 <b>%s</b> no longer has access to <b>%s</b>" if remove
+                  else "✅ <b>%s</b> now has access to <b>%s</b>")
+          return (head + "\n━━━━━━━━━━━━━━━━━━━━\n%s") % (
+              html.escape(username), html.escape(slug), nc_note)
 
 
       def dispatch(text, chat_id):
@@ -333,7 +371,7 @@ data:
               chat_id = str((msg.get("chat") or {}).get("id", ""))
               if chat_id and text.startswith("/"):
                   if ALLOWED and chat_id not in ALLOWED:
-                      tg(chat_id, "Not authorised. Your chat id is <code>%s</code>." % chat_id)
+                      tg(chat_id, "🔒 Not authorised.\nYour chat id is <code>%s</code>." % chat_id)
                   else:
                       try:
                           reply = dispatch(text, chat_id)
