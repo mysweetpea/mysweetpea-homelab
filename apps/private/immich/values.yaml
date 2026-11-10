@@ -13,7 +13,7 @@ controllers:
     containers:
       main:
         image:
-          tag: v3.3.6
+          tag: v3.4.0
           repository: ghcr.io/immich-app/immich-server
         env:
           # Database connection (immich-postgresql in private namespace)
@@ -119,7 +119,6 @@ machine-learning:
       type: persistentVolumeClaim
       accessMode: ReadWriteOnce
       storageClass: longhorn
-
 # ──────────────────────────────────────────────
 # Pure-viewer mode: Immich reads the Nextcloud volume, never writes it.
 # The Nextcloud PVC is RWO Longhorn and attached on k3s-master, so every
@@ -128,7 +127,6 @@ machine-learning:
 defaultPodOptions:
   nodeSelector:
     kubernetes.io/hostname: k3s-master
-
 persistence:
   nextcloud:
     enabled: true
