@@ -44,8 +44,8 @@ UA = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"
 # Dashboard + mail: username-change requests land in the dashboard's KV (the
 # member-facing form posts there); this bot approves them and mails the member.
 DASH_URL = os.environ.get("DASHBOARD_URL", "https://dashboard.mysweetpea.cc")
-DASH_TOKEN = os.environ.get("DASHBOARD_BOT_TOKEN", "")
-RESEND_KEY = os.environ.get("RESEND_API_KEY", "")
+DASH_TOKEN = os.environ.get("DASHBOARD_BOT_TOKEN", "").strip()
+RESEND_KEY = os.environ.get("RESEND_API_KEY", "").strip()
 MAIL_FROM = os.environ.get("MAIL_FROM", "MySweetPea <noreply@mysweetpea.cc>")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
 FILES_DIR = "/var/www/html/data/__groupfolders/%s/files" % FOLDER_ID
