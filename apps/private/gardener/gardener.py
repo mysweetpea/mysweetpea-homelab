@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Gardener Admin -- Telegram bot for member management inside the garden.
+
+Commands:
+  /help                      this message
+  /whoami                    your chat id
+  /family list               groups + folders
+  /family new <slug> <Name>  create family group + restricted sub-folder
+  /family add <slug> <user>  give a member access
+  /family remove <slug> <user>
+"""
+import html
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+AK_TOKEN = os.environ.get("AUTHENTIK_TOKEN", "")
+AK_URL = os.environ.get("AUTHENTIK_URL", "https://auth.mysweetpea.cc/api/v3")
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
+ALLOWED = {x.strip() for x in os.environ.get("ALLOWED_CHATS", "").split(",") if x.strip()}
+FOLDER_ID = os.environ.get("FOLDER_ID", "1")
+BASE_SLUG = os.environ.get("BASE_SLUG", "sweetpea")
+NS = os.environ.get("NAMESPACE", "private")
+PORT = int(os.environ.get("PORT", "8080"))
+UA = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
+FILES_DIR = "/var/www/html/data/__groupfolders/%s/files" % FOLDER_ID
+
+
+# ---------------------------------------------------------------- transport
+
+def http(method, url, body=None, headers=None, timeout=60):
+    hdrs = {"User-Agent": UA, "Accept": "application/json"}
+    hdrs.update(headers or {})
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        hdrs["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode() or "{}"
+            return r.status, (json.loads(raw) if raw.strip().startswith(("{", "[")) else raw)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()[:300]
+
+
+def tg(chat_id, text):
+    return http("POST", "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_TOKEN,
+                {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                 "disable_web_page_preview": True})
+
+
+def ak(method, path, body=None):
+    return http(method, AK_URL + path, body, {"Authorization": "Bearer " + AK_TOKEN})
+
+
+def kubectl(*args, timeout=120):
+    p = subprocess.run(["kubectl", "-n", NS] + list(args),
+                       capture_output=True, text=True, timeout=timeout)
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or p.stdout).strip()[:200])
+    return p.stdout
+
+
+def nc_pod():
+    out = kubectl("get", "pods", "-l", "app.kubernetes.io/name=nextcloud",
+                  "-o", 'jsonpath={range .items[*]}{.metadata.name} {.status.containerStatuses[0].ready}{"\\n"}{end}')
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == "true":
+            return parts[0]
+    raise RuntimeError("nextcloud pod not ready")
+
+
+def occ(*args):
+    return kubectl("exec", nc_pod(), "-c", "nextcloud", "--", "php", "occ", *args)
+
+
+def nc_sh(cmd):
+    return kubectl("exec", nc_pod(), "-c", "nextcloud", "--", "sh", "-c", cmd)
+
+
+def gid(slug):
+    import hashlib
+    return hashlib.sha256(("1_0_" + slug).encode()).hexdigest()
+
+
+# ---------------------------------------------------------------- commands
+
+def ak_group(slug):
+    st, d = ak("GET", "/core/groups/?search=" + urllib.parse.quote(slug))
+    if st == 200:
+        for g in d.get("results", []):
+            if g["name"] == slug:
+                return g
+    return None
+
+
+def ak_user(username):
+    st, d = ak("GET", "/core/users/?username=" + urllib.parse.quote(username))
+    if st == 200 and d.get("results"):
+        return d["results"][0]
+    return None
+
+
+def folder_list():
+    out = nc_sh("ls -1 %s 2>/dev/null" % FILES_DIR)
+    return [x for x in out.splitlines() if x.strip()]
+
+
+def cmd_help(chat):
+    return ("<b>Gardener Admin</b>\n"
+            "Managing the garden from inside.\n\n"
+            "<b>/family list</b> — groups and folders\n"
+            "<b>/family new</b> <code>&lt;slug&gt;</code> <code>&lt;Folder Name&gt;</code>\n"
+            "   e.g. <code>/family new khan-family Khan Family</code>\n"
+            "<b>/family add</b> <code>&lt;slug&gt;</code> <code>&lt;username&gt;</code>\n"
+            "<b>/family remove</b> <code>&lt;slug&gt;</code> <code>&lt;username&gt;</code>\n"
+            "<b>/whoami</b> — your chat id")
+
+
+def cmd_list():
+    st, d = ak("GET", "/core/groups/?ordering=name&page_size=100")
+    lines = ["<b>Groups</b>"]
+    if st == 200:
+        for g in d.get("results", []):
+            if g.get("is_superuser") or g["name"].startswith(("ak-", "authentik")):
+                continue
+            n = len(g.get("users_obj", []) or g.get("users", []) or [])
+            st2, grp = ak("GET", "/core/groups/%s/" % g["pk"])
+            if st2 == 200:
+                n = len(grp.get("users_obj", []) or [])
+            lines.append("• <code>%s</code> — %d" % (html.escape(g["name"]), n))
+    lines.append("\n<b>Folders in Shared</b>")
+    for f in folder_list():
+        lines.append("• %s" % html.escape(f))
+    if len(lines) == 2:
+        lines.append("• (none)")
+    return "\n".join(lines)
+
+
+def cmd_new(chat, args):
+    if len(args) < 2:
+        return "Usage: <code>/family new khan-family Khan Family</code>"
+    slug, name = args[0], " ".join(args[1:]).strip()
+    if not SLUG_RE.match(slug):
+        return "Bad slug. Lowercase letters, digits, dashes (2-31 chars)."
+    if not (1 <= len(name) <= 40) or "/" in name:
+        return "Bad folder name (1-40 chars, no slashes)."
+    if name in folder_list():
+        return "A folder named <b>%s</b> already exists." % html.escape(name)
+
+    gid_ = gid(slug)
+    steps = []
+    g = ak_group(slug)
+    if g is None:
+        st, _ = ak("POST", "/core/groups/", {"name": slug, "is_superuser": False})
+        if st not in (200, 201):
+            return "authentik group create failed (%s)" % st
+        steps.append("authentik group created")
+    else:
+        steps.append("authentik group existed")
+
+    occ("group:add", gid_, "--display-name=" + slug)
+    nc_sh("mkdir -p %s && chown -R www-data:www-data %s" % (
+        shlex.quote(FILES_DIR + "/" + name), shlex.quote(FILES_DIR + "/" + name)))
+    occ("groupfolders:scan", FOLDER_ID)
+    occ("groupfolders:permissions", "-g", gid(BASE_SLUG), FOLDER_ID, name,
+        "--", "-read", "-write", "-create", "-delete", "-share")
+    occ("groupfolders:permissions", "-g", gid_, FOLDER_ID, name,
+        "--", "+read", "+write", "+create", "+delete", "+share")
+
+    return ("<b>%s</b> ready.\n%s\n\nMembers see it only after:\n"
+            "<code>/family add %s &lt;username&gt;</code>") % (
+        html.escape(name), " · ".join(steps), slug)
+
+
+def cmd_add(chat, args, remove=False):
+    if len(args) < 2:
+        return "Usage: <code>/family %s &lt;slug&gt; &lt;username&gt;</code>" % ("remove" if remove else "add")
+    slug, username = args[0], args[1]
+    if not SLUG_RE.match(slug):
+        return "Bad slug."
+    g = ak_group(slug)
+    if g is None:
+        return "No family group <code>%s</code>." % html.escape(slug)
+    u = ak_user(username)
+    if u is None:
+        return "No garden member <code>%s</code>." % html.escape(username)
+
+    if remove:
+        ak("POST", "/core/groups/%s/remove_user/" % g["pk"], {"pk": u["pk"]})
+        out = "removed"
+    else:
+        st, _ = ak("POST", "/core/groups/%s/add_user/" % g["pk"], {"pk": u["pk"]})
+        if st not in (200, 204):
+            return "authentik membership failed (%s)" % st
+        out = "added"
+
+    # Nextcloud side: match the NC account by email, else it applies at first login.
+    nc_note = "applies at their first NC login"
+    try:
+        listing = json.loads(occ("user:list", "--info", "--output=json"))
+        email = (u.get("email") or "").lower()
+        ncu = next((k for k, v in listing.items()
+                    if (v.get("email") or "").lower() == email), "")
+        if ncu:
+            occ("group:" + ("removeuser" if remove else "adduser"), gid(slug), ncu)
+            nc_note = "Nextcloud access %s now" % ("removed" if remove else "granted")
+    except Exception as e:  # noqa: BLE001 - NC side is best effort
+        nc_note = "Nextcloud side skipped (%s)" % str(e)[:80]
+
+    return "<b>%s</b> %s <code>%s</code>.\n%s" % (
+        html.escape(username), out, html.escape(slug), nc_note)
+
+
+def dispatch(text, chat_id):
+    parts = text.strip().split()
+    if not parts:
+        return None
+    cmd = parts[0].split("@")[0].lower()
+    rest = parts[1:]
+
+    if cmd in ("/start", "/help"):
+        return cmd_help(chat_id)
+    if cmd == "/whoami":
+        return "chat id: <code>%s</code>" % chat_id
+    if cmd == "/family":
+        sub = rest[0].lower() if rest else "list"
+        if sub == "list":
+            return cmd_list()
+        if sub == "new":
+            return cmd_new(chat_id, rest[1:])
+        if sub == "add":
+            return cmd_add(chat_id, rest[1:])
+        if sub == "remove":
+            return cmd_add(chat_id, rest[1:], remove=True)
+        return "Unknown: /family %s" % html.escape(sub)
+    return "Unknown command %s — try /help" % html.escape(cmd)
+
+
+# ---------------------------------------------------------------- webhook
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "gardener/1.0"
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[gardener] %s %s\n" % (self.address_string(), fmt % args))
+
+    def _json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/healthz":
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
+        self._json(404, {"ok": False})
+
+    def do_POST(self):
+        if WEBHOOK_SECRET and self.path != "/webhook/gardener-" + WEBHOOK_SECRET:
+            self._json(404, {"ok": False})
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            update = json.loads(self.rfile.read(n) or b"{}")
+        except json.JSONDecodeError:
+            self._json(400, {"ok": False})
+            return
+        # Answer Telegram immediately; work happens before the reply anyway.
+        msg = update.get("message") or update.get("edited_message") or {}
+        text = msg.get("text") or ""
+        chat_id = str((msg.get("chat") or {}).get("id", ""))
+        if chat_id and text.startswith("/"):
+            if ALLOWED and chat_id not in ALLOWED:
+                tg(chat_id, "Not authorised. Your chat id is <code>%s</code>." % chat_id)
+            else:
+                try:
+                    reply = dispatch(text, chat_id)
+                except Exception as e:  # noqa: BLE001
+                    reply = "⚠️ %s" % html.escape(str(e)[:300])
+                if reply:
+                    tg(chat_id, reply)
+        self._json(200, {"ok": True})
+
+
+def selftest():
+    assert gid("sweetpea") == "f09715042ac606bdbacdea360bc6008bc45e8da27a59ad3a0909580727304304"
+    assert SLUG_RE.match("iqbal-family") and not SLUG_RE.match("Bad Slug")
+    assert dispatch("", 1) is None
+    assert "chat id" in dispatch("/whoami", 42)
+    assert "Gardener" in dispatch("/help@GardenerAdminBot", 1)
+    assert "Unknown" in dispatch("/family nope", 1)
+    assert "Usage" in dispatch("/family new", 1)
+    assert "Bad slug" in dispatch("/family new BAD name", 1)
+    print("selftest ok")
+
+
+if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        selftest()
+        sys.exit(0)
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
