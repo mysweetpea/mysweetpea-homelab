@@ -109,6 +109,12 @@ nextcloud:
       limits:
         cpu: 250m
         memory: 256Mi
+  # 50k+ files on the data volume: kubelet's default recursive ownership pass
+  # ran on EVERY pod start (~15 min, Nextcloud unready the whole time).
+  # OnRootMismatch skips the walk when the volume root is already fsGroup 33.
+  podSecurityContext:
+    fsGroup: 33
+    fsGroupChangePolicy: OnRootMismatch
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -201,10 +207,3 @@ readinessProbe:
   periodSeconds: 30
   timeoutSeconds: 10
   failureThreshold: 5
-
-# The data volume holds 50k+ files (21G of media). kubelet's default recursive
-# ownership pass ran on EVERY pod start, took ~15 min, and left Nextcloud
-# unready the whole time. OnRootMismatch skips the recursive walk when the
-# volume root is already owned correctly.
-podSecurityContext:
-  fsGroupChangePolicy: OnRootMismatch
