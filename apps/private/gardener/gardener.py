@@ -37,6 +37,7 @@ IMMICH_KEY = os.environ.get("IMMICH_API_KEY", "")
 MEDIA_FOLDER = "Immich Media"
 MEMBER_QUOTA = 1048576
 RECONCILE_EVERY = 3600
+_RECONCILE_LOCK = __import__("threading").Lock()
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
 FILES_DIR = "/var/www/html/data/__groupfolders/%s/files" % FOLDER_ID
@@ -161,6 +162,13 @@ def reconcile():
     signed into Immich. Idempotent; returns a list of human-readable changes."""
     if not IMMICH_KEY:
         return ["skipped: IMMICH_API_KEY not set"]
+    # ponytail: one global lock — the hourly thread and /sync can overlap and
+    # would otherwise both see "missing" and create duplicate libraries.
+    with _RECONCILE_LOCK:
+        return _reconcile_locked()
+
+
+def _reconcile_locked():
     st, users = im("GET", "/api/admin/users")
     if st != 200 or not isinstance(users, list):
         raise RuntimeError("immich users %s: %s" % (st, str(users)[:160]))
@@ -168,7 +176,7 @@ def reconcile():
     if st != 200 or not isinstance(libs, list):
         raise RuntimeError("immich libraries %s: %s" % (st, str(libs)[:160]))
     by_email = {u["email"].strip().lower(): u for u in users if u.get("email")}
-    have = {(l["ownerId"], l["name"]) for l in libs}
+    have = {(l["ownerId"], l["name"]): l for l in libs}
     changes = []
     for uid, email in nc_members().items():
         u = by_email.get(email)
@@ -177,13 +185,23 @@ def reconcile():
         if u.get("quotaSizeInBytes") != MEMBER_QUOTA:
             im("PUT", "/api/admin/users/" + u["id"], {"quotaSizeInBytes": MEMBER_QUOTA})
             changes.append("quota %s" % email)
-        if (u["id"], MEDIA_FOLDER) not in have:
+        want = media_path(uid)
+        lib = have.get((u["id"], MEDIA_FOLDER))
+        if lib is None:
             st, r = im("POST", "/api/libraries", {"ownerId": u["id"], "name": MEDIA_FOLDER,
-                                                  "importPaths": [media_path(uid)],
+                                                  "importPaths": [want],
                                                   "exclusionPatterns": ["**/README.txt"]})
             if st not in (200, 201):
                 raise RuntimeError("create library for %s: %s %s" % (email, st, str(r)[:160]))
             changes.append("library %s" % email)
+        elif want not in (lib.get("importPaths") or []):
+            # drift: library exists but points somewhere else — repair it
+            st, r = im("PUT", "/api/libraries/" + lib["id"],
+                       {"name": MEDIA_FOLDER, "importPaths": [want],
+                        "exclusionPatterns": ["**/README.txt"]})
+            if st != 200:
+                raise RuntimeError("repair library for %s: %s %s" % (email, st, str(r)[:160]))
+            changes.append("repaired path %s" % email)
     return changes
 
 
