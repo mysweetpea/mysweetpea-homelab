@@ -51,6 +51,7 @@ data:
         /family remove <slug> <user>
       """
       import html
+      import base64
       import json
       import os
       import re
@@ -81,6 +82,12 @@ data:
       RECONCILE_EVERY = 3600
       _RECONCILE_LOCK = __import__("threading").Lock()
       UA = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"
+      # Dashboard + mail: username-change requests land in the dashboard's KV (the
+      # member-facing form posts there); this bot approves them and mails the member.
+      DASH_URL = os.environ.get("DASHBOARD_URL", "https://dashboard.mysweetpea.cc")
+      DASH_TOKEN = os.environ.get("DASHBOARD_BOT_TOKEN", "")
+      RESEND_KEY = os.environ.get("RESEND_API_KEY", "")
+      MAIL_FROM = os.environ.get("MAIL_FROM", "MySweetPea <noreply@mysweetpea.cc>")
       SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
       FILES_DIR = "/var/www/html/data/__groupfolders/%s/files" % FOLDER_ID
 
@@ -140,6 +147,86 @@ data:
 
       def nc_sh(cmd):
           return kubectl("exec", nc_pod(), "-c", "nextcloud", "--", "sh", "-c", cmd)
+
+
+      def dash(method, path, body=None):
+          """Call the dashboard worker's bot lane (BOT_ADMIN_TOKEN)."""
+          return http(method, DASH_URL + path, body, {"x-msp-internal": DASH_TOKEN})
+
+
+      def send_mail(to, subject, body_html):
+          """Resend REST; returns the HTTP status (200 = accepted)."""
+          if not RESEND_KEY or not to:
+              return 0
+          st, _ = http("POST", "https://api.resend.com/emails",
+                       {"from": MAIL_FROM, "to": [to], "subject": subject, "html": body_html},
+                       {"Authorization": "Bearer " + RESEND_KEY})
+          return st
+
+
+      # Model picker management: members only see models registered in Open WebUI's
+      # own DB with a public read grant (unregistered connection models are admin-
+      # only). These helpers run inside the open-webui pod, which is where both the
+      # admin JWT secret and the sqlite file live.
+      OWUI_POD_LABEL = "app.kubernetes.io/name=open-webui"
+      OWUI_ADMIN_ID = "866ed497-8ddf-4fc7-9f5f-4cbdab242f06"
+      OWUI_PY = r'''
+      import base64, json, sqlite3, sys, urllib.request, urllib.error
+
+      ADMIN = "866ed497-8ddf-4fc7-9f5f-4cbdab242f06"
+      DB = "/app/backend/data/webui.db"
+      act = json.loads(base64.b64decode(sys.argv[1]))
+
+
+      def api(path, body=None):
+          import jwt
+          secret = open("/app/backend/.webui_secret_key").read().strip()
+          tok = jwt.encode({"id": ADMIN}, secret, algorithm="HS256")
+          tok = tok.decode() if isinstance(tok, bytes) else tok
+          req = urllib.request.Request(
+              "http://127.0.0.1:8080" + path,
+              data=json.dumps(body).encode() if body is not None else None,
+              headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.status, r.read()
+          except urllib.error.HTTPError as e:
+              return e.code, e.read()
+
+
+      op = act["op"]
+      if op == "list":
+          db = sqlite3.connect(DB)
+          for mid, name in db.execute("select id, name from model order by name"):
+              print("%s\t%s" % (mid, name))
+      elif op == "add":
+          meta = {"description": act.get("desc") or ""}
+          grant = [{"principal_type": "user", "principal_id": "*", "permission": "read"}]
+          st, _ = api("/api/v1/models/create", {
+              "id": act["id"], "name": act["name"], "base_model_id": None,
+              "meta": meta, "params": {}, "is_active": True, "access_grants": grant})
+          st2, _ = api("/api/v1/models/model/access/update",
+                       {"id": act["id"], "name": act["name"], "access_grants": grant})
+          known = False
+          st3, b3 = api("/api/models")
+          try:
+              known = any(m["id"] == act["id"] for m in json.loads(b3)["data"])
+          except Exception:
+              pass
+          print("create=%s grant=%s in_connection=%s" % (st, st2, known))
+      elif op == "del":
+          st, b = api("/api/v1/models/model/delete", {"id": act["id"]})
+          print("delete=%s %s" % (st, b[:80].decode("utf-8", "replace")))
+      '''
+
+
+      def owui(payload):
+          pod = kubectl("get", "pods", "-l", OWUI_POD_LABEL,
+                        "-o", "jsonpath={.items[0].metadata.name}").strip()
+          if not pod:
+              raise RuntimeError("open-webui pod not found")
+          b64 = base64.b64encode(json.dumps(payload).encode()).decode()
+          return kubectl("exec", pod, "--", "python3", "-c", OWUI_PY, b64, timeout=180)
 
 
       def gid(slug):
@@ -276,10 +363,123 @@ data:
           return "✅ <b>Immich sync</b>\n" + "\n".join("• " + html.escape(c) for c in ch)
 
 
+      def cmd_models():
+          out = owui({"op": "list"}).strip()
+          rows = [l.split("\t", 1) for l in out.splitlines() if "\t" in l]
+          if not rows:
+              return ("🤖 <b>Model picker</b>\nNo models are visible to members right now.\n\n"
+                      "<i>Add one: /model add &lt;id&gt; &lt;Display Name&gt;</i>")
+          body = "\n".join("• <code>%s</code> — %s" % (html.escape(m), html.escape(n)) for m, n in rows)
+          return ("🤖 <b>Models members can pick</b>\n━━━━━━━━━━━━━━━━━━━━\n%s\n\n"
+                  "<i>Add: /model add &lt;id&gt; &lt;Display Name&gt;\nRemove: /model del &lt;id&gt;\n"
+                  "Admins always see every model the proxy serves.</i>") % body
+
+
+      def cmd_model_add(args):
+          if len(args) < 2:
+              return ("Usage: <code>/model add &lt;id&gt; &lt;Display Name&gt;</code>\n"
+                      "Example: <code>/model add glm-5.3-flash GLM 5.3 Flash</code>")
+          mid, name = args[0], " ".join(args[1:])
+          r = owui({"op": "add", "id": mid, "name": name}).strip()
+          if "create=200" not in r:
+              return "⚠️ Could not add <code>%s</code>:\n<code>%s</code>" % (html.escape(mid), html.escape(r))
+          warn = "" if "in_connection=True" in r else (
+              "\n⚠️ That id is not in the LiteLLM connection — check the exact name, "
+              "otherwise the model will appear but fail on the first message.")
+          return "✅ <b>%s</b> is now in the members' picker.%s" % (html.escape(name), warn)
+
+
+      def cmd_model_del(arg):
+          r = owui({"op": "del", "id": arg}).strip()
+          if "delete=200" not in r:
+              return "⚠️ Could not remove <code>%s</code>:\n<code>%s</code>" % (html.escape(arg), html.escape(r))
+          return ("🗑 Removed <code>%s</code> from the members' picker. "
+                  "Admins still see it." % html.escape(arg))
+
+
+      def cmd_renames():
+          st, d = dash("GET", "/api/bot/username-requests")
+          if st != 200 or not isinstance(d, dict):
+              return "⚠️ Could not read requests from the dashboard (%s)." % st
+          reqs = d.get("requests") or []
+          if not reqs:
+              return "✅ <b>No pending username requests.</b>"
+          out = ["👤 <b>Username change requests</b>", "━━━━━━━━━━━━━━━━━━━━"]
+          for r in reqs:
+              out.append("• <code>%s</code> → <code>%s</code>%s" % (
+                  html.escape(str(r.get("username", ""))),
+                  html.escape(str(r.get("desired", ""))),
+                  ("  <i>%s</i>" % html.escape(str(r.get("email", "")))) if r.get("email") else ""))
+          out += ["", "<i>Approve: /rename &lt;current&gt; &lt;new&gt;\nDecline: /deny &lt;current&gt;</i>"]
+          return "\n".join(out)
+
+
+      def cmd_rename(args):
+          if len(args) != 2:
+              return "Usage: <code>/rename &lt;current&gt; &lt;new&gt;</code>"
+          old, new = args[0].lower(), args[1].lower()
+          if not re.match(r"^[a-z0-9][a-z0-9._-]{2,29}$", new):
+              return ("⚠️ Usernames are 3-30 characters: lowercase letters, digits, "
+                      "dot, dash or underscore.")
+          u = ak_user(old)
+          if not u:
+              return "⚠️ No one has the username <code>%s</code>." % html.escape(old)
+          st, d = ak("PATCH", "/core/users/%s/" % u["pk"], {"username": new})
+          if st != 200:
+              return "⚠️ authentik refused the change (%s):\n<code>%s</code>" % (
+                  st, html.escape(str(d)[:200]))
+          st2, _ = dash("POST", "/api/bot/username-requests/resolve",
+                        {"username": old, "status": "done", "newUsername": new})
+          body = (
+              "<p>Hi %s,</p>"
+              "<p>Your MySweetPea username is now <b>%s</b>. Use it the next time you "
+              "sign in — your password stays the same.</p>"
+              "<p>Two things that do <b>not</b> change: your Moonfin (movies &amp; TV) "
+              "sign-in, which is still your name plus your PIN, and your files, photos "
+              "and emails.</p>"
+              "<p>If you use Jellyfin for Live TV, sign in once with the new username.</p>"
+              "<p>— MySweetPea</p>"
+          ) % (html.escape(str(u.get("name") or old)), html.escape(new))
+          mail = send_mail(u.get("email"), "Your MySweetPea username has changed", body)
+          notes = []
+          notes.append("📧 emailed %s" % html.escape(str(u.get("email") or "(no email on file)"))
+                       if mail == 200 else "⚠️ email failed (%s)" % mail)
+          notes.append("request closed" if st2 == 200 else "request not closed (%s)" % st2)
+          return "✅ <b>%s</b> is now <b>%s</b>.\n%s" % (
+              html.escape(old), html.escape(new), " · ".join(notes))
+
+
+      def cmd_deny(arg):
+          st, _ = dash("POST", "/api/bot/username-requests/resolve",
+                       {"username": arg, "status": "denied"})
+          if st != 200:
+              return "⚠️ Could not close the request (%s)." % st
+          return "🚫 Declined the username change for <code>%s</code>. They keep their current name." % html.escape(arg)
+
+
       def cmd_help(chat):
           return (
               "🌿 <b>Gardener Admin</b>\n"
               "<i>Member management for MySweetPea</i>\n"
+              "━━━━━━━━━━━━━━━━━━━━\n"
+              "🤖 <b>AI models and Open WebUI</b>\n\n"
+              "<b>/models</b>\n"
+              "Shows the models members can pick in Open WebUI right now.\n\n"
+              "<b>/model add</b> <code>id Display Name</code>\n"
+              "Puts a model in the members' picker, with that name.\n"
+              "Find the id with <code>/models</code> or the proxy's model list; copy it exactly.\n"
+              "Example: <code>/model add glm-5.3-flash GLM 5.3 Flash</code>\n\n"
+              "<b>/model del</b> <code>id</code>\n"
+              "Takes it back out. You still see every model yourself.\n\n"
+              "━━━━━━━━━━━━━━━━━━━━\n"
+              "👤 <b>Username change requests</b>\n\n"
+              "<b>/renames</b>\n"
+              "Lists members waiting for a new username (they ask from the dashboard).\n\n"
+              "<b>/rename</b> <code>current new</code>\n"
+              "Approves one: changes the login name, closes the request and emails them.\n"
+              "Example: <code>/rename komal komal.iqbal</code>\n\n"
+              "<b>/deny</b> <code>current</code>\n"
+              "Declines the request; they keep their current name.\n\n"
               "━━━━━━━━━━━━━━━━━━━━\n"
               "👥 <b>Members and folders</b>\n\n"
               "<b>/family list</b>\n"
@@ -435,6 +635,23 @@ data:
               return "chat id: <code>%s</code>" % chat_id
           if cmd in ("/sync", "/immich"):
               return cmd_sync()
+          if cmd == "/models":
+              return cmd_models()
+          if cmd == "/model":
+              sub = rest[0].lower() if rest else ""
+              if sub == "add" and len(rest) >= 3:
+                  return cmd_model_add(rest[1:])
+              if sub in ("del", "remove") and len(rest) == 2:
+                  return cmd_model_del(rest[1])
+              return "Usage: <code>/model add &lt;id&gt; &lt;Display Name&gt;</code>  ·  <code>/model del &lt;id&gt;</code>"
+          if cmd in ("/renames", "/requests"):
+              return cmd_renames()
+          if cmd == "/rename":
+              return cmd_rename(rest)
+          if cmd == "/deny":
+              if not rest:
+                  return "Usage: <code>/deny &lt;current-username&gt;</code>"
+              return cmd_deny(rest[0].lower())
           if cmd == "/family":
               sub = rest[0].lower() if rest else "list"
               if sub == "list":
