@@ -18,6 +18,14 @@ controllers:
           # so WebUI's startup doesn't warn; no model ever served from here.
           OLLAMA_BASE_URL: http://localhost:1
           WEBUI_PORT: "8080"
+          # Session signing key. MUST be stable: without it Open WebUI writes a
+          # fresh /app/backend/.webui_secret_key at every container start, which
+          # invalidates every issued JWT — i.e. one pod restart logs everyone out.
+          WEBUI_SECRET_KEY:
+            valueFrom:
+              secretKeyRef:
+                name: open-webui-secret-key
+                key: WEBUI_SECRET_KEY
           # Branding: replaces "Open WebUI" in the page title, splash, and metadata
           WEBUI_NAME: "MySweetPea AI"
           # SSO-only: disable local account creation (Authentik is the only identity source)
