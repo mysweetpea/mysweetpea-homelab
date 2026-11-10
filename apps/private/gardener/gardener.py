@@ -54,9 +54,12 @@ def http(method, url, body=None, headers=None, timeout=60):
 
 
 def tg(chat_id, text):
-    return http("POST", "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_TOKEN,
+    st, _r = http("POST", "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_TOKEN,
                 {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
                  "disable_web_page_preview": True})
+    if st != 200:
+        sys.stderr.write("[gardener] telegram send failed %s: %s\n" % (st, str(_r)[:200]))
+    return st
 
 
 def ak(method, path, body=None):
@@ -296,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:  # noqa: BLE001
                     reply = "⚠️ %s" % html.escape(str(e)[:300])
                 if reply:
+                    sys.stderr.write("[gardener] reply %s: %s\n" % (chat_id, reply[:300]))
                     tg(chat_id, reply)
         self._json(200, {"ok": True})
 
