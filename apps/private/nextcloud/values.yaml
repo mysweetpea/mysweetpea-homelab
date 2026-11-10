@@ -11,6 +11,16 @@ resources:
     memory: 2Gi
 nextcloud:
   host: cloud.mysweetpea.cc
+  # ── Family media volume (bulk seed from the easystore, ~1.03 TiB) ──
+  # Plain local folder here; exposed to the owner via files_external (local).
+  # Kept off the main data volume so the 147 GiB backup target stays usable.
+  extraVolumes:
+    - name: family-media
+      persistentVolumeClaim:
+        claimName: nextcloud-family-media-lh
+  extraVolumeMounts:
+    - name: family-media
+      mountPath: /mnt/family-media
   # ── Performance / previews ──
   # Measured Nov 10: Files page = 250 requests; previews cost ~0.3-0.5 s cold.
   # opcache had only 14 MB of 128 MB free with 74 apps (3.2k scripts) — headroom

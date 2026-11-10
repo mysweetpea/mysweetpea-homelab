@@ -1,0 +1,20 @@
+# Family media seed (easystore, ~1.03 TiB, 50k files, mostly video).
+#
+# Separate volume on purpose: the nightly Longhorn backup target is a 147 GiB
+# VPS volume, so putting 1 TiB into nextcloud-nextcloud-lh would make every
+# backup fail. Media here is deliberately UNBACKED (the easystore stays as the
+# offline copy); everything else in the main data volume keeps its backup.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-family-media-lh
+  namespace: private
+  labels:
+    recurring-job-group.longhorn.io/default: disabled
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1200Gi
