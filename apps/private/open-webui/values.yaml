@@ -89,3 +89,26 @@ persistence:
     - path: /app/build/index.html
       subPath: index.html
       readOnly: true
+  # Branding (allowed: this deployment is far under Open WebUI's 50-user
+  # rebrand threshold). Files come from branding-configmap.yaml and are
+  # overlaid on the image's /app/build/static so image bumps keep working.
+  branding:
+    type: configMap
+    name: open-webui-branding
+    advancedMounts:
+      main:
+        main:
+          - path: /app/build/static/favicon.png
+            subPath: favicon.png
+          - path: /app/build/static/favicon-96x96.png
+            subPath: favicon-96x96.png
+          - path: /app/build/static/favicon.ico
+            subPath: favicon.ico
+          - path: /app/build/static/favicon.svg
+            subPath: favicon.svg
+          - path: /app/build/static/apple-touch-icon.png
+            subPath: apple-touch-icon.png
+          - path: /app/build/static/splash.png
+            subPath: splash.png
+          - path: /app/build/static/splash-dark.png
+            subPath: splash-dark.png
