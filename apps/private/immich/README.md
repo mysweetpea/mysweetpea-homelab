@@ -50,3 +50,24 @@ curl -X POST http://immich.lb:2283/api/libraries/<id>/scan -H "Authorization: Be
 - Import paths must exist; a non-existent path makes the create/update 400.
 - The reconciler is serialised (lock) and repairs drifted paths, not just
   missing libraries.
+
+## Verifying the member experience without a password (2026-11-10)
+
+The web UI is cookie-auth, so you can prove the whole read path with a forged
+session and no OAuth round trip:
+
+1. `token=$(openssl rand -hex 32)`, `hash=$(printf %s "$token" | sha256sum | cut -d' ' -f1)`
+2. `insert into session (id, token, "createdAt","updatedAt","userId","deviceType","deviceOS","appVersion","expiresAt") values (gen_random_uuid(), decode('<hash>','hex'), now(), now(), '<immich userId>', 'WEB','Linux','probe', now() + interval '1 hour');`
+   (the column is **bytea = sha256 of the token**, not the token itself)
+3. API: `curl -H "x-immich-user-token: $token" .../api/users/me` → 200.
+4. Browser: set `immich_access_token` (httpOnly **true**) **and**
+   `immich_is_authenticated=true` (httpOnly **false** — the SPA reads it from
+   `document.cookie`; with httpOnly the app silently bounces to `/auth/login`).
+   Then load `/` → lands on `/photos` with the timeline.
+5. `delete from session where id='<id>'` when done.
+
+External-library scan proof: drop a file in `<uid>/files/Immich Media` on the NC
+PVC, `occ files:scan --path="<uid>/files/Immich Media"`, `POST /api/libraries/<id>/scan?refresh=true`,
+then check `asset` (status active) and `asset_file` (rows of type `preview` +
+`thumbnail`). Thumbnail/original via the API need a **user session** — the
+break-glass key only carries `systemConfig.update` and 403s on assets.
