@@ -381,8 +381,11 @@ spec:
       serviceAccountName: gardener
       initContainers:
         - name: kubectl
-          image: registry.k8s.io/kubectl:v1.33.4
-          command: ["sh", "-c", "cp /bin/kubectl /out/kubectl && chmod +x /out/kubectl"]
+          image: alpine:3.20
+          command:
+            - sh
+            - -c
+            - "wget -qO /out/kubectl https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && chmod +x /out/kubectl"
           volumeMounts:
             - name: bin
               mountPath: /out
