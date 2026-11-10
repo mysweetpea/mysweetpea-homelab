@@ -219,13 +219,16 @@ data:
               raise RuntimeError("immich libraries %s: %s" % (st, str(libs)[:160]))
           by_email = {u["email"].strip().lower(): u for u in users if u.get("email")}
           have = {(l["ownerId"], l["name"]): l for l in libs}
+          members = nc_members()
           changes = []
-          for uid, email in nc_members().items():
+          for uid, email in members.items():
               u = by_email.get(email)
               if not u:
                   continue  # hasn't signed into Immich yet — nothing to attach
               if u.get("quotaSizeInBytes") != MEMBER_QUOTA:
-                  im("PUT", "/api/admin/users/" + u["id"], {"quotaSizeInBytes": MEMBER_QUOTA})
+                  st, r = im("PUT", "/api/admin/users/" + u["id"], {"quotaSizeInBytes": MEMBER_QUOTA})
+                  if st != 200:
+                      raise RuntimeError("quota %s: %s %s" % (email, st, str(r)[:160]))
                   changes.append("quota %s" % email)
               want = media_path(uid)
               lib = have.get((u["id"], MEDIA_FOLDER))
@@ -244,6 +247,12 @@ data:
                   if st != 200:
                       raise RuntimeError("repair library for %s: %s %s" % (email, st, str(r)[:160]))
                   changes.append("repaired path %s" % email)
+          # An Immich account whose email matches no Nextcloud member can only happen
+          # when the two identities drifted (e.g. someone changed their authentik
+          # email) — it would otherwise sit there silently with no library.
+          for email in by_email:
+              if email not in set(members.values()):
+                  sys.stderr.write("[gardener] immich user %s matches no Nextcloud account\n" % email)
           return changes
 
 
