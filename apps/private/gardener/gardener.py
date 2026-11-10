@@ -369,14 +369,25 @@ def cmd_renames():
             html.escape(str(r.get("username", ""))),
             html.escape(str(r.get("desired", ""))),
             ("  <i>%s</i>" % html.escape(str(r.get("email", "")))) if r.get("email") else ""))
-    out += ["", "<i>Approve: /rename &lt;current&gt; &lt;new&gt;\nDecline: /deny &lt;current&gt;</i>"]
+    out += ["", "<i>Approve: /rename &lt;current&gt;\nDecline: /deny &lt;current&gt;</i>"]
     return "\n".join(out)
 
 
 def cmd_rename(args):
-    if len(args) != 2:
-        return "Usage: <code>/rename &lt;current&gt; &lt;new&gt;</code>"
-    old, new = args[0].lower(), args[1].lower()
+    if len(args) not in (1, 2):
+        return "Usage: <code>/rename &lt;current&gt;</code>  (or <code>/rename &lt;current&gt; &lt;new&gt;</code>)"
+    old, new = args[0].lower(), (args[1].lower() if len(args) == 2 else "")
+    if not new:
+        # One word is enough: take the wanted name from the member's request.
+        st, d = dash("GET", "/api/bot/username-requests")
+        if st != 200 or not isinstance(d, dict):
+            return "⚠️ Could not read requests from the dashboard (%s)." % st
+        rec = next((r for r in (d.get("requests") or [])
+                    if str(r.get("username", "")).lower() == old), None)
+        if not rec:
+            return ("No pending request from <code>%s</code>. See <code>/renames</code>, "
+                    "or give the new name: <code>/rename %s newname</code>" % (html.escape(old), html.escape(old)))
+        new = str(rec.get("desired", "")).lower()
     if not re.match(r"^[a-z0-9][a-z0-9._-]{2,29}$", new):
         return ("⚠️ Usernames are 3-30 characters: lowercase letters, digits, "
                 "dot, dash or underscore.")
@@ -434,9 +445,11 @@ def cmd_help(chat):
         "👤 <b>Username change requests</b>\n\n"
         "<b>/renames</b>\n"
         "Lists members waiting for a new username (they ask from the dashboard).\n\n"
-        "<b>/rename</b> <code>current new</code>\n"
-        "Approves one: changes the login name, closes the request and emails them.\n"
-        "Example: <code>/rename komal komal.iqbal</code>\n\n"
+        "<b>/rename</b> <code>current</code>\n"
+        "Approves that member's request: uses the name they asked for, closes the "
+        "request and emails them.\n"
+        "Example: <code>/rename komal</code>\n"
+        "(Override with <code>/rename komal komal.iqbal</code> if they typed it wrong.)\n\n"
         "<b>/deny</b> <code>current</code>\n"
         "Declines the request; they keep their current name.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
