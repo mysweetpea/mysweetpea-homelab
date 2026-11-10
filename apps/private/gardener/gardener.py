@@ -35,7 +35,8 @@ PORT = int(os.environ.get("PORT", "8080"))
 IMMICH_URL = os.environ.get("IMMICH_URL", "http://immich-lb.private.svc.cluster.local:2283")
 IMMICH_KEY = os.environ.get("IMMICH_API_KEY", "")
 MEDIA_FOLDER = "Immich Media"
-MEMBER_QUOTA = 1048576
+MEMBER_QUOTA = 0  # 0 bytes = every upload rejected ("Quota has been exceeded");
+                  # external-library assets do not count, so the viewer still works
 RECONCILE_EVERY = 3600
 _RECONCILE_LOCK = __import__("threading").Lock()
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"
