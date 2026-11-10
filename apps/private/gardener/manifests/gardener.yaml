@@ -177,13 +177,13 @@ data:
           lines = ["<b>Groups</b>"]
           if st == 200:
               for g in d.get("results", []):
-                  if g.get("is_superuser") or g["name"].startswith(("ak-", "authentik")):
+                  name = g["name"]
+                  # Only garden-relevant groups: the two tiers plus family groups.
+                  if name not in ("sweetpea", "seedling") and not name.endswith("-family"):
                       continue
-                  n = len(g.get("users_obj", []) or g.get("users", []) or [])
                   st2, grp = ak("GET", "/core/groups/%s/" % g["pk"])
-                  if st2 == 200:
-                      n = len(grp.get("users_obj", []) or [])
-                  lines.append("• <code>%s</code> — %d" % (html.escape(g["name"]), n))
+                  members = (grp.get("users_obj") or []) if st2 == 200 else []
+                  lines.append("• <code>%s</code> — %d" % (html.escape(name), len(members)))
           lines.append("\n<b>Folders in Shared</b>")
           for f in folder_list():
               lines.append("• %s" % html.escape(f))
