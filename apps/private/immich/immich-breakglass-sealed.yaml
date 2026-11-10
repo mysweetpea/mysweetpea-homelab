@@ -1,0 +1,14 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: immich-breakglass
+  namespace: private
+spec:
+  encryptedData:
+    api-key: AgBzfTDboJ8qN/qrWqg0a7SEa8fpkOS3K+Z2n9P9VU92Z8XZjtyUmh7rbI9fxIACg/cETYx/Dpsg8ylq4UzNM0G/gLyv4/fD7Vu/1p4VhzNbDbMiGn8QYmCUB3rTOo/5F/70Wr4X1FTFeNcf2Q92eGHPE/2dNicZG6Vlxg3xVn0keQel17e4Ax2rI70Ivmu1eCwHa9HfcZ7QHDpjAoqVYH9sAA0bb0SvkB0je0S1IJ6viRmvOSG5IJB6YogBHo5L/pZRt/gymHMzfsgKMFDkk2wpwBUGwHUi2i0ekSD1eTr9o0YVFBu/+i2ka1mXQYTl+jQTHeOnGufIL/YWDj2Mf34TBh6w8mzTI28u8KG4bN/TuYImEnJAakh/dUwBBic9JhUdAayI3ErYUWjvx5S/M9c2jeP+MUpjaSjd9d7RyrkKaIsZKvy7+1aHT6DDuIKwBFpWB2R7WbUkNClDJABwkckI2M5doLnf0FvzypJteXriAQbTlzRnXXlK2lmuubAiXvX2UvmBLRA5/bLb9hEhHi10YvXUcWytCBLAKGomj4qWBE5+EDss/gdQ8WvOpkSL43QeFeyHk5NNDiTEwFKSQnSeQJU4Tp2+F2Ta+2x86rmF3/sdNeVGaGm9AtrWSKYd/zSn5zMPx96hOvkNEr1vzFpcnqRLVNPa6PqB1idQjiIoMdkKetTNkWkbyo0JswK5II8RnZYWyiQTt/Z2xhSVud8bcJ1C5URaHU2fgpfTITauAvFi/YnEi6XqPg==
+  template:
+    metadata:
+      name: immich-breakglass
+      namespace: private
+    type: Opaque
