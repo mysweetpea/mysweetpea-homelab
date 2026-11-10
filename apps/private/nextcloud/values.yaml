@@ -11,6 +11,41 @@ resources:
     memory: 2Gi
 nextcloud:
   host: cloud.mysweetpea.cc
+  # ── Performance / previews ──
+  # Measured Nov 10: Files page = 250 requests; previews cost ~0.3-0.5 s cold.
+  # opcache had only 14 MB of 128 MB free with 74 apps (3.2k scripts) — headroom
+  # so app updates can't evict/restart the cache.
+  phpConfigs:
+    99-mysweetpea-perf.ini: |
+      opcache.memory_consumption=256
+      opcache.max_accelerated_files=32531
+      opcache.interned_strings_buffer=64
+  configs:
+    # Stock providers have no HEIC — every iPhone photo showed a generic icon
+    # and clients fell back to "download to view". Stock also includes
+    # OpenDocument, which can never work here (no LibreOffice in the image) and
+    # only wastes a request per office file. Cap previews at 2560 px: 4096 px
+    # previews cost ~4x the memory/time when generated.
+    previews.config.php: |
+      <?php
+      $CONFIG = array (
+        'enable_previews' => true,
+        'preview_max_x' => 2560,
+        'preview_max_y' => 2560,
+        'enabledPreviewProviders' => array (
+          'OC\Preview\PNG',
+          'OC\Preview\JPEG',
+          'OC\Preview\GIF',
+          'OC\Preview\BMP',
+          'OC\Preview\XBitmap',
+          'OC\Preview\Krita',
+          'OC\Preview\WebP',
+          'OC\Preview\HEIC',
+          'OC\Preview\TIFF',
+          'OC\Preview\MarkDown',
+          'OC\Preview\TXT',
+        ),
+      );
   username: admin
   existingSecret:
     enabled: true
