@@ -119,3 +119,23 @@ machine-learning:
       type: persistentVolumeClaim
       accessMode: ReadWriteOnce
       storageClass: longhorn
+
+# ──────────────────────────────────────────────
+# Pure-viewer mode: Immich reads the Nextcloud volume, never writes it.
+# The Nextcloud PVC is RWO Longhorn and attached on k3s-master, so every
+# Immich pod must land on that node or the CSI driver refuses the second attach.
+# ──────────────────────────────────────────────
+defaultPodOptions:
+  nodeSelector:
+    kubernetes.io/hostname: k3s-master
+
+persistence:
+  nextcloud:
+    enabled: true
+    type: persistentVolumeClaim
+    existingClaim: nextcloud-nextcloud-lh
+    advancedMounts:
+      main:
+        main:
+        - path: /nextcloud
+          readOnly: true
