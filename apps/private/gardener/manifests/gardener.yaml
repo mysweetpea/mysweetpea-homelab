@@ -71,6 +71,13 @@ data:
       BASE_SLUG = os.environ.get("BASE_SLUG", "sweetpea")
       NS = os.environ.get("NAMESPACE", "private")
       PORT = int(os.environ.get("PORT", "8080"))
+      # Immich "pure viewer" plumbing: every member gets a library over their own
+      # Nextcloud folder, and a 1 MB quota that makes uploads impossible.
+      IMMICH_URL = os.environ.get("IMMICH_URL", "http://immich-lb.private.svc.cluster.local:2283")
+      IMMICH_KEY = os.environ.get("IMMICH_API_KEY", "")
+      MEDIA_FOLDER = "Immich Media"
+      MEMBER_QUOTA = 1048576
+      RECONCILE_EVERY = 3600
       UA = "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"
       SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
       FILES_DIR = "/var/www/html/data/__groupfolders/%s/files" % FOLDER_ID
@@ -161,6 +168,86 @@ data:
           return [x for x in out.splitlines() if x.strip()]
 
 
+      # ------------------------------------------------------- immich reconcile
+      # Immich is a pure viewer over Nextcloud: every member's library points at
+      # their own "Immich Media" folder, uploads blocked by quota. Members get an
+      # Immich account the first time they sign in with SSO; this loop attaches the
+      # library to accounts that don't have one yet.
+
+      def media_path(uid):
+          return "/nextcloud/data/%s/files/%s" % (uid, MEDIA_FOLDER)
+
+
+      def im(method, path, body=None):
+          return http(method, IMMICH_URL + path, body, {"x-api-key": IMMICH_KEY})
+
+
+      def nc_members():
+          """uid -> email for every real member (sweetpea tier), local admin excluded."""
+          raw = occ("user:list", "--info", "--output=json")
+          data = json.loads(raw)
+          sweet = gid(BASE_SLUG)
+          out = {}
+          for uid, info in data.items():
+              if uid == "admin" or not info.get("email"):
+                  continue
+              if sweet not in (info.get("groups") or []):
+                  continue
+              out[uid] = info["email"].strip().lower()
+          return out
+
+
+      def reconcile():
+          """Attach a library (and the upload-blocking quota) to every member who has
+          signed into Immich. Idempotent; returns a list of human-readable changes."""
+          if not IMMICH_KEY:
+              return ["skipped: IMMICH_API_KEY not set"]
+          st, users = im("GET", "/api/admin/users")
+          if st != 200 or not isinstance(users, list):
+              raise RuntimeError("immich users %s: %s" % (st, str(users)[:160]))
+          st, libs = im("GET", "/api/libraries")
+          if st != 200 or not isinstance(libs, list):
+              raise RuntimeError("immich libraries %s: %s" % (st, str(libs)[:160]))
+          by_email = {u["email"].strip().lower(): u for u in users if u.get("email")}
+          have = {(l["ownerId"], l["name"]) for l in libs}
+          changes = []
+          for uid, email in nc_members().items():
+              u = by_email.get(email)
+              if not u:
+                  continue  # hasn't signed into Immich yet — nothing to attach
+              if u.get("quotaSizeInBytes") != MEMBER_QUOTA:
+                  im("PUT", "/api/admin/users/" + u["id"], {"quotaSizeInBytes": MEMBER_QUOTA})
+                  changes.append("quota %s" % email)
+              if (u["id"], MEDIA_FOLDER) not in have:
+                  st, r = im("POST", "/api/libraries", {"ownerId": u["id"], "name": MEDIA_FOLDER,
+                                                        "importPaths": [media_path(uid)],
+                                                        "exclusionPatterns": ["**/README.txt"]})
+                  if st not in (200, 201):
+                      raise RuntimeError("create library for %s: %s %s" % (email, st, str(r)[:160]))
+                  changes.append("library %s" % email)
+          return changes
+
+
+      def reconcile_loop():
+          import time
+          time.sleep(90)  # let the pod finish starting before the first sweep
+          while True:
+              try:
+                  ch = reconcile()
+                  if ch:
+                      sys.stderr.write("[gardener] reconcile: %s\n" % ", ".join(ch))
+              except Exception as e:  # noqa: BLE001
+                  sys.stderr.write("[gardener] reconcile failed: %s\n" % str(e)[:200])
+              time.sleep(RECONCILE_EVERY)
+
+
+      def cmd_sync():
+          ch = reconcile()
+          if not ch:
+              return "✅ <b>Immich sync</b>\nNothing to do — every member who has signed in already has their library."
+          return "✅ <b>Immich sync</b>\n" + "\n".join("• " + html.escape(c) for c in ch)
+
+
       def cmd_help(chat):
           return (
               "🌿 <b>Gardener Admin</b>\n"
@@ -192,6 +279,8 @@ data:
               "see this sub-folder; nobody else is told it exists.\n\n"
               "━━━━━━━━━━━━━━━━━━━━\n"
               "⚙️ <b>Housekeeping</b>\n\n"
+              "<b>/sync</b> — attach a photo library to any member who has signed into\n"
+              "Immich but has none yet (also runs by itself every hour)\n"
               "<b>/whoami</b> — your Telegram chat id (needed to authorise another device)\n"
               "<b>/help</b> — this page\n\n"
               "<i>Only the admin account can use these commands.</i>"
@@ -316,6 +405,8 @@ data:
               return cmd_help(chat_id)
           if cmd == "/whoami":
               return "chat id: <code>%s</code>" % chat_id
+          if cmd in ("/sync", "/immich"):
+              return cmd_sync()
           if cmd == "/family":
               sub = rest[0].lower() if rest else "list"
               if sub == "list":
@@ -385,6 +476,8 @@ data:
 
       def selftest():
           assert gid("sweetpea") == "f09715042ac606bdbacdea360bc6008bc45e8da27a59ad3a0909580727304304"
+          assert media_path("abc") == "/nextcloud/data/abc/files/Immich Media"
+          assert reconcile.__doc__ and "Idempotent" in reconcile.__doc__
           assert SLUG_RE.match("iqbal-family") and not SLUG_RE.match("Bad Slug")
           assert dispatch("", 1) is None
           assert "chat id" in dispatch("/whoami", 42)
@@ -399,6 +492,8 @@ data:
           if "--selftest" in sys.argv:
               selftest()
               sys.exit(0)
+          import threading
+          threading.Thread(target=reconcile_loop, daemon=True).start()
           ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 ---
 apiVersion: apps/v1
