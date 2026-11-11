@@ -1,0 +1,110 @@
+# Jupyter kernel host for Open WebUI's Code Interpreter.
+#
+# Why: the models themselves cannot emit a .pdf/.pptx — they emit *code*.
+# OWUI's code interpreter runs that code in a kernel and hands the resulting
+# file back to the chat. Without this, "make me a powerpoint" produces a
+# python script the member then has to run themselves.
+#
+# Reachable only from the open-webui pods (netpol below); no LoadBalancer,
+# no service-account token, no persistence (kernels hold throwaway files).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter
+  namespace: private
+  labels:
+    app: jupyter
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jupyter
+  template:
+    metadata:
+      labels:
+        app: jupyter
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 100
+        fsGroup: 100
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: jupyter
+        # scipy-notebook ships pandas/numpy/matplotlib; the four extras below
+        # are what documents and decks actually need. Installed at start (~20 s)
+        # to avoid hosting our own image registry.
+        image: quay.io/jupyter/scipy-notebook:python-3.13.18
+        command: ["bash", "-lc"]
+        args:
+        - |
+          pip install --no-cache-dir --quiet python-pptx python-docx openpyxl reportlab \
+          && exec start-notebook.sh \
+               --ServerApp.token=$(JUPYTER_TOKEN) \
+               --ServerApp.password='' \
+               --ServerApp.allow_origin='*' \
+               --ServerApp.disable_check_xsrf=True \
+               --ServerApp.base_url=/ \
+               --ServerApp.ip=0.0.0.0 \
+               --ServerApp.port=8888
+        env:
+        - name: JUPYTER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: jupyter-token
+              key: token
+        ports:
+        - containerPort: 8888
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+        readinessProbe:
+          httpGet:
+            path: /api
+            port: 8888
+          initialDelaySeconds: 20
+          periodSeconds: 15
+          failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyter
+  namespace: private
+spec:
+  selector:
+    app: jupyter
+  ports:
+  - name: http
+    port: 8888
+    targetPort: 8888
+---
+# only Open WebUI may open kernels; nothing else in the cluster talks to this
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-open-webui-jupyter
+  namespace: private
+spec:
+  podSelector:
+    matchLabels:
+      app: jupyter
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: open-webui
+    ports:
+    - port: 8888
+      protocol: TCP
