@@ -3,6 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: immich-library-lh
   namespace: private
+  annotations:
+    # Same trap as the nextcloud family-media PVC: during the Nov 11 control
+    # plane outage ArgoCD's target state came back empty and it pruned this,
+    # wiping Immich's folder markers and crash-looping the server.
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes: ["ReadWriteOnce"]
   storageClassName: longhorn
