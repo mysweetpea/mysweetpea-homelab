@@ -50,7 +50,9 @@ spec:
                --ServerApp.disable_check_xsrf=True \
                --ServerApp.base_url=/ \
                --ServerApp.ip=0.0.0.0 \
-               --ServerApp.port=8888
+               --ServerApp.port=8888 \
+               --MappingKernelManager.cull_idle_timeout=600 \
+               --MappingKernelManager.cull_interval=60
         env:
         - name: JUPYTER_TOKEN
           valueFrom:
