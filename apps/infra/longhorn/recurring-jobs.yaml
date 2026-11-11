@@ -46,3 +46,22 @@ spec:
   labels:
     app: mysweetpea
     type: trim
+---
+# Local snapshots are restore points that cost replica space (measured Nov 2026:
+# 8 per volume, one of them 15 G). Backups already live in the store, so keep a
+# single local snapshot instead of five.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: daily-snapshot
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * *"
+  task: snapshot
+  groups:
+    - default
+  retain: 1
+  concurrency: 2
+  labels:
+    app: mysweetpea
+    type: snapshot
