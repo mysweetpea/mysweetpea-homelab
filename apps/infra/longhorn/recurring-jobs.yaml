@@ -65,3 +65,22 @@ spec:
   labels:
     app: mysweetpea
     type: snapshot
+---
+# Purging snapshots is a separate step from marking them removed: retention
+# marks, this reclaims. Without it the replica files keep the blocks forever
+# (a 16 GiB replica held 27 G of marked-removed snapshots until this ran).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-cleanup
+  namespace: longhorn-system
+spec:
+  cron: "30 3 * * *"
+  task: snapshot-cleanup
+  groups:
+    - default
+  retain: 1
+  concurrency: 2
+  labels:
+    app: mysweetpea
+    type: cleanup
