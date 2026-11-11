@@ -8,6 +8,7 @@ metadata:
   annotations:
     argocd-image-updater.argoproj.io/image-list: nextcloud=docker.io/nextcloud
     argocd-image-updater.argoproj.io/nextcloud.update-strategy: semver
+    argocd-image-updater.argoproj.io/nextcloud.allow-tags: regexp:^35\.
     argocd-image-updater.argoproj.io/nextcloud.helm.image-spec: controllers.main.containers.main.image
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git.repository: git@github.com:mysweetpea/mysweetpea-homelab.git
