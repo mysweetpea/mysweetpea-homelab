@@ -37,6 +37,18 @@ loki:
     enabled: true
 
 deploymentMode: SingleBinary
+# Loki's memcached chunks cache defaulted to 8 GiB (-m 8192, request 9830Mi) on
+# a 15 GiB master VM — it grew until the node ran out of memory and swap, took
+# kubelet down (Nov 11 06:40 outage) and only a reboot recovered it. 1 GiB is
+# ample for a homelab query cache across 14 days of logs.
+chunksCache:
+  allocatedMemory: 1024
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1024Mi
+    limits:
+      memory: 1280Mi
 singleBinary:
   replicas: 1
   resources:
