@@ -7,7 +7,7 @@
 #                  still applied from recurring-job-daily-snapshot.yaml).
 # daily-backup   — 04:00, block-level backup of ALL volumes to the VPS NFS target
 #                  (nfs://100.82.13.16:/export/longhorn-backups/cluster over NetBird),
-#                  retain 7.
+#                  retain 3 (was 7 - the target ran permanently full).
 # weekly-trim    — Sunday 05:00, filesystem-trim on all volumes: returns deleted-file
 #                  blocks to Longhorn (fstrim-equivalent that also handles
 #                  snapshot-referenced space). Without it, churn-heavy volumes
@@ -23,7 +23,10 @@ spec:
   task: backup
   groups:
     - default
-  retain: 7
+  # 7 kept the target permanently full (147G/147G on 2026-11-11, nightly
+  # backups silently failing). 3 daily + 2 weekly + 2 monthly elsewhere gives
+  # a week of coverage with room to write.
+  retain: 3
   concurrency: 2
   labels:
     app: mysweetpea
