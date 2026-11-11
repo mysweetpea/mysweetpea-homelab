@@ -25,6 +25,11 @@ spec:
     metadata:
       labels:
         app: jupyter
+      annotations:
+        # pod-level appArmorProfile is dropped by this k3s build; the legacy
+        # annotation is honoured. Without it signal(2) between same-UID
+        # processes is EACCES and Jupyter can never stop a kernel.
+        container.apparmor.security.beta.kubernetes.io/jupyter: unconfined
     spec:
       automountServiceAccountToken: false
       securityContext:
