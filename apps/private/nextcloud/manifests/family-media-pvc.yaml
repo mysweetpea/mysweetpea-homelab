@@ -11,6 +11,11 @@ metadata:
   namespace: private
   labels:
     recurring-job-group.longhorn.io/default: disabled
+  annotations:
+    # ArgoCD pruned this PVC during the Nov 11 control-plane outage (target
+    # state came back empty while repo-server was down) and took the volume
+    # with it. Never prune a data PVC.
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteOnce
