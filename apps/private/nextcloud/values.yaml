@@ -134,8 +134,14 @@ nextcloud:
           name: nextcloud-redis
           key: redis-password
     volumeMounts:
+    # Only the two paths the binary needs. Mounting the whole volume here let a
+    # sidecar with a different image tag overwrite lib/ and apps/ (Nov 2026).
     - name: nextcloud-main
-      mountPath: /var/www/html
+      mountPath: /var/www/html/custom_apps
+      subPath: custom_apps
+    - name: nextcloud-main
+      mountPath: /var/www/html/config
+      subPath: config
     resources:
       requests:
         cpu: 20m
