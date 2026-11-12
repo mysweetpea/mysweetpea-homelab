@@ -32,7 +32,7 @@ BASE_SLUG = os.environ.get("BASE_SLUG", "sweetpea")
 NS = os.environ.get("NAMESPACE", "private")
 PORT = int(os.environ.get("PORT", "8080"))
 # Immich "pure viewer" plumbing: every member gets a library over their own
-# Nextcloud folder, and a 1 MB quota that makes uploads impossible.
+# Nextcloud folder, and a 0-byte quota that makes uploads impossible.
 IMMICH_URL = os.environ.get("IMMICH_URL", "http://immich-lb.private.svc.cluster.local:2283")
 IMMICH_KEY = os.environ.get("IMMICH_API_KEY", "")
 MEDIA_FOLDER = "Immich Media"
@@ -226,6 +226,12 @@ def media_path(uid):
     return "/nextcloud/data/%s/files/%s" % (uid, MEDIA_FOLDER)
 
 
+def ensure_media_folder(uid):
+    # Repair real storage before Immich validates the import path (400 on ENOENT).
+    path = "data/%s/files/%s" % (uid, MEDIA_FOLDER)
+    nc_sh("install -d -o www-data -g www-data -- " + shlex.quote(path))
+
+
 def im(method, path, body=None):
     return http(method, IMMICH_URL + path, body, {"x-api-key": IMMICH_KEY})
 
@@ -271,6 +277,7 @@ def _reconcile_locked():
         u = by_email.get(email)
         if not u:
             continue  # hasn't signed into Immich yet — nothing to attach
+        ensure_media_folder(uid)
         if u.get("quotaSizeInBytes") != MEMBER_QUOTA:
             st, r = im("PUT", "/api/admin/users/" + u["id"], {"quotaSizeInBytes": MEMBER_QUOTA})
             if st != 200:
@@ -285,8 +292,8 @@ def _reconcile_locked():
             if st not in (200, 201):
                 raise RuntimeError("create library for %s: %s %s" % (email, st, str(r)[:160]))
             changes.append("library %s" % email)
-        elif want not in (lib.get("importPaths") or []):
-            # drift: library exists but points somewhere else — repair it
+        elif sorted(lib.get("importPaths") or []) != [want]:
+            # Exact ownership boundary: drop unexpected paths and repair missing ones.
             st, r = im("PUT", "/api/libraries/" + lib["id"],
                        {"name": MEDIA_FOLDER, "importPaths": [want],
                         "exclusionPatterns": ["**/README.txt"]})
@@ -702,6 +709,26 @@ def selftest():
     assert "Unknown" in dispatch("/family nope", 1)
     assert "Usage" in dispatch("/family new", 1)
     assert "Bad slug" in dispatch("/family new BAD name", 1)
+    # Reconcile removes an unexpected cross-member path and creates the real dir.
+    calls = []
+    def fake_im(method, path, body=None):
+        calls.append((method, path, body))
+        if path == "/api/admin/users":
+            return 200, [{"id": "u1", "email": "member@example.invalid", "quotaSizeInBytes": 0}]
+        if path == "/api/libraries":
+            return 200, [{"id": "l1", "ownerId": "u1", "name": MEDIA_FOLDER,
+                          "importPaths": ["/nextcloud/data/other/files/Immich Media"]}]
+        return 200, {}
+    saved = (im, nc_members, nc_sh)
+    globals()["im"] = fake_im
+    globals()["nc_members"] = lambda: {"abc": "member@example.invalid"}
+    globals()["nc_sh"] = lambda cmd: calls.append(("nc", cmd, None)) or ""
+    try:
+        _reconcile_locked()
+    finally:
+        globals()["im"], globals()["nc_members"], globals()["nc_sh"] = saved
+    assert any(c[0] == "PUT" and c[2]["importPaths"] == [media_path("abc")] for c in calls)
+    assert any(c[0] == "nc" and "data/abc/files/Immich Media" in c[1] for c in calls)
     print("selftest ok")
 
 

@@ -17,7 +17,7 @@ authentik SSO
 | Read-only mount of the Nextcloud volume | `values.yaml` → `persistence.nextcloud` (`existingClaim: nextcloud-nextcloud-lh`, `readOnly: true`) at `/nextcloud` |
 | Node pinning | `defaultPodOptions.nodeSelector: k8s-master` — the NC volume is **RWO** and attached there; a second node would Multi-Attach |
 | SSO | Immich OAuth against `https://auth.mysweetpea.cc/application/o/immich/` (provider 26); password login **disabled** (SSO only) |
-| Upload block | per-user quota `0` bytes → every upload returns "Quota has been exceeded"; external assets do not count against quota |
+| Upload block | New accounts inherit `oauth.defaultStorageQuota=0`; Gardener also enforces per-user quota `0` bytes → every upload returns "Quota has been exceeded"; external assets do not count against quota |
 | Library per member | Gardener reconciler (`/sync`, hourly) attaches `Immich Media` to any member who has signed in |
 | Member folder | `Immich Media/` inside their files, seeded from the Nextcloud skeleton so every new account gets it |
 | Break-glass | SealedSecret `immich-breakglass` (API key with `systemConfig.update`) |
@@ -49,7 +49,16 @@ curl -X POST http://immich.lb:2283/api/libraries/<id>/scan -H "Authorization: Be
   `/api/search/metadata` or the DB, not that field.
 - Import paths must exist; a non-existent path makes the create/update 400.
 - The reconciler is serialised (lock) and repairs drifted paths, not just
-  missing libraries.
+  missing libraries. It also recreates a missing Nextcloud folder and replaces
+  the complete import-path list, so an unexpected extra member path is removed.
+- If DB rows advertise derivatives but their files are missing, regenerate them
+  with an admin session: `PUT /api/jobs/thumbnailGeneration` with
+  `{"command":"start","force":true}`. Immich queues only non-deleted,
+  non-hidden assets; verify every visible `asset_file` path exists afterwards.
+  This writes derived images only and never changes the Nextcloud originals.
+- New-account `oauth.defaultStorageQuota` is Immich DB state (not chart values).
+  After a fresh DB restore, set it back to `0` with the break-glass key and a
+  full `GET /api/system-config` → `PUT /api/system-config` round trip.
 
 ## Verifying the member experience without a password (2026-11-10)
 

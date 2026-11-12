@@ -69,6 +69,18 @@ nextcloud:
       #!/bin/sh
       # Self-healing Authentik OIDC provider config (idempotent, runs on every pod start)
       set -eu
+      # New members get the viewer folder even before Gardener's first reconcile.
+      # The folder and its README are seeded as real files, not just DB records.
+      skeleton="$(php /var/www/html/occ config:system:get skeletondirectory)"
+      mkdir -p "$skeleton/Immich Media"
+      cat > "$skeleton/Immich Media/README.txt" <<'README'
+      Immich is a viewer for this Nextcloud folder.
+
+      Add, move, or delete your photos and videos in Nextcloud, not in Immich.
+      Uploads are disabled in Immich. Your originals stay in this folder.
+      Deleting an item in Immich only hides it there; it does not delete the Nextcloud file.
+      Albums, favorites, and people are Immich-only.
+      README
       # mysweetpea: entrypoint may skip occ upgrade if installed_version looks current after an
       # interrupted migration; force it (idempotent, no-op when not needed).
       php /var/www/html/occ upgrade || true
@@ -81,14 +93,14 @@ nextcloud:
         php /var/www/html/occ app:enable user_oidc
       else
         echo "==> user_oidc not yet registered (pending occ upgrade) — skipping provider reconfig"
-        exit 0
       fi
+      if php /var/www/html/occ list user_oidc >/dev/null 2>&1; then
       php /var/www/html/occ user_oidc:provider authentik \
         --clientid="FmxfSIcs2A5dPUQxfeaYhFfbdwytpjFMS1YHtWGh" \
         --clientsecret-file="/run/secrets/nextcloud-oidc/client-secret" \
         --discoveryuri="https://auth.mysweetpea.cc/application/o/nextcloud/.well-known/openid-configuration" \
         --endsessionendpointuri="https://auth.mysweetpea.cc/application/o/nextcloud/end-session/" \
-        --scope="openid email profile groups" \
+        --scope="openid email profile groups offline_access" \
         --unique-uid=1 \
         --mapping-display-name=name \
         --mapping-email=email \
@@ -96,15 +108,22 @@ nextcloud:
         --mapping-groups=groups \
         --group-provisioning=1 \
         --group-whitelist-regex="^(sweetpea|seedling|iqbal-family|[0-9a-f]{64})$"
-      # Ensure the SSO user (created on first Authentik login) is in the admin group
-      SSO_UID=$(php /var/www/html/occ user:list --output=json | php -r '$d=json_decode(stream_get_contents(STDIN), true); foreach ($d as $uid => $name) { if ($name === "authentik Default Admin") { echo $uid; break; } }')
-      if [ -n "$SSO_UID" ]; then
-        php /var/www/html/occ group:adduser admin "$SSO_UID" || true
+      # Stable Nextcloud UID mapped from the owner's Authentik `sub`; a display
+      # name is user-editable and must never grant administrator privileges.
+      OWNER_NC_UID="b3e2c6bba0ff9f575cdda56c7eeb8426fbf1f27aab57181f820f01248ab2fef2"
+      if php /var/www/html/occ user:info "$OWNER_NC_UID" >/dev/null 2>&1; then
+        php /var/www/html/occ group:adduser admin "$OWNER_NC_UID"
       fi
       echo "==> mysweetpea: OIDC provider config OK"
+      fi
       # Long-lived sessions: 14d PHP session, 30d remember-me cookie (idempotent)
       php /var/www/html/occ config:system:set session_lifetime --value=1209600 >/dev/null
       php /var/www/html/occ config:system:set remember_login_cookie_lifetime --value=7776000 >/dev/null
+      # Needed for OIDC session revalidation and prompt revocation handling.
+      php /var/www/html/occ config:system:set store_login_token --value=1 --type=integer >/dev/null
+      # Memories 10.x reads this as a SYSTEM boolean, not an app-config value.
+      # The image has /usr/bin/perl; this avoids the unused bundled eperl wrapper.
+      php /var/www/html/occ config:system:set memories.exiftool_no_local --value=true --type=boolean >/dev/null
       echo "==> mysweetpea: session lifetimes OK"
   extraVolumes:
   - name: nextcloud-oidc
