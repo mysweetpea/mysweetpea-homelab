@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: terminal-provisioner
+  namespace: private
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          serviceAccountName: terminal-provisioner
+          restartPolicy: Never
+          initContainers:
+            - name: kubectl
+              image: alpine:3.20
+              command:
+                - sh
+                - -c
+                - wget -qO /tools/kubectl https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && chmod +x /tools/kubectl
+              volumeMounts:
+                - name: tools
+                  mountPath: /tools
+          containers:
+            - name: provisioner
+              image: python:3.12-alpine
+              command: ["python3", "/app/provisioner.py"]
+              env:
+                - name: PATH
+                  value: /tools:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
+                - name: NAMESPACE
+                  value: private
+              volumeMounts:
+                - name: tools
+                  mountPath: /tools
+                - name: src
+                  mountPath: /app
+          volumes:
+            - name: tools
+              emptyDir: {}
+            - name: src
+              configMap:
+                name: terminal-provisioner-src
