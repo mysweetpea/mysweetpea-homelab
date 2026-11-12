@@ -32,8 +32,50 @@ db = sqlite3.connect('/app/backend/data/webui.db')
 users = [{"id": i, "email": e, "name": (n or e.split('@')[0]), "role": r}
          for i, e, n, r in db.execute("select id, email, name, role from user")]
 row = db.execute("select value from config where key='terminal_server.connections'").fetchone()
-print(json.dumps({"users": users,
+models = []
+for mid, base, name, params, meta in db.execute(
+        "select id, base_model_id, name, params, meta from model where base_model_id is null and is_active=1"):
+    models.append({"id": mid, "name": name, "params": params, "meta": meta})
+print(json.dumps({"users": users, "models": models,
                   "connections": json.loads(row[0]) if row and row[0] else []}))
+"""
+
+MODEL_PY = r"""
+import json, sqlite3, sys, time, uuid
+payload = json.load(sys.stdin)
+db = sqlite3.connect('/app/backend/data/webui.db')
+now = int(time.time())
+for clone in payload["clones"]:
+    row = db.execute("select id from model where id=?", (clone["id"],)).fetchone()
+    if row:
+        db.execute("update model set base_model_id=?, name=?, params=?, meta=?, is_active=1, updated_at=? where id=?",
+                   (clone["base_model_id"], clone["name"], clone["params"], clone["meta"], now, clone["id"]))
+    else:
+        db.execute("insert into model (id, user_id, base_model_id, name, params, meta, updated_at, created_at, is_active, version_id) "
+                   "values (?,?,?,?,?,?,?,?,1,?)",
+                   (clone["id"], clone["user_id"], clone["base_model_id"], clone["name"],
+                    clone["params"], clone["meta"], now, now, str(uuid.uuid4())))
+    db.execute("delete from access_grant where resource_type='model' and resource_id=? and principal_type='user' and principal_id=?",
+               (clone["id"], clone["principal_id"]))
+    db.execute("insert into access_grant (id, resource_type, resource_id, principal_type, principal_id, permission, created_at) "
+               "values (?,?,?,?,?,?,?)",
+               (str(uuid.uuid4()), 'model', clone["id"], 'user', clone["principal_id"], 'read', now))
+
+# Base models stay visible to admins only once every member has their own copies;
+# otherwise members would see the same model twice, one of them without a terminal.
+if payload.get("clones") and payload.get("base_ids"):
+    for bid in payload["base_ids"]:
+        db.execute("delete from access_grant where resource_type='model' and resource_id=? "
+                   "and principal_type='user' and principal_id='*'", (bid,))
+        for aid in payload.get("admin_ids", []):
+            exists = db.execute("select 1 from access_grant where resource_type='model' and resource_id=? "
+                                "and principal_type='user' and principal_id=?", (bid, aid)).fetchone()
+            if not exists:
+                db.execute("insert into access_grant (id, resource_type, resource_id, principal_type, principal_id, permission, created_at) "
+                           "values (?,?,?,?,?,?,?)",
+                           (str(uuid.uuid4()), 'model', bid, 'user', aid, 'read', now))
+db.commit()
+print("models synced:", len(payload["clones"]))
 """
 
 WRITE_PY = r"""
@@ -246,6 +288,35 @@ def main():
     # or anything added by hand in the UI).
     kept = [c for c in conns if not MEMBER_ID.match(str(c.get("id", "")))]
     merged = kept + wanted
+
+    # Per-member model presets: the chat picks its terminal from the selected
+    # model's meta.terminalId, so each member needs their own copy of each base
+    # model pointing at their own terminal.
+    bases = state.get("models", [])
+    admins = [u["id"] for u in state["users"] if u["role"] == "admin"]
+    clones = []
+    for user in members:
+        slug = slug_for(user["id"])
+        for base in bases:
+            meta = json.loads(base.get("meta") or "{}")
+            meta["terminalId"] = f"term-{slug}"
+            clones.append({
+                "id": f"{base['id']}.{slug}",
+                "base_model_id": base["id"],
+                "name": base["name"],
+                "params": base.get("params") or "{}",
+                "meta": json.dumps(meta),
+                "user_id": admins[0] if admins else user["id"],
+                "principal_id": user["id"],
+            })
+    if clones:
+        if DRY:
+            print(f"would sync {len(clones)} model presets:", [c["id"] for c in clones][:4])
+        else:
+            kubectl("exec", "-i", OWUI_DEPLOY, "--", "python", "-c", MODEL_PY,
+                    stdin=json.dumps({"clones": clones, "base_ids": [b["id"] for b in bases],
+                                      "admin_ids": admins}))
+            print(f"model presets synced: {len(clones)}")
 
     stale = [c for c in conns
              if MEMBER_ID.match(str(c.get("id", "")))
