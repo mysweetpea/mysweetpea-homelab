@@ -24,3 +24,8 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      # The ImageUpdater CR rewrites its own status constantly; a client-side apply races it
+      # and fails with `metadata.resourceVersion: Invalid value: 0` (retried forever, app stuck
+      # OutOfSync). Server-side apply takes field ownership instead of a whole-object patch.
+      - ServerSideApply=true
