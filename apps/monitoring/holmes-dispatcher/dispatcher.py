@@ -232,8 +232,26 @@ def parse_verdict(raw):
 # ONE incident. First alert of a burst pages immediately (never delayed); everything else
 # in the same PAGE_WINDOW ships as a single digest when the window closes.
 PAGE_WINDOW = int(os.environ.get("PAGE_WINDOW", "180"))
+# A flapping service (openwebui was 11 escalations in 3 days) must not page every time.
+# Same alert name: page at most once per REPEAT_HOURS, log the rest.
+REPEAT_HOURS = float(os.environ.get("REPEAT_HOURS", "6"))
+# Holmes is a single process serving a single model; a 23-alert burst fired 23 concurrent
+# requests and most died at ASK_TIMEOUT ("timed out" x40 in 3 days). Queue them instead.
+MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", "6"))
+_slots = threading.Semaphore(MAX_CONCURRENT)
+_paged_at = {}
+_page_seen_lock = threading.Lock()
 _pg = {"window_start": 0.0, "extra": [], "timer": None}
 _pg_lock = threading.Lock()
+
+
+def repeat_suppressed(name):
+    now = time.time()
+    with _page_seen_lock:
+        if now - _paged_at.get(name, 0) < REPEAT_HOURS * 3600:
+            return True
+        _paged_at[name] = now
+        return False
 
 
 def page(title, body, priority=8):
@@ -267,6 +285,11 @@ def flush_pages():
 
 
 def handle(alert):
+    with _slots:            # queue behind in-flight analyses instead of flooding Holmes
+        _handle(alert)
+
+
+def _handle(alert):
     started = time.time()
     try:
         resp = ask(alert)
@@ -294,7 +317,10 @@ def handle(alert):
         # put the gotify() call back if you ever want a p3 "Homelab fixed: …" ping.
         log(event="fixed", alert=alert["name"], summary=summary)
     elif v == "escalate":
-        page("Homelab needs you: %s" % alert["name"], "%s\n\n%s" % (summary, action))
+        if repeat_suppressed(alert["name"]):
+            log(event="page_suppressed", alert=alert["name"], summary=summary[:200])
+        else:
+            page("Homelab needs you: %s" % alert["name"], "%s\n\n%s" % (summary, action))
     # noop: silent
 
 
@@ -379,6 +405,14 @@ if __name__ == "__main__":
         flush_pages()
         assert len(sent) == 2 and "2 more" in sent[1][0] and "- b:" in sent[1][1], sent
         assert _pg["timer"] is None and _pg["extra"] == []
+
+        # repeat suppression: same alert pages once per REPEAT_HOURS
+        _paged_at.clear()
+        assert repeat_suppressed("openwebui") is False     # first time -> page
+        assert repeat_suppressed("openwebui") is True      # repeat -> logged only
+        assert repeat_suppressed("nextcloud") is False     # different alert -> page
+        _paged_at["openwebui"] = time.time() - (REPEAT_HOURS * 3600 + 1)
+        assert repeat_suppressed("openwebui") is False     # window expired -> page again
         print("selftest ok")
         raise SystemExit(0)
 
