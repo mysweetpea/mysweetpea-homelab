@@ -258,7 +258,13 @@ spec:
     # which is outside the pod/service CIDRs — required for in-cluster API access.
     - ipBlock:
         cidr: 192.168.20.40/32
-  podSelector: {}
+  podSelector:
+    # Member terminals do not need the Kubernetes API or arbitrary internal
+    # pod/service access. NotIn also matches pods without the label.
+    matchExpressions:
+    - key: role
+      operator: NotIn
+      values: [member]
   policyTypes:
   - Egress
 ---
@@ -328,6 +334,7 @@ spec:
         - 10.0.0.0/8
         - 172.16.0.0/12
         - 192.168.0.0/16
+        - 100.64.0.0/10
   - ports:
     - port: 53
       protocol: UDP

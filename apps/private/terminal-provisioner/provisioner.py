@@ -7,7 +7,8 @@ creates a terminal deployment for each member that lacks one, and rewrites the
 connection list with a per-user access grant so the terminal shows up in that
 member's chats and nowhere else.
 
-Idempotent: safe to run every 10 minutes. `--dry-run` prints what it would do.
+Idempotent: reconciles existing resources and reuses their API keys. `--dry-run`
+prints what it would do.
 """
 
 import hashlib
@@ -105,7 +106,7 @@ def exists(kind, name):
     return kubectl("get", kind, name, check=False).returncode == 0
 
 
-def terminal_manifests(slug, user):
+def terminal_manifests(slug, user, api_key):
     name = f"open-terminal-{slug}"
     labels = lambda pad: (f"{pad}app: open-terminal\n{pad}role: member\n"
                           f"{pad}instance: {slug}")
@@ -113,6 +114,8 @@ def terminal_manifests(slug, user):
 kind: PersistentVolumeClaim
 metadata:
   name: term-{slug}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
   labels:
 {labels('    ')}
 spec:
@@ -120,7 +123,7 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      storage: 2Gi
+      storage: 5Gi
 ---
 apiVersion: v1
 kind: Secret
@@ -130,7 +133,7 @@ metadata:
 {labels('    ')}
 type: Opaque
 stringData:
-  api-key: "{secrets.token_hex(16)}"
+  api-key: "{api_key}"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -151,6 +154,7 @@ spec:
       labels:
 {labels('        ')}
     spec:
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 1000
       containers:
@@ -162,6 +166,10 @@ spec:
                 secretKeyRef:
                   name: term-{slug}
                   key: api-key
+            - name: OPEN_TERMINAL_EXECUTE_TIMEOUT
+              value: "300"
+            - name: TOKEN_TTL
+              value: "60m"
             - name: HOME
               value: /home/user
           ports:
@@ -171,6 +179,7 @@ spec:
               cpu: 50m
               memory: 128Mi
             limits:
+              cpu: 500m
               memory: 512Mi
           volumeMounts:
             - name: data
@@ -255,13 +264,13 @@ def main():
         slug = slug_for(user["id"])
         name = f"open-terminal-{slug}"
         print(f"member {user['email']} -> {name}")
+        key = secret_key(slug) or secrets.token_hex(16)
+        name, manifests = terminal_manifests(slug, user, key)
         if not exists("deployment", name):
-            name, manifests = terminal_manifests(slug, user)
-            apply(manifests)
             created.append(slug)
         else:
-            print("  terminal exists")
-        key = secret_key(slug) or ""
+            print("  reconciling existing terminal")
+        apply(manifests)
         conn = connection_for(slug, user)
         conn["key"] = key
         wanted.append(conn)
@@ -322,4 +331,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        key = "0123456789abcdef0123456789abcdef"
+        name, rendered = terminal_manifests("abc12345", {"id": "u1"}, key)
+        assert name == "open-terminal-abc12345"
+        assert rendered.count(f'api-key: "{key}"') == 1
+        for marker in ("storage: 5Gi", "Prune=false", "automountServiceAccountToken: false",
+                       'OPEN_TERMINAL_EXECUTE_TIMEOUT', 'value: "300"', 'TOKEN_TTL',
+                       'value: "60m"', "cpu: 500m"):
+            assert marker in rendered, marker
+        assert slug_for("u1") == slug_for("u1") and slug_for("u1") != slug_for("u2")
+        print("selftest ok")
+    else:
+        main()

@@ -68,8 +68,6 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    - ports:
-        - protocol: TCP
-          port: 80
-        - protocol: TCP
-          port: 443
+    # Internet access comes from the namespace's allow-internet-egress policy,
+    # which excludes private/LAN destinations. Do not add an unrestricted 80/443
+    # rule here: that would reopen other members and internal services.
