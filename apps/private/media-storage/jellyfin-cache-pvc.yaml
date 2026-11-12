@@ -1,12 +1,16 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
   name: jellyfin-cache-lh
   namespace: private
 spec:
   accessModes:
     - ReadWriteOnce
   storageClassName: longhorn
+  # pinned: this PVC is the longhorn volume that already holds the data
+  volumeName: pvc-2db59cca-b3fc-4b06-b3f6-196552770f9f
   resources:
     requests:
       storage: 20Gi

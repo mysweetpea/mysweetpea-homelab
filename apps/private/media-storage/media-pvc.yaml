@@ -1,12 +1,16 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
   name: media-storage-lh
   namespace: private
 spec:
   accessModes:
     - ReadWriteOnce
   storageClassName: longhorn
+  # pinned: this PVC is the longhorn volume that already holds the data
+  volumeName: pvc-f29025af-ac80-4751-a341-e27b7358aceb
   resources:
     requests:
       storage: 40Gi
