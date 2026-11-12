@@ -2725,8 +2725,7 @@ additionalObjects:
           attributes:
             settings:
               theme:
-                background: 'background: url("https://mysweetpea.cc/logo.svg") center / 220px
-                  220px no-repeat, url("https://mysweetpea.cc/mysweetpea-auth-bg.svg") center
+                background: 'background: url("https://mysweetpea.cc/mysweetpea-auth-bg.svg") center
                   / cover no-repeat fixed; background-color: #0C1316;'
           branding_custom_css: "/* MySweetPea brand theme — sage green primary, dark background\
             \ */\n:root {\n  --pf-global--primary-color--100: #5EB8A8;\n  --pf-global--primary-color--200:\
@@ -2771,10 +2770,10 @@ additionalObjects:
             \ #F2F6F4;\n  border-radius: 8px;\n}\n[part=\"search-input\"]::placeholder {\
             \ color: rgba(242,246,244,0.45); }\n\n/* View toggle */\n[part=\"view-toggle\"\
             ] { color: #D9A86C; }\n[part=\"view-toggle\"]:hover { color: #E8C48F; }\n\n\
-            /* Empty state */\n.pf-c-empty-state { color: rgba(242,246,244,0.6); }"
+            /* Empty state */\n.pf-c-empty-state { color: rgba(242,246,244,0.6); }\n\n/* dark theme: black card so the seal reads as a clean stamp */\n:root[data-theme=\"dark\"] {\n  --pf-v5-global--BackgroundColor--100: #000000;\n  --pf-v5-global--BackgroundColor--150: #000000;\n  --pf-v5-global--BackgroundColor--200: #000000;\n  --pf-v5-global--BackgroundColor--300: #000000;\n}"
           branding_default_flow_background: https://mysweetpea.cc/mysweetpea-auth-bg.svg
-          branding_favicon: https://mysweetpea.cc/logo-favicon.svg
-          branding_logo: https://mysweetpea.cc/logo.svg
+          branding_favicon: https://mysweetpea.cc/assets/icons/seal-base-favicon-v3.png
+          branding_logo: https://mysweetpea.cc/assets/icons/seal-base-v3.png
           branding_title: MySweetPea
           client_certificates: []
           default: true
