@@ -10,7 +10,7 @@ strategy:
     maxSurge: 0
     maxUnavailable: 1
 image:
-  tag: "2.5.10"
+  tag: "2.5.11"
   repository: louislam/uptime-kuma
 resources:
   requests:
