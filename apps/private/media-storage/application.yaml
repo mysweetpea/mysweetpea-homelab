@@ -14,6 +14,11 @@ spec:
   - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     path: apps/private/media-storage
+    directory:
+      # Without this the app renders ITSELF (its own application.yaml lives in the path it
+      # watches) and can never go Healthy -> root-homelab blocks forever on
+      # "waiting for healthy state of Application/media-storage" and no app-of-apps change lands.
+      exclude: application.yaml
   syncPolicy:
     automated:
       prune: true
