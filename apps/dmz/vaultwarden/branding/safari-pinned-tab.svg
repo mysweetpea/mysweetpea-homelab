@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <!-- Monochrome sweetpea flower for Safari pinned-tab mask icon (color applied by browser) -->
-  <path d="M 48 68 C 31 64, 23 52, 37 48 C 46 45, 51 52, 48 68" fill="#000000"/>
-  <path d="M 52 68 C 69 64, 77 52, 63 48 C 54 45, 49 52, 52 68" fill="#000000"/>
-  <path d="M 48 60 C 33 56, 29 38, 43 32 C 49 29, 52 40, 48 60" fill="#000000"/>
-  <path d="M 52 60 C 67 56, 71 38, 57 32 C 51 29, 48 40, 52 60" fill="#000000"/>
-  <path d="M 50 64 C 44 61, 42 53, 50 49 C 58 53, 56 61, 50 64" fill="#000000"/>
-</svg>
