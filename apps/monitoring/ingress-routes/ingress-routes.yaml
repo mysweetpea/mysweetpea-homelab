@@ -18,6 +18,13 @@ spec:
   entryPoints:
     - web
   routes:
+    # Push monitors authenticate with their own random per-monitor token. Do not
+    # wrap them in the UI's basic auth or unattended backup clients cannot push.
+    - match: Host(`status.mysweetpea.cc`) && PathPrefix(`/api/push/`)
+      kind: Rule
+      services:
+        - name: uptime-kuma
+          port: 3001
     # --- public: visitor status page + its two read-only APIs ---
     - match: Host(`status.mysweetpea.cc`) && (PathPrefix(`/status/public`) || Path(`/api/status-page/public`) || PathPrefix(`/api/status-page/heartbeat/public`))
       kind: Rule
