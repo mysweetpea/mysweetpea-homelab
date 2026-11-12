@@ -137,38 +137,10 @@ extraObjects:
                   # broken (updates were no-ops) until Aug 20 2026.
                   name: global.image.repository
                   tag: global.image.tag
-        - namePattern: nextcloud
-          writeBackConfig:
-            method: git:secret:argocd/ssh-git-creds
-            gitConfig:
-              writeBackTarget: helmvalues:apps/private/nextcloud/values.yaml
-          images:
-            - alias: nextcloud
-              imageName: library/nextcloud
-              commonUpdateSettings:
-                ignoreTags:
-                  - '35\.0\.2'
-                  - '35\.0\.1'
-                  - '35\.0\.0'
-                  - '34\.0\.5'
-                  - '34\.0\.4'
-                  - '34\.0\.3'
-                updateStrategy: semver
-                # HOLD AT 34.x — deliberate major-version gate (reviewed 2026-09-17).
-                # 35.0.0 is a .0 release (published Sep 15) and 15 enabled Nextcloud apps still
-                # declare max-version 34; two of them (drawio, previewgenerator) have no NC35
-                # release at all. Upgrading now would disable 13 apps pending updates + leave
-                # those 2 dark. Decision: wait for 35.0.1+ and app releases.
-                # 2026-10-04: UNPINNED for NC35 upgrade (owner-approved). Pre-flight done:
-                # 6 apps capped-at-34 disabled (spreed, deck, groupfolders, integration_openai,
-                # workflow_script, assistant); all other store apps verified 35-compatible via
-                # apps.nextcloud.com platform/35 catalog; DB dumped (nc35-pre-dump.dump);
-                # Longhorn offsite backup 2026-10-03T04:03Z. Sentinel will verify the rollout.
-                allowTags: "regexp:^\\d+\\.\\d+\\.\\d+$"
-              manifestTargets:
-                helm:
-                  name: image.repository
-                  tag: image.tag
+        # nextcloud is DELIBERATELY not updater-managed. Its ignoreTags pin list covered every
+        # newer tag, so semver resolved to the newest NON-ignored tag = an OLDER minor (35.0.2 ->
+        # 34.0.2) and the updater repeatedly downgraded a DB already on 35 -> crashloop + 2h of
+        # 404s on the OIDC login route. Bump apps/private/nextcloud/values.yaml by hand.
         - namePattern: vaultwarden
           writeBackConfig:
             method: git:secret:argocd/ssh-git-creds
