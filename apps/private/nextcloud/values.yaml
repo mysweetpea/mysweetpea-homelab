@@ -81,6 +81,14 @@ nextcloud:
       Deleting an item in Immich only hides it there; it does not delete the Nextcloud file.
       Albums, favorites, and people are Immich-only.
       README
+      # Keep the shared folder's physical roots complete after a data restore.
+      # Existing documentation is never overwritten by this boot hook.
+      team_root="/var/www/html/data/__groupfolders/1"
+      install -d -o www-data -g www-data "$team_root/files/Iqbal Family" "$team_root/versions" "$team_root/trash"
+      if [ ! -f "$team_root/files/README.md" ]; then
+        cp "$skeleton/README.md" "$team_root/files/README.md"
+        chown www-data:www-data "$team_root/files/README.md"
+      fi
       # mysweetpea: entrypoint may skip occ upgrade if installed_version looks current after an
       # interrupted migration; force it (idempotent, no-op when not needed).
       php /var/www/html/occ upgrade || true

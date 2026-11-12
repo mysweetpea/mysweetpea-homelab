@@ -1767,7 +1767,7 @@ entries:
   state: present
 - attrs:
     access_code_validity: minutes=10
-    access_token_validity: days=21
+    access_token_validity: hours=1
     authentication_flow: null
     authorization_flow: bbe7a23d-68e3-4537-b845-0a858666e2d4
     client_id: 54tyLzMXZcuocUdTDWYR8YxU0T0fAguTVTF14kOp
@@ -1799,7 +1799,7 @@ entries:
       redirect_uri_type: authorization
       url: https://ai.mysweetpea.cc/oauth/oidc/callback
     refresh_token_threshold: hours=1
-    refresh_token_validity: days=540
+    refresh_token_validity: days=30
     signing_key: 452149c2-c5d0-479f-b551-7f9f4500a1d6
     sub_mode: hashed_user_id
   conditions: []
@@ -1853,7 +1853,7 @@ entries:
   state: present
 - attrs:
     access_code_validity: minutes=10
-    access_token_validity: days=21
+    access_token_validity: hours=1
     authentication_flow: null
     authorization_flow: bbe7a23d-68e3-4537-b845-0a858666e2d4
     client_id: FmxfSIcs2A5dPUQxfeaYhFfbdwytpjFMS1YHtWGh
@@ -1880,6 +1880,7 @@ entries:
     - 48532f9e-e0fb-47e8-8af1-39de46e39f00
     - 53b93219-a977-47bf-ac91-d7b6f239b245
     - 8842b9fd-3ac7-441c-a33e-97875503a786
+    - 209a02b2-4fcd-4ee6-b706-fda7936d3c05
     redirect_uris:
     - matching_mode: strict
       redirect_uri_type: authorization
@@ -1888,7 +1889,7 @@ entries:
       redirect_uri_type: authorization
       url: https://cloud.mysweetpea.cc/apps/user_oidc/callback
     refresh_token_threshold: hours=1
-    refresh_token_validity: days=540
+    refresh_token_validity: days=180
     signing_key: 452149c2-c5d0-479f-b551-7f9f4500a1d6
     sub_mode: hashed_user_id
   conditions: []
@@ -1899,7 +1900,7 @@ entries:
   state: present
 - attrs:
     access_code_validity: minutes=5
-    access_token_validity: days=21
+    access_token_validity: hours=1
     authentication_flow: null
     authorization_flow: bbe7a23d-68e3-4537-b845-0a858666e2d4
     client_id: NyZpb2hoH5rdXMdc3hOiaHTQnMxv3AgnuhtoKgti
@@ -1932,7 +1933,7 @@ entries:
       redirect_uri_type: authorization
       url: https://vault.mysweetpea.cc/identity/connect/oidc-signin
     refresh_token_threshold: hours=1
-    refresh_token_validity: days=540
+    refresh_token_validity: days=30
     signing_key: 452149c2-c5d0-479f-b551-7f9f4500a1d6
     sub_mode: hashed_user_id
   conditions: []
@@ -1986,7 +1987,7 @@ entries:
   state: present
 - attrs:
     access_code_validity: minutes=10
-    access_token_validity: days=21
+    access_token_validity: hours=1
     authentication_flow: null
     authorization_flow: bbe7a23d-68e3-4537-b845-0a858666e2d4
     client_id: btMjOfSZ7uyBIz4SA5ZyLJdmzarWhMt6ZESFTGgT
@@ -2024,7 +2025,7 @@ entries:
       redirect_uri_type: authorization
       url: app.immich:///oauth-callback
     refresh_token_threshold: hours=1
-    refresh_token_validity: days=540
+    refresh_token_validity: days=30
     signing_key: 452149c2-c5d0-479f-b551-7f9f4500a1d6
     sub_mode: hashed_user_id
   conditions: []
@@ -2183,7 +2184,6 @@ entries:
 - attrs:
     captcha_stage: null
     case_insensitive_matching: true
-    enable_remember_me: false
     enrollment_flow: null
     name: default-authentication-identification
     password_stage: null
