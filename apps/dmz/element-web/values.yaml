@@ -7,111 +7,23 @@ config:
   disable_3pid_login: true
   disable_registration: true
   disable_login_language_selector: true
-  # --- Branding (MySweetPea identity — assets hosted on the website) ---
-  brand: MySweetPea
-  default_device_display_name: MySweetPea Chat
   permalink_prefix: https://chat.mysweetpea.cc
-  # default_theme set below (custom-MySweetPea) — this line removed to avoid dup key
-  branding:
-    auth_header_logo_url: https://mysweetpea.cc/logo.svg
-    welcome_background_url: https://mysweetpea.cc/mysweetpea-auth-bg.svg
-    auth_footer_links:
-    - text: Home
-      url: https://mysweetpea.cc
-    - text: Services
-      url: https://mysweetpea.cc/services.html
-    - text: Support
-      url: https://mysweetpea.cc/support.html
   # --- Element Call (MatrixRTC via LiveKit) — exclusive VoIP stack ---
   element_call:
     use_exclusively: true
-    # branded strings instead of "Element Call"
-    brand: MySweetPea Calls
   # unauthenticated users go straight into the SSO flow (single IdP, no passwords)
   sso_redirect_options:
     immediate: true
-  # --- MySweetPea custom theme (teal accent, matches Jellyfin/Homepage) ---
-  # Theme name in settings is "custom-MySweetPea" (enumerateThemes prefixes
-  # custom-). compound tokens override the Compound design system; colors
-  # override legacy CSS vars. is_dark: true → uses dark-custom stylesheet.
-  setting_defaults:
-    "UIFeature.registration": false
-    "UIFeature.feedback": false
-    "UIFeature.widgets": true
-    "custom_themes":
-    - name: MySweetPea
-      is_dark: true
-      colors:
-        "accent": "#5EB8A8"
-        "accent-alt": "#7ECFC0"
-        "username-colors": ["#5EB8A8", "#7ECFC0", "#A3C9B6", "#4AA394"]
-      compound:
-        "--cpd-color-bg-accent-rest": "#5EB8A8"
-        "--cpd-color-bg-accent-hovered": "#4AA394"
-        "--cpd-color-bg-accent-pressed": "#3D8A7C"
-        "--cpd-color-bg-action-primary-rest": "#5EB8A8"
-        "--cpd-color-bg-action-primary-hovered": "#4AA394"
-        "--cpd-color-bg-action-primary-pressed": "#3D8A7C"
-        "--cpd-color-bg-action-primary-disabled": "#2A4A44"
-        "--cpd-color-border-focused": "#5EB8A8"
-        "--cpd-color-border-interactive-primary": "#5EB8A8"
-        "--cpd-color-icon-accent-primary": "#5EB8A8"
-        "--cpd-color-icon-accent-tertiary": "#7ECFC0"
-        "--cpd-color-text-action-accent": "#5EB8A8"
-        "--cpd-color-text-on-solid-primary": "#0C1316"
-  default_theme: custom-MySweetPea
   embedded_pages:
     login_for_welcome: true
-    # Branded logged-out home page (mounted from element-web-home ConfigMap)
-    home_url: "home.html"
 extraVolumes:
 - name: disclaimer
   configMap:
     name: element-web-disclaimer
-- name: home
-  configMap:
-    name: element-web-home
-- name: branding
-  configMap:
-    name: element-web-branding
 extraVolumeMounts:
 - name: disclaimer
   mountPath: /app/disclaimer.js
   subPath: disclaimer.js
-  readOnly: true
-- name: home
-  mountPath: /app/home.html
-  subPath: home.html
-  readOnly: true
-# MySweetPea PWA branding (element-web-branding CM, manual apply):
-# badge icons over /app/vector-icons/ + branded manifest.json
-- name: branding
-  mountPath: /app/vector-icons/24.png
-  subPath: icon-24.png
-  readOnly: true
-- name: branding
-  mountPath: /app/vector-icons/120.png
-  subPath: icon-120.png
-  readOnly: true
-- name: branding
-  mountPath: /app/vector-icons/144.png
-  subPath: icon-144.png
-  readOnly: true
-- name: branding
-  mountPath: /app/vector-icons/152.png
-  subPath: icon-152.png
-  readOnly: true
-- name: branding
-  mountPath: /app/vector-icons/180.png
-  subPath: icon-180.png
-  readOnly: true
-- name: branding
-  mountPath: /app/vector-icons/512.png
-  subPath: icon-512.png
-  readOnly: true
-- name: branding
-  mountPath: /app/manifest.json
-  subPath: manifest.json
   readOnly: true
 # Mount the chart's nginx ConfigMap default.conf (contains our sub_filter
 # disclaimer injection) over the image's TEMPLATE path so envsubst processes
@@ -145,17 +57,6 @@ nginxConfig: |-
   add_header Content-Security-Policy "frame-ancestors 'self'";
   sub_filter '</body>' '<script src="disclaimer.js"></script></body>';
   sub_filter_once on;
-  # MySweetPea PWA icons: index.html references hashed filenames
-  # (vector-icons/120.570a7f9.png) that change on every image bump —
-  # rewrite ANY hash to the unhashed badge icon mounted from the
-  # element-web-branding CM (durable, hash-proof).
-  # NOTE: regexes MUST be double-quoted — an unquoted trailing $ is
-  # parsed by nginx as a variable reference ("invalid variable name").
-  # $1 is safe: the entrypoint's envsubst uses the variable-list form
-  # and $1 is not a valid env var name, so it passes through untouched.
-  location ~ "^/vector-icons/[0-9]+\.[a-f0-9]+\.png$" {
-      rewrite "^/vector-icons/([0-9]+)\.[a-f0-9]+\.png$" /vector-icons/$1.png last;
-  }
   location = /version {
       add_header Cache-Control "no-cache";
   }
