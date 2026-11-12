@@ -1,19 +1,16 @@
 #!/bin/bash
-# NOTE: repo copy is sanitized — real repo URLs (VPS/PC SFTP) and the Kuma
-# push token live on k3s-master at /root/backup-scripts/. Set VPS_REPO/PC_REPO/
-# KUMA_PUSH_TOKEN env vars (or re-edit on the master). See
-# apps/infra/longhorn/BACKUP-TARGET.md for the design.
-# MySweetPea homelab backup script — restic to VPS (off-site) + PC (local)
+# NOTE: sanitized reference. Set VPS_REPO, VPS_SSH and KUMA_PUSH_TOKEN on the
+# master. The desktop pull is a separate local script with its own monitor.
+exec 9>/run/restic-backup.lock
+flock -n 9 || { echo "restic-backup.sh: another instance already running, exiting"; exit 0; }
+# MySweetPea homelab backup script — restic to VPS (off-site); the CachyOS
+# desktop pulls the retained stage into its own restic repo after this run.
 # Backs up: sealed-secrets key, k3s state.db, pg-dumps, config-backup
 set -euo pipefail
 
-# single-instance guard (added 2026-09-16 after two racing runs corrupted staging)
-exec 9>/run/restic-backup.lock
-flock -n 9 || { echo "restic-backup.sh: another instance already running, exiting"; exit 0; }
-
 export RESTIC_PASSWORD="$(cat /root/.restic-passphrase)"
 VPS_REPO="${VPS_REPO:-}"
-PC_REPO="${PC_REPO:-}"
+KUMA_PUSH_TOKEN="${KUMA_PUSH_TOKEN:-}"
 LOG="/var/log/restic-backup.log"
 
 # ---- failure alerting (Gotify "Backup Alerts" app id 12) ----
@@ -57,7 +54,7 @@ if [ -f /var/lib/rancher/k3s/server/db/state.db ]; then
 fi
 
 # 3. Backup staging dir
-STAGE="/tmp/restic-stage"
+STAGE="/var/backups/restic-stage"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/sealed-secrets" "$STAGE/k3s" "$STAGE/pg-dumps" "$STAGE/config-backup"
 
@@ -110,40 +107,12 @@ elif [ -s "$STAGE/uptime-kuma/data.tar.gz" ]; then
 else
     echo "WARNING: uptime-kuma backup failed"
 fi
-# 3j. Bazarr config + DB (config.yaml, bazarr.db — config PVC at /config)
-mkdir -p "$STAGE/bazarr"
-if kubectl exec -n private deploy/bazarr -- tar czf - -C /config --exclude=cache --exclude=log . > "$STAGE/bazarr/config.tar.gz" 2>/dev/null; then
-  echo "[$DATE] bazarr config captured ($(du -h "$STAGE/bazarr/config.tar.gz" | cut -f1))" >> "$LOG"
-else
-  echo "[$DATE] WARNING: bazarr config backup failed" >> "$LOG"
-fi
 # 3i. Prowlarr config + DB (config.xml, prowlarr.db — config PVC at /config)
 mkdir -p "$STAGE/prowlarr"
 if kubectl exec -n private deploy/prowlarr -- tar czf - -C /config --exclude=logs . > "$STAGE/prowlarr/config.tar.gz" 2>/dev/null; then
   echo "[$DATE] prowlarr config captured ($(du -h "$STAGE/prowlarr/config.tar.gz" | cut -f1))" >> "$LOG"
 else
   echo "[$DATE] WARNING: prowlarr config backup failed" >> "$LOG"
-fi
-# 3h. Radarr config + DB (config.xml, radarr.db — config PVC at /config)
-mkdir -p "$STAGE/radarr"
-if kubectl exec -n private deploy/radarr -- tar czf - -C /config --exclude=MediaCover --exclude=logs . > "$STAGE/radarr/config.tar.gz" 2>/dev/null; then
-  echo "[$DATE] radarr config captured ($(du -h "$STAGE/radarr/config.tar.gz" | cut -f1))" >> "$LOG"
-else
-  echo "[$DATE] WARNING: radarr config backup failed" >> "$LOG"
-fi
-# 3e. Sonarr config + DB (config.xml, sonarr.db — config PVC at /config)
-mkdir -p "$STAGE/sonarr"
-if kubectl exec -n private deploy/sonarr -- tar czf - -C /config --exclude=MediaCover --exclude=logs . > "$STAGE/sonarr/config.tar.gz" 2>/dev/null; then
-  echo "[$DATE] sonarr config captured ($(du -h "$STAGE/sonarr/config.tar.gz" | cut -f1))" >> "$LOG"
-else
-  echo "[$DATE] WARNING: sonarr config backup failed" >> "$LOG"
-fi
-# 3f. Seerr config + DB (settings.json, sqlite DB, patch.js — config PVC at /app/config)
-mkdir -p "$STAGE/seerr"
-if kubectl exec -n dmz deploy/seerr -- tar czf - -C /app/config --exclude=cache . > "$STAGE/seerr/config.tar.gz" 2>/dev/null; then
-  echo "[$DATE] seerr config captured ($(du -h "$STAGE/seerr/config.tar.gz" | cut -f1))" >> "$LOG"
-else
-  echo "[$DATE] WARNING: seerr config backup failed" >> "$LOG"
 fi
 # 3g. Jellyfin config (plugin configs, branding, DB, intros — config PVC at /config)
 mkdir -p "$STAGE/jellyfin"
@@ -161,10 +130,20 @@ else
   echo "[$DATE] WARNING: grafana config backup failed" >> "$LOG"
 fi
 
+# 3q. Nextcloud data (user files + DB-adjacent data dir; previews regenerable - excluded)
+mkdir -p "$STAGE/nextcloud"
+kubectl exec -n private deploy/nextcloud -c nextcloud -- tar czf - --warning=no-file-changed -C /var/www/html/data --exclude="*/files_trashbin" --exclude="*/files_versions" --exclude="*/__groupfolders/*/trash" --exclude="*/__groupfolders/*/versions" . > "$STAGE/nextcloud/data.tar.gz" 2>/tmp/nc.err; rc=$?
+if [ $rc -le 1 ]; then
+  echo "[$DATE] nextcloud data captured ($(du -h "$STAGE/nextcloud/data.tar.gz" | cut -f1))" >> "$LOG"
+else
+  echo "[$DATE] WARNING: nextcloud backup failed" >> "$LOG"
+fi
+
 
 # 3m. Immich library + uploads + internal DB backups (data PVC at /data; thumbs/encoded-video regenerable)
 mkdir -p "$STAGE/immich"
-if kubectl exec -n private deploy/immich-server -- tar czf - -C /data --exclude=thumbs --exclude=encoded-video . > "$STAGE/immich/library.tar.gz" 2>/dev/null; then
+kubectl exec -n private deploy/immich-server -- tar czf - --warning=no-file-changed -C /data --exclude=thumbs --exclude=encoded-video . > "$STAGE/immich/library.tar.gz" 2>/tmp/im.err; rc=$?
+if [ $rc -le 1 ]; then
   echo "[$DATE] immich library captured ($(du -h "$STAGE/immich/library.tar.gz" | cut -f1))" >> "$LOG"
 else
   echo "[$DATE] WARNING: immich library backup failed" >> "$LOG"
@@ -172,14 +151,15 @@ fi
 
 # 3n. Open WebUI data (webui.db + uploads + vector_db; cache 1.3G regenerable — excluded)
 mkdir -p "$STAGE/open-webui"
-if kubectl exec -n private deploy/open-webui -- tar czf - -C /app/backend/data --exclude=cache . > "$STAGE/open-webui/data.tar.gz" 2>/dev/null; then
+kubectl exec -n private deploy/open-webui -- tar czf - --warning=no-file-changed -C /app/backend/data --exclude=cache . > "$STAGE/open-webui/data.tar.gz" 2>/tmp/ow.err; rc=$?
+if [ $rc -le 1 ]; then
   echo "[$DATE] open-webui data captured ($(du -h "$STAGE/open-webui/data.tar.gz" | cut -f1))" >> "$LOG"
 else
   echo "[$DATE] WARNING: open-webui backup failed" >> "$LOG"
 fi
 
 # 3o. Netdata parent: alarm log + config (metric DB 2.3G regenerable — excluded)
-PARENT_POD=$(kubectl get pods -n monitoring -o name | grep netdata-parent | head -1 | cut -d/ -f2)
+PARENT_POD=$(kubectl get pods -n monitoring -o name | grep netdata-parent | head -1 | cut -d/ -f2 || true)
 if [ -n "$PARENT_POD" ]; then
   kubectl exec -n monitoring "$PARENT_POD" -- tar czf - -C /var/lib netdata 2>/dev/null > $STAGE/netdata-alarms.tar.gz || true
   echo "netdata: alarms + config captured"
@@ -187,14 +167,9 @@ else
   echo "netdata: parent pod not found"
 fi
 
-# 3p. qBittorrent: config + resume data (media lives on media-storage; GeoDB/logs regenerable)
-QB_POD=$(kubectl get pods -n private -l app.kubernetes.io/name=qbittorrent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-if [ -n "$QB_POD" ]; then
-    kubectl exec -n private "$QB_POD" -- tar czf - -C /config --exclude='data/GeoDB' --exclude='data/logs' config data/BT_backup 2>/dev/null > "$STAGE/qbittorrent-config.tar.gz" && \
-    echo "qbittorrent config: OK ($(du -h $STAGE/qbittorrent-config.tar.gz | cut -f1))" || echo "qbittorrent config: FAILED"
-else
-    echo "qbittorrent: pod not found, skipping"
-fi
+# 3p/3s. retired 2026-10/11 (qbittorrent, rustdesk) — dead sources removed.
+# Their kubectl lookups used to fail under `set -euo pipefail` and silently killed
+# the whole backup before the VPS leg ran (found 2026-11-08: monitor 56 down 3 days).
 
 # 3r. Gotify data (gotify.db + images + plugins — data PVC at /app/data; tiny, ~120KB)
 GOTIFY_POD=$(kubectl get pods -n private -l app.kubernetes.io/name=gotify -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
@@ -204,57 +179,85 @@ else
     echo "gotify: pod not found, skipping"
 fi
 
-
-# 3q. Nextcloud data (user files + DB-adjacent data dir; previews regenerable - excluded)
-mkdir -p "$STAGE/nextcloud"
-if kubectl exec -n private deploy/nextcloud -c nextcloud -- tar czf - -C /var/www/html/data --exclude="*/files_trashbin" --exclude="*/files_versions" . > "$STAGE/nextcloud/data.tar.gz" 2>/dev/null; then
-  echo "[$DATE] nextcloud data captured ($(du -h "$STAGE/nextcloud/data.tar.gz" | cut -f1))" >> "$LOG"
-else
-  echo "[$DATE] WARNING: nextcloud backup failed" >> "$LOG"
-fi
+# 3e. retired 2026-10 (rustdesk server) — dead source removed (PVC no longer exists)
 
 # 4a. Restic backup to VPS (primary, off-site)
+# Empty-archive guard: a tar that exits 0 but streams nothing (pod restart mid-exec,
+# race with an init container) used to be logged as "captured (0)" and sail into the
+# snapshot looking healthy. One line, whole class.
+EMPTY_ARCHIVES=$(find "$STAGE" -name '*.tar.gz' -size 0 -printf '%P ' 2>/dev/null || true)
+if [ -n "$EMPTY_ARCHIVES" ]; then
+  echo "[$DATE] WARNING: empty archives in this snapshot: $EMPTY_ARCHIVES" >> "$LOG"
+  notify_fail "empty backups" "These staged archives were 0 bytes: $EMPTY_ARCHIVES"
+fi
 # 3z. AIOStreams instance on the VPS + moonbase-lite data (added 2026-10-13)
-VPS_SSH="${VPS_SSH:-ubuntu@<VPS_HOST>}"   # set VPS_SSH on the master
+VPS_USER="${VPS_SSH:-}"
 mkdir -p "$STAGE/aiostreams"
-if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_SSH" "sudo sh -c 'cd /opt/aiostreams && tar czf - compose.yaml .env data/db.sqlite*'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" "sudo sh -c 'cd /opt/aiostreams && tar czf - --ignore-failed-read compose.yaml .env data/db.sqlite*'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
   echo "[$DATE] AIOStreams VPS snapshot: $(du -h "$STAGE/aiostreams/config.tar.gz" | cut -f1)" >> "$LOG"
 else
   echo "[$DATE] AIOStreams VPS snapshot FAILED - continuing" >> "$LOG"
 fi
-if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_SSH" 'sudo tar czf - -C /opt/moonbase-lite config.json data' > "$STAGE/moonbase-lite.tar.gz" 2>>"$LOG" && [ -s "$STAGE/moonbase-lite.tar.gz" ]; then
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" 'sudo tar czf - -C /opt/moonbase-lite config.json data' > "$STAGE/moonbase-lite.tar.gz" 2>>"$LOG" && [ -s "$STAGE/moonbase-lite.tar.gz" ]; then
   echo "[$DATE] moonbase-lite snapshot: $(du -h "$STAGE/moonbase-lite.tar.gz" | cut -f1)" >> "$LOG"
 else
   echo "[$DATE] moonbase-lite snapshot FAILED - continuing" >> "$LOG"
 fi
+# 3z2. LiteLLM gateway + Ollama spend history (added 2026-11-07; moved PC -> VPS)
+# pg_dumpall rather than the data dir: consistent snapshot, ~2 MB vs 70 MB, no ownership games.
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" 'sudo sh -c "cd /opt/llm-proxy && tar czf - --ignore-failed-read compose.yaml .env config.yaml prices.json state.json keys.json ollama-spend history.jsonl"' > "$STAGE/llm-proxy-config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/llm-proxy-config.tar.gz" ]; then
+  echo "[$DATE] llm-proxy config snapshot: $(du -h "$STAGE/llm-proxy-config.tar.gz" | cut -f1)" >> "$LOG"
+else
+  echo "[$DATE] llm-proxy config snapshot FAILED - continuing" >> "$LOG"
+fi
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" 'sudo docker exec llm-proxy-db-1 pg_dumpall -U litellm' 2>>"$LOG" | gzip > "$STAGE/llm-proxy-db.sql.gz" && [ -s "$STAGE/llm-proxy-db.sql.gz" ]; then
+  echo "[$DATE] llm-proxy spend DB dump: $(du -h "$STAGE/llm-proxy-db.sql.gz" | cut -f1)" >> "$LOG"
+else
+  echo "[$DATE] llm-proxy spend DB dump FAILED - continuing" >> "$LOG"
+fi
 
 export RESTIC_REPOSITORY="$VPS_REPO"
+# SKIP_VPS=1 is set by restic-pc-retry.sh: that morning run exists to redo the PC leg, and
+# re-pushing to the VPS just adds a second offsite snapshot per day, eating the retention
+# window (5 daily slots became 2.5 real days while the PC leg was broken).
+if [ "${SKIP_VPS:-0}" = "1" ]; then
+  echo "[$DATE] VPS leg skipped (SKIP_VPS=1 — PC retry run)" >> "$LOG"
+else
 restic unlock >/dev/null 2>&1 || true   # clear stale locks; repo-unreachable must NOT kill the set -e script (fixed 2026-09-22)
+# Retention is deliberately tight: the VPS root disk is 45G shared with everything else and
+# churn measured ~76 MB/day (2026-11-08: +1.89 GiB over 25 days). Daily 5 / weekly 2 /
+# monthly 2 bounds the repo at a handful of snapshots while still covering "deleted Monday,
+# noticed Friday". The old 7/4/6 kept month-old anchors that pinned ~2.4 GiB of dead blobs.
 if restic backup "$STAGE" --tag "$TAG" --exclude "*.log" >> "$LOG" 2>&1; then
-  restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune >> "$LOG" 2>&1 || true
+  restic forget --keep-daily 5 --keep-weekly 2 --keep-monthly 2 --prune >> "$LOG" 2>&1 || true
   echo "[$DATE] VPS backup OK" >> "$LOG"
+  # Disk floor: the one thing that must not surprise us is a full VPS root disk.
+  VPS_FREE_KB=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$VPS_USER" 'df --output=avail / | tail -1' 2>/dev/null | tr -d ' ' || true)
+  VPS_FREE_KB=${VPS_FREE_KB//[!0-9]/}
+  if [ -n "$VPS_FREE_KB" ] && [ "$VPS_FREE_KB" -lt 4194304 ]; then
+    echo "[$DATE] WARNING: VPS root disk low ($(( VPS_FREE_KB / 1024 / 1024 )) GiB free after pruning)" >> "$LOG"
+    notify_fail "VPS disk" "Only $(( VPS_FREE_KB / 1024 / 1024 )) GiB free on the VPS root disk after prune"
+  fi
 else
   echo "[$DATE] VPS BACKUP FAILED" >> "$LOG"
   notify_fail "VPS restic push" "Nightly backup to VPS failed at $DATE (VPS down? network?)"
 fi
-
-# 4b. Restic backup to PC (secondary, local)
-export RESTIC_REPOSITORY="$PC_REPO"
-restic unlock >/dev/null 2>&1 || true   # clear stale locks; repo-unreachable must NOT kill the set -e script (fixed 2026-09-22)
-if restic backup "$STAGE" --tag "$TAG" --exclude "*.log" >> "$LOG" 2>&1; then
-  restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune >> "$LOG" 2>&1 || true
-  echo "[$DATE] PC backup OK" >> "$LOG"
-else
-  echo "[$DATE] PC BACKUP FAILED" >> "$LOG"
-  notify_fail "PC restic push" "Nightly backup to PC failed at $DATE (IP drift? PC asleep?)"
 fi
 
-# 6. Heartbeat to Uptime Kuma push monitor (alerts if the whole chain stops running)
+# 6. Heartbeat to Uptime Kuma push monitor (alerts if the whole chain stops running).
+# BEFORE the PC leg on purpose: the PC repo can hang for minutes on a dead host, and a
+# hung secondary leg must not mask a successful offsite backup (25 days of silence on
+# 2026-10-14..11-08 were partly this shape).
 KUMA_PUSH_URL="http://uptime-kuma.monitoring.svc.cluster.local:3001/api/push/${KUMA_PUSH_TOKEN}"
 curl -s -m 10 "$KUMA_PUSH_URL?msg=ok&ping=" > /dev/null 2>&1 || true
 
+# 4b. Secondary desktop copy: the CachyOS host pulls the retained stage into
+# its own restic repo and pushes Kuma monitor 75 after a successful snapshot.
+# The old master -> Windows SFTP leg and its 08:00 retry were retired 2026-11-12.
 
 # 5. Cleanup
-rm -rf "$STAGE" /tmp/sealed-secrets-key.yaml /tmp/k3s-state.db
+# stage kept on disk so the PC pulls the same snapshot later (see
+# ~/.local/bin/homelab-backup on the desktop); next run clears it first.
+rm -f /tmp/sealed-secrets-key.yaml /tmp/k3s-state.db
 
 echo "[$DATE] === RESTIC BACKUP DONE ===" >> "$LOG"

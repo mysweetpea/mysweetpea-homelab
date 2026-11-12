@@ -91,6 +91,14 @@ else
   echo "  ✗ immich: could not read password"; FAILED=$((FAILED + 1))
 fi
 
+echo "[$(date)] Dumping firecrawl queue database..."
+FCPASS=$(kubectl get secret firecrawl-db -n firecrawl -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)
+if [ -n "$FCPASS" ]; then
+  dump_db firecrawl-nuq firecrawl firecrawl-nuq-postgres-0 postgres postgres "$FCPASS"
+else
+  echo "  ✗ firecrawl: could not read password"; FAILED=$((FAILED + 1))
+fi
+
 echo "[$(date)] Dumping matrix-synapse database..."
 SYNAPSEPASS=$(kubectl get secret matrix-synapse-db -n dmz -o jsonpath='{.data.password}' | base64 -d)
 if [ -n "$SYNAPSEPASS" ]; then
