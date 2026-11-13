@@ -30,6 +30,9 @@ spec:
   - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     ref: values
+  - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+    targetRevision: HEAD
+    path: apps/dmz/authentik/manifests
   syncPolicy:
     automated:
       prune: true
