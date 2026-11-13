@@ -1,14 +1,19 @@
 #!/bin/bash
-# Setup cron jobs for backups
+# Install the master backup/hygiene cron entries without removing unrelated jobs.
+set -euo pipefail
 
-# Daily at 2am: PostgreSQL backup
-(crontab -l 2>/dev/null | grep -v "pg-backup.sh"; echo "0 2 * * * /root/backup-scripts/pg-backup.sh >> /var/log/pg-backup.log 2>&1") | crontab -
+install_cron() {
+  local name="$1" schedule="$2" log="${3:-}"
+  local line="$schedule /root/backup-scripts/$name"
+  if [ -n "$log" ]; then line="$line >> /var/log/$log 2>&1"; fi
+  (crontab -l 2>/dev/null | grep -v "/root/backup-scripts/$name"; echo "$line") | crontab -
+}
 
-# Daily at 3am: Config backup
-(crontab -l 2>/dev/null | grep -v "config-backup.sh"; echo "0 3 * * * /root/backup-scripts/config-backup.sh >> /var/log/config-backup.log 2>&1") | crontab -
+install_cron pg-backup.sh '0 2 * * *' pg-backup.log
+install_cron config-backup.sh '0 3 * * *' config-backup.log
+install_cron restic-backup.sh '30 2 * * *' restic-backup.log
+install_cron restic-check.sh '0 5 1 * *'
+install_cron containerd-hygiene.sh '0 4 * * 0' containerd-hygiene.log
+install_cron backup-freshness-watchdog.sh '30 6 * * *' restic-backup.log
 
-# Weekly on Sunday at 4am: Sync to PC
-(crontab -l 2>/dev/null | grep -v "rsync-to-pc.sh"; echo "0 4 * * 0 /root/backup-scripts/rsync-to-pc.sh >> /var/log/rsync-backup.log 2>&1") | crontab -
-
-echo "Cron jobs installed:"
-crontab -l
+echo 'Backup cron jobs installed; unrelated entries preserved.'

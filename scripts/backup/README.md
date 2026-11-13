@@ -1,35 +1,40 @@
 # Backup scripts (sanitized copies)
 
-These are the backup/ops scripts that run on **k3s-master** under
-`/root/backup-scripts/` (root crontab). This directory is the durable,
-sanitized copy — the live copies on the master remain the source of truth
-for execution, but if the master is lost, this directory is enough to
-rebuild the chain on any replacement node.
+These scripts run on **k3s-master** under `/root/backup-scripts/`. The live
+copies execute there; this directory is the durable, sanitized rebuild source.
 
-| Script | Cron | Purpose |
+| Script | Schedule | Purpose |
 |---|---|---|
-| `restic-backup.sh` | 02:30 daily | Stage app data (tar from live pods) → restic push to **both** offsite repos (VPS + PC), retain 7d/4w/6m + prune |
-| `restic-pc-retry.sh` | 08:00 | Retry the PC push if the 02:30 run lacked today's `PC backup OK` |
-| `pg-backup.sh` | 02:00 | pg_dump ALL non-template DBs on shared postgresql-0 (keep 7 dumps) |
-| `config-backup.sh` | 03:00 | kubectl-dump of all namespace configs (deployments/secrets/CMs) |
-| `restic-check.sh` | 1st monthly 05:00 | `restic check` integrity test on both repos |
-| `containerd-hygiene.sh` | Sun 04:00 | Prune exited containers + unused images on the master |
-| `setup-cron.sh` | (manual) | Installs the crontab entries above |
+| `pg-backup.sh` | 02:00 daily | Dump all shared-PostgreSQL databases |
+| `restic-backup.sh` | 02:30 daily | Stage core data and push to the VPS restic repo; retain 5 daily / 2 weekly / 2 monthly |
+| `config-backup.sh` | 03:00 daily | Dump namespace configs and SealedSecrets |
+| `restic-check.sh` | 1st monthly 05:00 | Check the VPS restic repo with a 5% data subset |
+| `containerd-hygiene.sh` | Sun 04:00 | Prune exited containers and unused images on the master |
+| `backup-freshness-watchdog.sh` | 06:30 daily | Alert on stale VPS/desktop/Longhorn backups and low backup-target space |
+| `setup-cron.sh` | manual | Install the entries above while preserving unrelated cron jobs |
+
+The desktop's `homelab-backup.timer` pulls the completed master stage at 04:00
+and snapshots it into `/mnt/software/homelab backup/restic-repo` (7 daily / 4
+weekly). It has its own Kuma heartbeat, so a healthy master cannot mask a failed
+desktop pull. The old Windows PC push/retry leg is retired.
+
+AIOStreams uses `scripts/vps-aiostreams/sqlite-backup.py`: SQLite's online
+backup API, `integrity_check`, and an atomic rename. The master pages and stops
+rather than marking a snapshot healthy if this capture fails.
 
 ## Sanitization
 
-Repo copies have the SFTP repo URLs replaced with `${VPS_REPO}` / `${PC_REPO}`
-placeholders (public repo, no IPs/usernames). Real values live only in
-`/root/backup-scripts/restic-backup.sh` on the master. To restore from this
-copy: fill the two `VPS_REPO=`/`PC_REPO=` lines with your real repo URLs.
+Public copies parameterize repo/SSH/Kuma endpoints (`VPS_REPO`, `VPS_SSH`, and
+push URL). Real values stay on the master. Before redeploying, supply them from
+a root-only environment source or install the live configuration deliberately;
+do not commit credentials or push tokens.
 
-Secrets are **never** in these scripts at rest: restic passphrase is read from
-`/root/.restic-passphrase`; pg creds come from k8s secrets at runtime; the
-sealed-secrets key is captured from the live cluster into each backup.
+The restic passphrase is read from `/root/.restic-passphrase`; database
+credentials come from Kubernetes secrets at runtime.
 
 ## Related
 
-- Longhorn block-level offsite backups: `apps/infra/longhorn/BACKUP-TARGET.md`
-  (VPS NFS target over NetBird, daily-backup/weekly-trim recurring jobs)
-- Restic repos live at: VPS `/home/ubuntu/restic-repo` and PC
-  `D:\home lab\restic-repo` (paths documented locally, not in this repo)
+- Longhorn offsite backups: `apps/infra/longhorn/BACKUP-TARGET.md`
+- Desktop restic repository: `/mnt/software/homelab backup/restic-repo`
+- AIOStreams/Moonbase helper scripts: `scripts/vps-aiostreams/` and
+  `scripts/vps-moonbase-lite/`
