@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: holmes
   namespace: argocd
+  annotations:
+    # The child resources carry the real health; do not let a stale app-level
+    # badge block every later root-homelab sync wave.
+    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   project: default
   destination:
