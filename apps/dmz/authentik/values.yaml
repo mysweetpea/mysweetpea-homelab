@@ -5,8 +5,6 @@ global:
   envFrom:
   - secretRef:
       name: authentik-blueprint-env
-  - secretRef:
-      name: authentik-dashboard-blueprint-env
 authentik:
   # ⚠️ image tag for the server/worker is rendered from global.image.tag (chart
   # defaultTag = Chart.AppVersion; authentik.image.* is IGNORED by the chart —
@@ -95,6 +93,9 @@ server:
 # processed; a second worker process breaks the deadlock).
 worker:
   replicas: 2
+  envFrom:
+  - secretRef:
+      name: authentik-dashboard-blueprint-env
   resources:
     requests:
       memory: "256Mi"
