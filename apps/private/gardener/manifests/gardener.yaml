@@ -165,23 +165,32 @@ data:
                   "After they accept, click Confirm. No owner credential is stored in this bot.")
 
 
+      def vault_once():
+          """One poll cycle. Returns the number of requests handed to the owner."""
+          st, d = dash("GET", "/api/bot/vault-requests")
+          if st != 200 or not isinstance(d, dict):
+              return 0
+          sent_count = 0
+          for r in (d.get("requests") or []):
+              sent = False
+              for chat in ALLOWED:
+                  if tg(chat, vault_message(r)) == 200:
+                      sent = True
+              if sent:
+                  sent_count += 1
+                  st2, _ = dash("POST", "/api/bot/vault-requests/notified", {"id": r.get("id")})
+                  if st2 != 200:
+                      sys.stderr.write("[gardener] vault request notify mark failed %s\n" % st2)
+          return sent_count
+
+
       def vault_loop():
           """Poll the dashboard's small request inbox; notify the owner once each."""
           if not DASH_TOKEN or not ALLOWED:
               return
           while True:
               try:
-                  st, d = dash("GET", "/api/bot/vault-requests")
-                  if st == 200 and isinstance(d, dict):
-                      for r in (d.get("requests") or []):
-                          sent = False
-                          for chat in ALLOWED:
-                              if tg(chat, vault_message(r)) == 200:
-                                  sent = True
-                          if sent:
-                              st2, _ = dash("POST", "/api/bot/vault-requests/notified", {"id": r.get("id")})
-                              if st2 != 200:
-                                  sys.stderr.write("[gardener] vault request notify mark failed %s\n" % st2)
+                  vault_once()
               except Exception as e:  # noqa: BLE001
                   sys.stderr.write("[gardener] vault request poll failed: %s\n" % str(e)[:200])
               time.sleep(120)
@@ -788,6 +797,23 @@ data:
           assert SLUG_RE.match("iqbal-family") and not SLUG_RE.match("Bad Slug")
           assert "Vaultwarden setup request" in vault_message({"name": "A <B>", "email": "a@b"})
           assert "&lt;B&gt;" in vault_message({"name": "A <B>", "email": "a@b"})
+          vault_calls = []
+          def fake_vault_dash(method, path, body=None):
+              if method == "GET":
+                  return 200, {"requests": [{"id": "r1", "name": "A", "email": "a@b"}]}
+              vault_calls.append((path, body))
+              return 200, {}
+          def fake_vault_tg(chat, text):
+              vault_calls.append(("tg", chat))
+              return 200
+          saved_vault = (dash, tg, ALLOWED)
+          globals()["dash"], globals()["tg"], globals()["ALLOWED"] = fake_vault_dash, fake_vault_tg, {"123"}
+          try:
+              assert vault_once() == 1
+          finally:
+              globals()["dash"], globals()["tg"], globals()["ALLOWED"] = saved_vault
+          assert ("tg", "123") in vault_calls
+          assert any(c[0] == "/api/bot/vault-requests/notified" and c[1]["id"] == "r1" for c in vault_calls)
           assert dispatch("", 1) is None
           assert "chat id" in dispatch("/whoami", 42)
           assert "Gardener" in dispatch("/help@GardenerAdminBot", 1)
