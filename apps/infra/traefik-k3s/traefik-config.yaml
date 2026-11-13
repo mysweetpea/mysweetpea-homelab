@@ -10,6 +10,8 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    deployment:
+      replicas: 2
     providers:
       kubernetesCRD:
         allowCrossNamespace: true
