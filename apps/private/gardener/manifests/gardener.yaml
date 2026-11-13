@@ -267,10 +267,19 @@ data:
           return "/nextcloud/data/%s/files/%s" % (uid, MEDIA_FOLDER)
 
 
-      def ensure_media_folder(uid):
+      def ensure_member_defaults(uid):
           # Repair real storage before Immich validates the import path (400 on ENOENT).
-          path = "data/%s/files/%s" % (uid, MEDIA_FOLDER)
-          nc_sh("install -d -o www-data -g www-data -- " + shlex.quote(path))
+          # Existing files are never overwritten; only a newly copied file is scanned.
+          home = "data/%s/files" % uid
+          nc_sh("install -d -o www-data -g www-data -- " + shlex.quote(home) + " "
+                + shlex.quote(home + "/" + MEDIA_FOLDER))
+          for rel in ("README.md", MEDIA_FOLDER + "/README.txt"):
+              src = "/var/www/html/config/skeleton-empty/" + rel
+              dst = home + "/" + rel
+              copied = nc_sh("if [ ! -f %s ]; then install -o www-data -g www-data -m 0644 %s %s; printf yes; fi"
+                             % (shlex.quote(dst), shlex.quote(src), shlex.quote(dst)))
+              if copied.strip() == "yes":
+                  occ("files:scan", "--path=" + uid + "/files/" + rel)
 
 
       def im(method, path, body=None):
@@ -315,10 +324,10 @@ data:
           members = nc_members()
           changes = []
           for uid, email in members.items():
+              ensure_member_defaults(uid)
               u = by_email.get(email)
               if not u:
                   continue  # hasn't signed into Immich yet — nothing to attach
-              ensure_media_folder(uid)
               if u.get("quotaSizeInBytes") != MEMBER_QUOTA:
                   st, r = im("PUT", "/api/admin/users/" + u["id"], {"quotaSizeInBytes": MEMBER_QUOTA})
                   if st != 200:
@@ -760,16 +769,18 @@ data:
                   return 200, [{"id": "l1", "ownerId": "u1", "name": MEDIA_FOLDER,
                                 "importPaths": ["/nextcloud/data/other/files/Immich Media"]}]
               return 200, {}
-          saved = (im, nc_members, nc_sh)
+          saved = (im, nc_members, nc_sh, occ)
           globals()["im"] = fake_im
           globals()["nc_members"] = lambda: {"abc": "member@example.invalid"}
           globals()["nc_sh"] = lambda cmd: calls.append(("nc", cmd, None)) or ""
+          globals()["occ"] = lambda *args: calls.append(("occ", " ".join(args), None)) or ""
           try:
               _reconcile_locked()
           finally:
-              globals()["im"], globals()["nc_members"], globals()["nc_sh"] = saved
+              globals()["im"], globals()["nc_members"], globals()["nc_sh"], globals()["occ"] = saved
           assert any(c[0] == "PUT" and c[2]["importPaths"] == [media_path("abc")] for c in calls)
           assert any(c[0] == "nc" and "data/abc/files/Immich Media" in c[1] for c in calls)
+          assert any(c[0] == "nc" and "data/abc/files/README.md" in c[1] for c in calls)
           print("selftest ok")
 
 
