@@ -70,8 +70,9 @@ probes:
 vaultwarden:
   domain: "https://vault.mysweetpea.cc"
   allowSignups: false
-  # SSO-only: invitations create accounts outside Authentik
-  allowInvitation: false
+  # Invitation links are still SSO-gated; this only lets an owner invite a
+  # brand-new email instead of requiring that person to sign in first.
+  allowInvitation: true
   # -- Enable organization event logging (audit log)
   orgEvents: true
   # -- Organization event retention in days
