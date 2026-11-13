@@ -125,15 +125,34 @@ configs:
       return hs
     resource.customizations.health.argoproj.io_Application: |-
       hs = {}
-      if obj.status ~= nil then
-        if obj.status.health ~= nil then
-          hs.status = obj.status.health.status
-          hs.message = obj.status.health.message
-          return hs
-        end
-      end
       hs.status = "Progressing"
       hs.message = "Waiting for health check"
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        hs.message = obj.status.health.message
+      end
+      if obj.metadata.annotations ~= nil and obj.metadata.annotations["argocd.argoproj.io/ignore-healthcheck"] == "true" then
+        if obj.status == nil or obj.status.operationState == nil or obj.status.operationState.phase ~= "Succeeded" then
+          return hs
+        end
+        if obj.status.resources == nil or #obj.status.resources == 0 then
+          return hs
+        end
+        for i, resource in ipairs(obj.status.resources) do
+          if resource.status ~= nil and resource.status ~= "Synced" then
+            hs.status = "Progressing"
+            hs.message = resource.kind .. "/" .. resource.name .. " is " .. resource.status
+            return hs
+          end
+          if resource.health ~= nil and resource.health.status ~= nil and resource.health.status ~= "Healthy" then
+            hs.status = resource.health.status
+            hs.message = resource.kind .. "/" .. resource.name .. " is " .. resource.health.status
+            return hs
+          end
+        end
+        hs.status = "Healthy"
+        hs.message = "All managed resources are synced and healthy; last sync succeeded"
+      end
       return hs
     # ---- ignoreResourceUpdates (status noise suppression) ----
     resource.customizations.ignoreResourceUpdates.all: |-
