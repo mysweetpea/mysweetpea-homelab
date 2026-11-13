@@ -168,7 +168,7 @@ nextcloud:
       }
       PHP
         chown www-data:www-data /tmp/msp-defaults-flow.php
-        runuser -u www-data -- php /tmp/msp-defaults-flow.php
+        php /tmp/msp-defaults-flow.php
         rm -f /tmp/msp-defaults-flow.php
       fi
   extraVolumes:
