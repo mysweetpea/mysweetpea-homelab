@@ -5,6 +5,8 @@ global:
   envFrom:
   - secretRef:
       name: authentik-blueprint-env
+  - secretRef:
+      name: authentik-dashboard-blueprint-env
 authentik:
   # ⚠️ image tag for the server/worker is rendered from global.image.tag (chart
   # defaultTag = Chart.AppVersion; authentik.image.* is IGNORED by the chart —
@@ -2800,4 +2802,103 @@ additionalObjects:
         labels:
           blueprints.goauthentik.io/generated: 'true'
         name: authentik Export - 2026-08-17 02:47:16.500980+00:00
+      version: 1
+    dashboard.yaml: |
+      context: {}
+      entries:
+      - attrs:
+          access_code_validity: minutes=1
+          access_token_validity: hours=1
+          authentication_flow: null
+          authorization_flow: 6abbee8c-d4bf-4c8a-b7a3-666163f8602a
+          client_id: KKscbPxCeEB1O2TqAWbhDQ92pYvcX8NsdAQqRHD7
+          client_secret: __DASHBOARD_ENV__
+          client_type: public
+          encryption_key: null
+          grant_types:
+          - authorization_code
+          - refresh_token
+          include_claims_in_id_token: true
+          invalidation_flow: 6d8adc4a-7df1-440b-9f6d-45e555af68c5
+          issuer_mode: per_provider
+          jwt_federation_providers: []
+          jwt_federation_sources: []
+          logout_method: backchannel
+          logout_uri: ''
+          name: Provider for dashboard
+          property_mappings:
+          - 48532f9e-e0fb-47e8-8af1-39de46e39f00
+          - 53b93219-a977-47bf-ac91-d7b6f239b245
+          - 8842b9fd-3ac7-441c-a33e-97875503a786
+          - 209a02b2-4fcd-4ee6-b706-fda7936d3c05
+          - 1db8dd47-72dc-4670-85af-c4d4a2f0d164
+          redirect_uris:
+          - matching_mode: strict
+            redirect_uri_type: authorization
+            url: https://dashboard.mysweetpea.cc/auth/callback
+          refresh_token_threshold: seconds=0
+          refresh_token_validity: days=180
+          signing_key: 452149c2-c5d0-479f-b551-7f9f4500a1d6
+          sub_mode: user_username
+        conditions: []
+        identifiers:
+          pk: 29
+        model: authentik_providers_oauth2.oauth2provider
+        permissions: []
+        state: present
+      - attrs:
+          backchannel_providers: []
+          group: ''
+          meta_description: MySweetPea account dashboard
+          meta_hide: false
+          meta_icon: ''
+          meta_launch_url: https://dashboard.mysweetpea.cc
+          meta_publisher: MySweetPea
+          name: MySweetPea Dashboard
+          open_in_new_tab: false
+          policy_engine_mode: any
+          provider: 29
+          slug: dashboard
+        conditions: []
+        identifiers:
+          pk: 849e115d-f405-4b1e-9b56-8d0cc0623e43
+        model: authentik_core.application
+        permissions: []
+        state: present
+      - attrs:
+          enabled: true
+          failure_result: false
+          group: 3c7c79ff-3a62-419f-b89f-e7a82363ae51
+          negate: false
+          order: 0
+          policy: null
+          target: 849e115d-f405-4b1e-9b56-8d0cc0623e43
+          timeout: 30
+          user: null
+        conditions: []
+        identifiers:
+          pk: 8f92cfa7-70ee-4df8-a219-d0bad326bb91
+        model: authentik_policies.policybinding
+        permissions: []
+        state: present
+      - attrs:
+          enabled: true
+          failure_result: false
+          group: 919a95fc-b081-434d-9459-3d659858c933
+          negate: false
+          order: 1
+          policy: null
+          target: 849e115d-f405-4b1e-9b56-8d0cc0623e43
+          timeout: 30
+          user: null
+        conditions: []
+        identifiers:
+          pk: 18add7d9-9f69-4cdb-8d45-1d54da00821d
+        model: authentik_policies.policybinding
+        permissions: []
+        state: present
+      metadata:
+        labels:
+          blueprints.goauthentik.io/generated: 'true'
+        name: MySweetPea Dashboard
       version: 1

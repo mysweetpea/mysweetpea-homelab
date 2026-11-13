@@ -1,0 +1,14 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: authentik-dashboard-blueprint-env
+  namespace: dmz
+spec:
+  encryptedData:
+    AUTHENTIK_BP_DASHBOARD_CLIENT_SECRET: AgC7Y51qwWed17UyDYX2M4JI7X6m6wwnOXotbDV/lcje9DGXObICqH8In9d1FJN555CeRZRDSmHlE8qnv717kggctIkw8+d2x5P/pp+1aiMVhgGP5MU6lVcr9gnLz/e9m5iHj5jIWEhvvEXCIt3KHEWYFzHJL/BLqUP8zFW1Ny2smb/TH6Aa9SA33vXrsKoMwMpKp/e05PIJ/QHwnW/ehpVzSFfm+dGx87wwxO48y/tWjuuQ3czC+WbCSobDYtu34pYU1QdMqBk8xVlD+5wKpM2FBvlTWE5EIJw0fpx3FWiwaoI7K7kXT6w9h41EMNW9J/dklFF7Z4gFZGo+hLoDh/LUL0qeq+jDkm7Lhl+sDdz7qeiRMhg9B/vkTzAVL6IixRW5RNNCoayVArkNIVnzXqJoBnnJCrijbA6HHAERYqSPFuq1Fie8ptB34xAJEEcIbXzi9ywUqeNKDEf+dQTmWRj6g+LIKdQI9fLn2IseNkCH0hUHNKSdeMRJRHst498u/Q6szY4m9qLUoJocV93L+mDAirh1izZMWQGw+gvyRgNaAQ3fn/n2jo1zE2/5i4lu30xFaDZxBSOu1nBJbFGY5WT1rV5X/u7ZODRjNF88iyl+woZe3BvNWDUxzCFtyxBvlES4QPK23IKNnZGZ0Jj+QRnqEg3KE0D6cUrEYsxwNIuYyt15R9BNugjquR9zQ+6SFKuigwiUrY/6EYsSHs4df29n/tpvfvg8Zw88aF7F8KM7xOPCTGbv/luQfwHuu2IjuWZwjGV384J34JGRtq8CFh040JeNoYjA/XsOanKnXcUkGeh/6qjQ78eBsKbAB0hS4OQTt44nLlWRr9zw9Cdi8mA8gcUXNG9i48U2mjQvlxQuAg==
+  template:
+    metadata:
+      name: authentik-dashboard-blueprint-env
+      namespace: dmz
+    type: Opaque
