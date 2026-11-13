@@ -2480,7 +2480,7 @@ entries:
     remember_device: days=30
     remember_me_offset: seconds=0
     session_duration: seconds=0
-    terminate_other_sessions: true
+    terminate_other_sessions: false
   conditions: []
   identifiers:
     pk: 5f4efbe9-39f8-4e0a-ba0c-30fd95e81dab
@@ -2494,7 +2494,7 @@ entries:
     remember_device: days=30
     remember_me_offset: seconds=0
     session_duration: seconds=0
-    terminate_other_sessions: true
+    terminate_other_sessions: false
   conditions: []
   identifiers:
     pk: 1ccfb882-43ca-4716-bfdd-014f56d98ddc
@@ -2508,7 +2508,7 @@ entries:
     remember_device: days=30
     remember_me_offset: seconds=0
     session_duration: days=270
-    terminate_other_sessions: true
+    terminate_other_sessions: false
   conditions: []
   identifiers:
     pk: b6f04789-c139-407e-9618-5a206951959e
@@ -2625,7 +2625,7 @@ entries:
     flow_device_code: null
     flow_invalidation: 6d8adc4a-7df1-440b-9f6d-45e555af68c5
     flow_lockdown: null
-    flow_recovery: null
+    flow_recovery: d2918f48-9401-4638-a60a-4a340fb7c62c
     flow_unenrollment: null
     flow_user_settings: 2cec39b4-9ef7-40f8-a5ef-dc0aba22f146
     flow_user_switch: a3f19429-2b0b-4409-a1c5-0399200b4ef1

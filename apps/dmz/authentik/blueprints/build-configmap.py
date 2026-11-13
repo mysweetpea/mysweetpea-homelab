@@ -45,20 +45,19 @@ def main() -> None:
         return
 
     print("additionalObjects:")
-    print("  - apiVersion: v1")
-    print("    kind: ConfigMap")
-    print("    metadata:")
-    print(f"      name: {CONFIGMAP_NAME}")
-    print(f"      namespace: {NAMESPACE}")
-    print("    data:")
+    print("- apiVersion: v1")
+    print("  kind: ConfigMap")
+    print("  metadata:")
+    print(f"    name: {CONFIGMAP_NAME}")
+    print(f"    namespace: {NAMESPACE}")
+    print("  data:")
     for f in files:
         # Authentik only discovers keys ending in .yaml.
         # Filename is <name>.yaml -> key stays <name>.yaml
         key = f.name
         content = f.read_text()
-        # Indent every line by 8 spaces (under `data:` -> `  <key>: |` -> content)
-        indented = "\n".join("        " + line for line in content.splitlines())
-        print(f"      {key}: |")
+        indented = "\n".join(("      " + line) if line.strip() else "" for line in content.splitlines())
+        print(f"    {key}: |")
         print(indented)
 
 
