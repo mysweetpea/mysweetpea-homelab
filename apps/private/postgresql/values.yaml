@@ -14,6 +14,10 @@ fullnameOverride: postgresql
 metrics:
   enabled: false
 primary:
+  # Central network-policies owns private/postgresql; rendering it here too
+  # creates a permanent shared-resource/OutOfSync fight.
+  networkPolicy:
+    enabled: false
   livenessProbe:
     enabled: true
     failureThreshold: 10
