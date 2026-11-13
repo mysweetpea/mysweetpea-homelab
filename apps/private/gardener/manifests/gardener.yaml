@@ -58,6 +58,7 @@ data:
       import shlex
       import subprocess
       import sys
+      import time
       import urllib.error
       import urllib.parse
       import urllib.request
@@ -152,6 +153,38 @@ data:
       def dash(method, path, body=None):
           """Call the dashboard worker's bot lane (BOT_ADMIN_TOKEN)."""
           return http(method, DASH_URL + path, body, {"x-msp-internal": DASH_TOKEN})
+
+
+      def vault_message(r):
+          name = html.escape(str(r.get("name") or r.get("username") or "Member"))
+          email = str(r.get("email") or "")
+          who = "<b>%s</b>%s" % (name, (" · <code>%s</code>" % html.escape(email)) if email else "")
+          return ("🔐 <b>Vaultwarden setup request</b>\n"
+                  + who + "\n"
+                  "Open https://vault.mysweetpea.cc → MySweetPea → Members → Invite.\n"
+                  "After they accept, click Confirm. No owner credential is stored in this bot.")
+
+
+      def vault_loop():
+          """Poll the dashboard's small request inbox; notify the owner once each."""
+          if not DASH_TOKEN or not ALLOWED:
+              return
+          while True:
+              try:
+                  st, d = dash("GET", "/api/bot/vault-requests")
+                  if st == 200 and isinstance(d, dict):
+                      for r in (d.get("requests") or []):
+                          sent = False
+                          for chat in ALLOWED:
+                              if tg(chat, vault_message(r)) == 200:
+                                  sent = True
+                          if sent:
+                              st2, _ = dash("POST", "/api/bot/vault-requests/notified", {"id": r.get("id")})
+                              if st2 != 200:
+                                  sys.stderr.write("[gardener] vault request notify mark failed %s\n" % st2)
+              except Exception as e:  # noqa: BLE001
+                  sys.stderr.write("[gardener] vault request poll failed: %s\n" % str(e)[:200])
+              time.sleep(120)
 
 
       def send_mail(to, subject, body_html):
@@ -753,6 +786,8 @@ data:
           assert media_path("abc") == "/nextcloud/data/abc/files/Immich Media"
           assert reconcile.__doc__ and "Idempotent" in reconcile.__doc__
           assert SLUG_RE.match("iqbal-family") and not SLUG_RE.match("Bad Slug")
+          assert "Vaultwarden setup request" in vault_message({"name": "A <B>", "email": "a@b"})
+          assert "&lt;B&gt;" in vault_message({"name": "A <B>", "email": "a@b"})
           assert dispatch("", 1) is None
           assert "chat id" in dispatch("/whoami", 42)
           assert "Gardener" in dispatch("/help@GardenerAdminBot", 1)
@@ -790,6 +825,7 @@ data:
               sys.exit(0)
           import threading
           threading.Thread(target=reconcile_loop, daemon=True).start()
+          threading.Thread(target=vault_loop, daemon=True).start()
           ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 ---
 apiVersion: apps/v1
