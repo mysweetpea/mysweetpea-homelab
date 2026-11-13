@@ -4,7 +4,7 @@ controllers:
       main:
         image:
           repository: ghcr.io/containers/kubernetes-mcp-server
-          tag: v0.1.0
+          tag: v0.1.3
         # v0.1.x removed every runtime CLI flag (only --config/--config-dir/--version
         # remain), so all options moved into TOML. The old --port/--stateless/
         # --read-only args crashlooped the pod from v0.0.67 -> v0.1.0.
@@ -55,7 +55,6 @@ service:
     ports:
       http:
         port: 8080
-
 # Runtime options for v0.1.x. read_only + stateless must come from TOML now.
 configMaps:
   mcp-config:
@@ -67,7 +66,6 @@ configMaps:
         stateless = true
         # Read-only enforcement (RBAC is also read-only — defense in depth)
         read_only = true
-
 persistence:
   mcp-config:
     type: configMap
@@ -76,4 +74,3 @@ persistence:
     - path: /etc/kubernetes-mcp-server/config.toml
       subPath: config.toml
       readOnly: true
-
