@@ -818,7 +818,7 @@ spec:
           command:
             - sh
             - -c
-            - "wget -qO /out/kubectl https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && chmod +x /out/kubectl"
+            - "wget -T 30 -t 3 -qO /out/kubectl https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && chmod +x /out/kubectl"
           volumeMounts:
             - name: bin
               mountPath: /out
