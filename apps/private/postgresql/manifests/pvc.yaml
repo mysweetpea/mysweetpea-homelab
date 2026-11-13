@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-postgresql-0
+  namespace: private
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  volumeMode: Filesystem
+  volumeName: pvc-8946594e-bd51-494a-aa1d-6548cbccb540
+  resources:
+    requests:
+      storage: 20Gi

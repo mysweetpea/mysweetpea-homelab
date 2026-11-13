@@ -22,6 +22,9 @@ spec:
   - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     ref: values
+  - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+    targetRevision: HEAD
+    path: apps/private/postgresql/manifests
   syncPolicy:
     automated:
       prune: true

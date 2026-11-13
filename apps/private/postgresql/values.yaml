@@ -14,9 +14,6 @@ fullnameOverride: postgresql
 metrics:
   enabled: false
 primary:
-  persistence:
-    annotations:
-      argocd.argoproj.io/sync-options: Prune=false
   livenessProbe:
     enabled: true
     failureThreshold: 10
