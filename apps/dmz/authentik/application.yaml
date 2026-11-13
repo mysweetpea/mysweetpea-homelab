@@ -6,6 +6,7 @@ metadata:
   finalizers:
   - resources-finalizer.argocd.argoproj.io
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false
     argocd.argoproj.io/sync-wave: '2'
     argocd-image-updater.argoproj.io/image-list: authentik=ghcr.io/goauthentik/server
     argocd-image-updater.argoproj.io/authentik.update-strategy: semver

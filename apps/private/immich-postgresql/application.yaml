@@ -6,6 +6,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false
     argocd.argoproj.io/sync-wave: '1'
 spec:
   project: default
@@ -19,7 +20,7 @@ spec:
     directory:
       # exclude this Application manifest itself — otherwise the app prunes
       # its own Application object and cascade-deletes the StatefulSet
-      include: statefulset.yaml
+      include: '{pvc,statefulset}.yaml'
   syncPolicy:
     automated:
       prune: true

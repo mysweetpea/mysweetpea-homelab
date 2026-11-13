@@ -85,6 +85,8 @@ service:
 persistence:
   data:
     type: persistentVolumeClaim
+    annotations:
+      argocd.argoproj.io/sync-options: Prune=false
     accessMode: ReadWriteOnce
     size: 10Gi
     storageClass: longhorn

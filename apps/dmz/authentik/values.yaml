@@ -125,6 +125,8 @@ postgresql:
   primary:
     persistence:
       enabled: true
+      annotations:
+        argocd.argoproj.io/sync-options: Prune=false
       storageClass: longhorn
       size: 8Gi
     # ⚠️ JIT MUST STAY OFF (root-caused Sep 2 2026): Postgres JIT compiled the

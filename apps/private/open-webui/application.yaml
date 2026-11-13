@@ -6,6 +6,7 @@ metadata:
   finalizers:
   - resources-finalizer.argocd.argoproj.io
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false
     argocd-image-updater.argoproj.io/image-list: openwebui=ghcr.io/open-webui/open-webui
     argocd-image-updater.argoproj.io/openwebui.update-strategy: semver
     argocd-image-updater.argoproj.io/openwebui.allow-tags: "regexp:^v\\d+\\.\\d+\\.\\d+$"
