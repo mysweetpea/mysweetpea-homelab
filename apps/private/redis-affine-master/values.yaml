@@ -7,6 +7,8 @@ auth:
   existingSecret: redis-affine
   existingSecretPasswordKey: redis-password
 fullnameOverride: redis-affine
+networkPolicy:
+  enabled: false  # central network-policies owns private/redis-affine
 master:
   persistence:
     existingClaim: redis-data-redis-affine-master-0

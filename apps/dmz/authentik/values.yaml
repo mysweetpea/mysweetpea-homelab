@@ -126,6 +126,8 @@ postgresql:
     database: authentik
     existingSecret: authentik-postgresql
   primary:
+    networkPolicy:
+      enabled: false  # central network-policies owns dmz/authentik-postgresql
     persistence:
       enabled: true
       storageClass: longhorn
