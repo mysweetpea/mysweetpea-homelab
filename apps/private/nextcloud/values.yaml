@@ -133,6 +133,44 @@ nextcloud:
       # The image has /usr/bin/perl; this avoids the unused bundled eperl wrapper.
       php /var/www/html/occ config:system:set memories.exiftool_no_local --value=true --type=boolean >/dev/null
       echo "==> mysweetpea: session lifetimes OK"
+      # Keep the shipped personal defaults readable but member-immutable. The DAV URL
+      # condition is required: without it, first-login skeleton creation is denied too.
+      if php /var/www/html/occ app:list | grep -q 'files_accesscontrol:'; then
+        php /var/www/html/occ app:enable files_accesscontrol >/dev/null
+        cat > /tmp/msp-defaults-flow.php <<'PHP'
+      <?php
+      require_once '/var/www/html/lib/base.php';
+      use OCA\FilesAccessControl\Operation;
+      use OCA\WorkflowEngine\Entity\File;
+      use OCA\WorkflowEngine\Helper\ScopeContext;
+      use OCA\WorkflowEngine\Manager;
+      use OCP\Server;
+      use OCP\WorkflowEngine\IManager;
+      $manager = Server::get(Manager::class);
+      $scope = new ScopeContext(IManager::SCOPE_ADMIN);
+      $name = 'MySweetPea: default folders/files read-only for members';
+      $checks = [
+          ['class' => OCA\WorkflowEngine\Check\UserGroupMembership::class, 'operator' => '!is', 'value' => 'admin'],
+          ['class' => OCA\WorkflowEngine\Check\FileName::class, 'operator' => 'matches', 'value' => '/^(?:README\.md|README\.txt|Immich Media)$/i'],
+          ['class' => OCA\WorkflowEngine\Check\RequestURL::class, 'operator' => 'matches', 'value' => '~/remote\.php/dav/files/[^/]+/(?:.*/)?(?:README\.md|README\.txt|Immich(?:%20| |\+)Media)/?$~i'],
+      ];
+      $args = [$name, $checks, json_encode(['permissions' => 1], JSON_THROW_ON_ERROR), $scope, File::class, []];
+      $existing = array_values(array_filter(
+          $manager->getOperations(Operation::class, $scope),
+          fn (array $operation): bool => $operation['name'] === $name
+      ));
+      if ($existing) {
+          $manager->updateOperation($existing[0]['id'], ...$args);
+          echo 'defaults flow updated id=' . $existing[0]['id'] . PHP_EOL;
+      } else {
+          $created = $manager->addOperation(Operation::class, ...$args);
+          echo 'defaults flow created id=' . $created['id'] . PHP_EOL;
+      }
+      PHP
+        chown www-data:www-data /tmp/msp-defaults-flow.php
+        runuser -u www-data -- php /tmp/msp-defaults-flow.php
+        rm -f /tmp/msp-defaults-flow.php
+      fi
   extraVolumes:
   - name: nextcloud-oidc
     secret:
