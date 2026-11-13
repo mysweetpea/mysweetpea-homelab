@@ -193,10 +193,14 @@ fi
 # 3z. AIOStreams instance on the VPS + moonbase-lite data (added 2026-10-13)
 VPS_USER="${VPS_SSH:-}"
 mkdir -p "$STAGE/aiostreams"
-if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" "sudo sh -c 'cd /opt/aiostreams && tar czf - --ignore-failed-read compose.yaml .env data/db.sqlite*'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
-  echo "[$DATE] AIOStreams VPS snapshot: $(du -h "$STAGE/aiostreams/config.tar.gz" | cut -f1)" >> "$LOG"
+# Never tar a live WAL database. The VPS helper uses SQLite's online backup API,
+# checks integrity, and atomically renames a completed db-backup.sqlite.
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" "sudo sh -c 'python3 /opt/aiostreams/sqlite-backup.py && cd /opt/aiostreams && tar czf - compose.yaml .env data/db-backup.sqlite'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
+  echo "[$DATE] AIOStreams VPS snapshot: $(du -h "$STAGE/aiostreams/config.tar.gz" | cut -f1) (SQLite integrity OK)" >> "$LOG"
 else
-  echo "[$DATE] AIOStreams VPS snapshot FAILED - continuing" >> "$LOG"
+  echo "[$DATE] AIOStreams VPS snapshot FAILED" >> "$LOG"
+  notify_fail "AIOStreams SQLite snapshot" "Online SQLite backup or transfer failed; no fresh snapshot was marked healthy"
+  exit 1
 fi
 if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" 'sudo tar czf - -C /opt/moonbase-lite config.json data' > "$STAGE/moonbase-lite.tar.gz" 2>>"$LOG" && [ -s "$STAGE/moonbase-lite.tar.gz" ]; then
   echo "[$DATE] moonbase-lite snapshot: $(du -h "$STAGE/moonbase-lite.tar.gz" | cut -f1)" >> "$LOG"
