@@ -195,7 +195,7 @@ VPS_USER="${VPS_SSH:-}"
 mkdir -p "$STAGE/aiostreams"
 # Never tar a live WAL database. The VPS helper uses SQLite's online backup API,
 # checks integrity, and atomically renames a completed db-backup.sqlite.
-if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" "sudo sh -c 'python3 /opt/aiostreams/sqlite-backup.py && cd /opt/aiostreams && tar czf - compose.yaml .env data/db-backup.sqlite'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
+if ssh -o BatchMode=yes -o ConnectTimeout=15 "$VPS_USER" "sudo sh -c 'python3 /opt/aiostreams/sqlite-backup.py >&2 && cd /opt/aiostreams && tar czf - compose.yaml .env data/db-backup.sqlite'" > "$STAGE/aiostreams/config.tar.gz" 2>>"$LOG" && [ -s "$STAGE/aiostreams/config.tar.gz" ]; then
   echo "[$DATE] AIOStreams VPS snapshot: $(du -h "$STAGE/aiostreams/config.tar.gz" | cut -f1) (SQLite integrity OK)" >> "$LOG"
 else
   echo "[$DATE] AIOStreams VPS snapshot FAILED" >> "$LOG"
