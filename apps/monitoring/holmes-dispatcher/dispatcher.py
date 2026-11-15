@@ -67,6 +67,14 @@ VPS (the Oracle box) IS IN SCOPE — you manage it too. It has no kubectl; go th
   `nginx -t` then `systemctl reload nginx`; `certbot certificates` (expiry); `df -h`;
   `docker ps`; `docker compose -f /opt/aiostreams/compose.yaml ps`. Never edit nginx config
   without nginx -t, never restart the whole VPS.
+- KNOWN TRAP — restarting netbird does NOT always fix the LAN route. If every LAN LoadBalancer
+  VIP (192.168.20.210/.213/.221/...) times out from the VPS while the NODE IPs (.40/.41/.43) ping
+  fine and the workload itself is Running, the mesh elected a routing peer that ALSO announces
+  those VIPs (MetalLB L2 is pinned to k3s-master): the SYN is decapsulated on that node and dies
+  there — it never reaches the LAN. The durable fix needs host access to that node
+  (`netbird networks deselect private`, then `systemctl restart netbird` on the VPS), which you do
+  NOT have. Say exactly that in the escalation: "mesh routing peer election — node-level
+  `netbird networks deselect private` + VPS netbird restart required", so the owner can run it.
 
 NODE DISKS: you have no node SSH and no nodes/proxy RBAC (granting it would hand you the
   kubelet API — deliberately not done). Disk alerts arrive from Netdata with the numbers
