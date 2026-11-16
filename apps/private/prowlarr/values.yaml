@@ -4,7 +4,7 @@ controllers:
       main:
         image:
           repository: ghcr.io/hotio/prowlarr
-          tag: release-2.7.0.5723
+          tag: release-3.0.2.5780
         resources:
           requests:
             cpu: 100m
