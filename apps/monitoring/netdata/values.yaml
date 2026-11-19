@@ -72,5 +72,5 @@ service:
   loadBalancerIP: 192.168.20.229
   port: 19999
 image:
-  tag: v2.12.3
+  tag: v2.13.0
   repository: netdata/netdata
