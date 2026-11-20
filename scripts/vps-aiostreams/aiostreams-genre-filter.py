@@ -25,7 +25,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 UPSTREAM = ("127.0.0.1", 3000)
 PORT = int(os.environ.get("PORT", "3003"))
-DROP = {"Day", "Week"}
+# AIOStreams v2.38 started returning sort orders inside the genre list, and
+# "Actions" is a junk near-duplicate of "Action". Both reached the dashboard
+# genre chips as if they were browsable genres.
+DROP = {"Day", "Week", "Actions", "Date Added ↑", "Date Added ↓", "Title A-Z", "Title Z-A"}
+
+
+def _drop(nm):
+    """True for pseudo-genres: known junk plus any sort label (arrow-bearing)."""
+    return nm in DROP or "↑" in nm or "↓" in nm
 EXCLUDE_VIEWS = {"Movies by Year", "Shows by Year", "Movies by Language", "Shows by Language"}
 CACHE_TTL = 21600.0
 
@@ -145,7 +153,7 @@ def _clean_genres(items, root, excluded):
     out, seen = [], set()
     for it in items:
         nm = it.get("Name")
-        if not isinstance(nm, str) or nm in DROP:
+        if not isinstance(nm, str) or _drop(nm):
             continue
         if root and (nm in excluded or _is_year(nm)):
             continue
@@ -168,7 +176,7 @@ def _clean_filters(j, excluded):
         if not isinstance(nm, str):
             out.append(e)
             continue
-        if nm in DROP or _is_year(nm) or nm in excluded or nm in seen:
+        if _drop(nm) or _is_year(nm) or nm in excluded or nm in seen:
             changed = True
             continue
         seen.add(nm)
@@ -262,12 +270,14 @@ def _selftest():
         {"Name": "Action"}, {"Name": "Comedy"},
         {"Name": "Action"},  # series copy
         {"Name": "2024"}, {"Name": "Action"},  # collections copy + year
+        {"Name": "Actions"}, {"Name": "Date Added ↑"}, {"Name": "Title A-Z"},
+        {"Name": "Some New Sort ↓"},  # v2.38 sort labels + junk duplicate
     ]
     root = _clean_genres(items, True, frozenset({"2024"}))
     assert [i["Name"] for i in root] == ["Action", "Comedy"], root
     lib = _clean_genres(items, False, frozenset())
     assert [i["Name"] for i in lib] == ["Action", "Comedy", "2024"], lib
-    j, ch = _clean_filters({"Genres": ["Day", "Action", "Action", "1999", "Drama"]}, frozenset())
+    j, ch = _clean_filters({"Genres": ["Day", "Action", "Action", "1999", "Drama", "Actions", "Title Z-A"]}, frozenset())
     assert ch and j["Genres"] == ["Action", "Drama"], j
     assert max(0, 1) == 1 and max(7, 1) == 7   # count floor keeps card visible
     print("selftest OK")
