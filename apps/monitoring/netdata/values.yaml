@@ -48,9 +48,11 @@ parent:
             -H 'Content-Type: application/json' -H 'Accept: application/json' -d "${body}" >/dev/null 2>&1
         }
 child:
-  # v2.13.0's new dem.plugin crash-loops on children ("discovery pipeline: zero
-  # enabled providers", ~4k error lines/h/pod) and trips Grafana error-log-spike.
-  # Children have no discovery providers, so the plugin does nothing but log.
+  # v2.13.0's new discovery plugins misbehave on children: dem crash-loops
+  # ("discovery pipeline: zero enabled providers", ~4k error lines/h/pod) and
+  # scripts.d logs a missing-watch-dir error every minute. Together they trip
+  # Grafana error-log-spike (>750 error lines/5m) nonstop. Neither has anything
+  # to discover here (no providers, no scripts.d dir), so disable both.
   # This overrides the chart's default child netdata.conf wholesale — if a chart
   # bump changes the defaults, re-copy them here and keep the [plugins] block.
   configs:
@@ -68,6 +70,7 @@ child:
           enabled = no
         [plugins]
           dem = no
+          scripts.d = no
   resources:
     limits:
       cpu: 500m
