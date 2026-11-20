@@ -1,7 +1,7 @@
 global:
   image:
     repository: ghcr.io/goauthentik/server
-    tag: "2026.8.5"
+    tag: "2026.8.6"
   envFrom:
   - secretRef:
       name: authentik-blueprint-env
@@ -127,7 +127,7 @@ postgresql:
     existingSecret: authentik-postgresql
   primary:
     networkPolicy:
-      enabled: false  # central network-policies owns dmz/authentik-postgresql
+      enabled: false # central network-policies owns dmz/authentik-postgresql
     persistence:
       enabled: true
       storageClass: longhorn
