@@ -627,7 +627,9 @@ def cmd_add(chat, args, remove=False):
                 "Check the spelling of their MySweetPea username." % html.escape(username))
 
     if remove:
-        ak("POST", "/core/groups/%s/remove_user/" % g["pk"], {"pk": u["pk"]})
+        st, _ = ak("POST", "/core/groups/%s/remove_user/" % g["pk"], {"pk": u["pk"]})
+        if st not in (200, 204):
+            return "⚠️ login-system membership removal failed (%s)" % st
     else:
         st, _ = ak("POST", "/core/groups/%s/add_user/" % g["pk"], {"pk": u["pk"]})
         if st not in (200, 204):
