@@ -289,6 +289,11 @@ def main():
         open("/tmp/acestream.xmltv", "w").write(xml)
         return 0
     changed = cm_apply({"acestream.m3u": m3u, "acestream.xmltv": xml})
+    if changed:
+        # kubelet needs up to ~2min to project a ConfigMap change into the
+        # Jellyfin pod. Refreshing sooner reads the PREVIOUS file, and Jellyfin
+        # then caches that for an hour (XmlTvListingsProvider _maxCacheAge).
+        time.sleep(int(os.environ.get("MOUNT_SETTLE_SECONDS", "120")))
     print(f"configmap_changed={changed} refresh={jf_refresh() if changed else 'skipped'}", flush=True)
     if KUMA:
         try:
