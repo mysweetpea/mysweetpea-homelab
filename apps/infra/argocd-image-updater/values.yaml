@@ -441,6 +441,7 @@ extraObjects:
                   - '2026\.10\.6'
                   - 'v0\.1\.1'
                   - 'v0\.1\.2'
+                  - '2\.50\.0'
                 updateStrategy: semver
                 allowTags: "regexp:^v\\d+\\.\\d+\\.\\d+$"
               manifestTargets:
