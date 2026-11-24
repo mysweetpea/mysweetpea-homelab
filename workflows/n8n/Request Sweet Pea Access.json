@@ -2,146 +2,244 @@
   "name": "Request Sweet Pea Access",
   "nodes": [
     {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "sweetpea-request",
-        "responseMode": "responseNode",
-        "options": {}
-      },
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab",
+      "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
       "position": [
         0,
         0
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab",
-      "name": "Webhook",
-      "webhookId": "f4f4225f-3c04-454f-8334-32b6d8b9c8f0"
+      "webhookId": "f4f4225f-3c04-454f-8334-32b6d8b9c8f0",
+      "parameters": {
+        "path": "sweetpea-request",
+        "options": {},
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "typeVersion": 2.1
     },
     {
-      "parameters": {
-        "jsCode": "const d = $input.first().json.body || {};\nlet err = null;\nif (!d.name || d.name.trim().length < 2) err = 'Name is required (min 2 characters)';\nelse if (!d.email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(d.email.trim())) err = 'Valid email is required';\nelse if (d.services && d.services.trim().length > 0 && d.services.trim().length < 2) err = 'Please describe what you need in a few characters';\n// Form does not send a username - generate a unique placeholder from the email\nconst base = (d.email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 20) || 'user';\nd.username = base + '_' + Math.random().toString(36).slice(2, 6);\nreturn [{json: {...d, validation_error: err}}];"
-      },
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-validate",
+      "name": "Validate Input",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
       "position": [
         224,
         0
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-validate",
-      "name": "Validate Input"
+      "parameters": {
+        "jsCode": "const d = $input.first().json.body || {};\nlet err = null;\nif (!d.name || d.name.trim().length < 2) err = 'Could you add your name? (2+ characters)';\nelse if (!d.email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(d.email.trim())) err = 'That email does not look quite right — mind checking it?';\nelse if (d.services && d.services.trim().length > 0 && d.services.trim().length < 2) err = 'Tell us a little about what you are looking for — a few words is plenty.';\n// Form does not send a username - generate a unique placeholder from the email\nconst base = (d.email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 20) || 'user';\nd.username = base + '_' + Math.random().toString(36).slice(2, 6);\nreturn [{json: {...d, validation_error: err}}];"
+      },
+      "typeVersion": 2
     },
     {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "c1",
-              "leftValue": "={{ $json.validation_error }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "empty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-valid",
+      "name": "Input Valid?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
       "position": [
         448,
         0
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-valid",
-      "name": "Input Valid?"
-    },
-    {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ok: false, msg: $json.validation_error}) }}",
-        "options": {
-          "responseCode": 400
+        "options": {},
+        "conditions": {
+          "options": {
+            "version": 1,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              },
+              "leftValue": "={{ $json.validation_error }}",
+              "rightValue": ""
+            }
+          ]
         }
       },
+      "typeVersion": 2
+    },
+    {
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-err",
+      "name": "Error Response",
       "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
       "position": [
         672,
         208
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-err",
-      "name": "Error Response"
+      "parameters": {
+        "options": {
+          "responseCode": 400
+        },
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: false, msg: $json.validation_error}) }}"
+      },
+      "typeVersion": 1.1
     },
     {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO donors (name, email, username, services, message, status, tier, donation_amount) VALUES ($1, $2, $3, $4, $5, 'pending', 'sweetpea', 0.00) RETURNING id;",
-        "options": {
-          "queryReplacement": "={{ $json.name }}, {{ $json.email }}, {{ $json.username }}, '{{ $json.services || '' }}', {{ $json.message || '' }}"
-        }
-      },
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-insert",
+      "name": "Insert Request",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.3,
       "position": [
         672,
         0
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-insert",
-      "name": "Insert Request",
+      "parameters": {
+        "query": "INSERT INTO donors (name, email, username, services, message, status, tier, donation_amount) VALUES ($1, $2, $3, $4, $5, 'pending', 'sweetpea', 0.00) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $('Validate Input').item.json.name }}, {{ $('Validate Input').item.json.email }}, {{ $('Validate Input').item.json.username }}, '{{ $('Validate Input').item.json.services || '' }}', {{ JSON.stringify($('Validate Input').item.json.message || '') }}"
+        },
+        "operation": "executeQuery"
+      },
       "credentials": {
         "postgres": {
           "id": "yPSJ6t0yTl3JfbWz",
-          "name": "PostgresSQL Credential"
+          "name": "Postgres"
         }
-      }
+      },
+      "typeVersion": 2.3
     },
     {
-      "parameters": {
-        "message": "={{ 'New Sweet Pea request from ' + $('Validate Input').item.json.name + '\\nEmail: ' + $('Validate Input').item.json.email + ($('Validate Input').item.json.message ? '\\nNote: ' + $('Validate Input').item.json.message : '') }}",
-        "additionalFields": {
-          "priority": 5,
-          "title": "Sweet Pea Request"
-        },
-        "options": {}
-      },
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-gotify",
+      "name": "Gotify Notify",
       "type": "n8n-nodes-base.gotify",
-      "typeVersion": 1,
       "position": [
         880,
         0
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-gotify",
-      "name": "Gotify Notify",
+      "parameters": {
+        "message": "={{ 'New Sweet Pea request from ' + $('Validate Input').item.json.name + '\\nEmail: ' + $('Validate Input').item.json.email + ($('Validate Input').item.json.message ? '\\nNote: ' + $('Validate Input').item.json.message : '') }}",
+        "options": {},
+        "additionalFields": {
+          "title": "Sweet Pea Request",
+          "priority": 5
+        }
+      },
       "credentials": {
         "gotifyApi": {
           "id": "rEX2d2uzpCBEdrn4",
-          "name": "Gotify account"
+          "name": "Gotify"
         }
-      }
+      },
+      "typeVersion": 1
     },
     {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ok: true, msg: 'Sweet Pea request received. We will review and email you.'}) }}",
-        "options": {}
-      },
+      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-success",
+      "name": "Success Response",
       "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
       "position": [
         1104,
         0
       ],
-      "id": "b958de95-9eff-4dc1-8047-02afa863f3ab-success",
-      "name": "Success Response"
+      "parameters": {
+        "options": {},
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, msg: 'Received — we will read your request personally and email you within a day or two.'}) }}"
+      },
+      "typeVersion": 1.1
+    },
+    {
+      "id": "sw-check-email-0001",
+      "name": "Check Email",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        672,
+        -208
+      ],
+      "parameters": {
+        "query": "SELECT COUNT(*)::int AS cnt FROM donors WHERE email = $1;",
+        "options": {
+          "queryReplacement": "={{ $json.email }}"
+        },
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "yPSJ6t0yTl3JfbWz",
+          "name": "Postgres"
+        }
+      },
+      "typeVersion": 2.3
+    },
+    {
+      "id": "sw-email-exists-0001",
+      "name": "Email Exists?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        880,
+        -208
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "version": 1,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "swex1",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ Number($json.cnt) }}",
+              "rightValue": "0"
+            }
+          ]
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "sw-dup-resp-0001",
+      "name": "Duplicate Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        1088,
+        -320
+      ],
+      "parameters": {
+        "options": {
+          "responseCode": 409
+        },
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: false, msg: 'We already have a request from this email in the garden. We will email you after review — if something needs changing, just email support@mysweetpea.cc.'}) }}"
+      },
+      "typeVersion": 1.1
+    },
+    {
+      "id": "92f8ac7e-9a2a-4e70-995c-bc5098e9da3a",
+      "name": "Ack Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "html": "=<div style=\"background-color:#08090F;padding:26px 12px;width:100%;\">\n  <div style=\"max-width:560px;margin:0 auto;background-color:#121320;border:1px solid #24273A;border-radius:16px;padding:28px 26px 24px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#C9CCE4;\">\n      <div style=\"background:#08090F;padding:28px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;\">\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\">\n    <table role=\"presentation\" width=\"560\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:560px;max-width:92%;background:#121320;border:1px solid #24273A;border-radius:14px;\">\n      <tr><td style=\"padding:30px 32px 8px;\">\n        <div style=\"font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7E85AE;\">MySweetPea</div>\n        <h1 style=\"margin:12px 0 0;font-size:22px;line-height:1.3;color:#EEF0FB;font-weight:600;\">Your request is in</h1>\n      </td></tr>\n      <tr><td style=\"padding:16px 32px 0;font-size:15px;line-height:1.7;color:#C9CCE4;\">\n        <p style=\"margin:0 0 14px;\">Hi {{ $('Validate Input').item.json.name }},</p>\n        <p style=\"margin:0 0 14px;\">Thanks for asking. Your request came through and I will look at it myself, usually the same day.</p>\n        <p style=\"margin:0 0 14px;\">If it is a fit, you will get a second email with an invite code, and you can set up your account from there. Nothing else is needed from you right now. If you want to add something, just reply to this email.</p>\n      </td></tr>\n      <tr><td style=\"padding:6px 32px 30px;font-size:13px;line-height:1.7;color:#A9AFC9;\">\n        <p style=\"margin:0 0 6px;\">If you did not ask for access, ignore this email and you will not hear from me again.</p>\n        <p style=\"margin:0;\">&mdash; Sweet Pea</p>\n      </td></tr>\n    </table>\n  </td></tr></table>\n</div>\n  </div>\n</div>",
+        "text": "=MySweetPea\n\nYour request is in\n\nHi {{ $('Validate Input').item.json.name }},\n\nThanks for asking. Your request came through and I will look at it myself, usually the same day.\n\nIf it is a fit, you will get a second email with an invite code, and you can set up your account from there. Nothing else is needed from you right now. If you want to add something, just reply to this email.\n\nIf you did not ask for access, ignore this email and you will not hear from me again.\n\n— Sweet Pea\nMySweetPea · https://mysweetpea.cc",
+        "options": {},
+        "subject": "Got it: your MySweetPea request is in",
+        "toEmail": "={{ $('Validate Input').item.json.email }}",
+        "fromEmail": "MySweetPea <support@mysweetpea.cc>",
+        "emailFormat": "both"
+      },
+      "credentials": {
+        "smtp": {
+          "id": "WSuKgfMAW4A3KDug",
+          "name": "Resend"
+        }
+      },
+      "typeVersion": 2.1
     }
   ],
   "pinData": {},
@@ -157,11 +255,22 @@
         ]
       ]
     },
-    "Validate Input": {
+    "Ack Email": {
       "main": [
         [
           {
-            "node": "Input Valid?",
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Email": {
+      "main": [
+        [
+          {
+            "node": "Email Exists?",
             "type": "main",
             "index": 0
           }
@@ -172,7 +281,7 @@
       "main": [
         [
           {
-            "node": "Insert Request",
+            "node": "Check Email",
             "type": "main",
             "index": 0
           }
@@ -180,6 +289,35 @@
         [
           {
             "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Exists?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gotify Notify": {
+      "main": [
+        [
+          {
+            "node": "Ack Email",
             "type": "main",
             "index": 0
           }
@@ -197,11 +335,11 @@
         ]
       ]
     },
-    "Gotify Notify": {
+    "Validate Input": {
       "main": [
         [
           {
-            "node": "Success Response",
+            "node": "Input Valid?",
             "type": "main",
             "index": 0
           }
@@ -218,7 +356,7 @@
     "errorWorkflow": "gLkoZII7mE0R3CBY",
     "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "3a7cc89a-6736-4c88-a5c9-9a515de1da85",
+  "versionId": "3cf6f030-341d-4782-8fdb-0b621da09611",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "fbcbb570d3c4d02836cf7b18fe1c11743532a362cdeb07b67a4d9dc4b22c3cf9"
