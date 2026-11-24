@@ -72,6 +72,11 @@ controllers:
           value: "6878"
         - name: ACEXY_LISTEN_ADDR
           value: ":8080"
+        # Default is 10s; a cold P2P start here regularly needs 15-20s before
+        # the engine returns headers (measured: acexy "timeout awaiting
+        # response headers" then success on retry). 30s covers the warmup.
+        - name: ACEXY_NO_RESPONSE_TIMEOUT
+          value: 30s
         - name: TZ
           value: America/New_York
         ports:
