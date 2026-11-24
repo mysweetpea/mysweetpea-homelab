@@ -11,7 +11,7 @@ Kubernetes API (stdlib only, no kubectl in the image) and asks Jellyfin to
 re-run its guide refresh only when the content actually changed.
 
 Env: ENGINE_URL ACEXY_URL CM_NAME CM_NAMESPACE JF_URL JF_KEY KUMA_PUSH_URL
-     EXCLUDE_CATS MIN_AVAIL DRY_RUN
+     EXCLUDE_CATS LANGUAGES EN_COUNTRIES MIN_AVAIL DRY_RUN
 """
 import json
 import os
@@ -31,15 +31,34 @@ JF_URL = os.environ.get("JF_URL", "http://jellyfin.private.svc:8096").rstrip("/"
 JF_KEY = os.environ.get("JF_KEY", "")
 KUMA = os.environ.get("KUMA_PUSH_URL", "")
 EXCLUDE = {c.strip().lower() for c in os.environ.get("EXCLUDE_CATS", "erotic_18_plus,amateur").split(",") if c.strip()}
+LANGUAGES = {c.strip().lower() for c in os.environ.get("LANGUAGES", "eng").split(",") if c.strip()}
+# ~570 of the index's entries carry no language at all; those are kept only when
+# their country is English-speaking, never guessed from the name.
+EN_COUNTRIES = {c.strip().lower() for c in
+                os.environ.get("EN_COUNTRIES", "us,uk,gb,ca,au,ie,nz").split(",") if c.strip()}
 MIN_AVAIL = float(os.environ.get("MIN_AVAIL", "0.2"))
 DRY = os.environ.get("DRY_RUN", "") == "1"
 
-CAT_NAMES = {
-    "tv": "TV", "sport": "Sport", "movies": "Movies", "regional": "Regional",
-    "educational": "Educational", "entertaining": "Entertainment", "music": "Music",
-    "kids": "Kids", "informational": "Info", "religion": "Religion", "other": "Other",
-    "documentaries": "Documentaries", "series": "Series", "teleshop": "Teleshop",
-    "fashion": "Fashion",
+# Jellyfin parses group-title but never exposes it (no channel-groups endpoint),
+# so ordering comes from tvg-chno: sports occupy 100-299 in sport order, the
+# rest follow. (regex, label, first number) - specific patterns before generic.
+SPORT_TYPES = [
+    (r"cricket", "Cricket", 210),
+    (r"tennis", "Tennis", 220),
+    (r"\bnba\b|basketball", "Basketball", 200),
+    (r"\bnfl\b|american football", "American Football", 260),
+    (r"\bmlb\b|baseball", "Baseball", 270),
+    (r"\bnhl\b|hockey", "Hockey", 280),
+    (r"\bf1\b|formula|motogp|nascar|indycar|motorsport", "Motorsport", 230),
+    (r"golf", "Golf", 250),
+    (r"\bufc\b|boxing|\bwwe\b", "Combat", 240),
+    (r"football|soccer|skysp ?pl|sky sp ?pl|premier league|\bepl\b|\bmls\b", "Football", 100),
+]
+NON_SPORT = {
+    "informational": ("News", 300), "tv": ("TV", 400), "entertaining": ("Entertainment", 450),
+    "movies": ("Movies", 500), "kids": ("Kids", 600), "music": ("Music", 700),
+    "religion": ("Religious", 800), "religious": ("Religious", 800),
+    "teleshop": ("Shopping", 950),
 }
 
 
@@ -78,9 +97,32 @@ def cats_of(group):
     return s
 
 
+def langs_of(g):
+    return {str(x).lower() for i in (g.get("items") or []) if isinstance(i, dict)
+            for x in (i.get("languages") or [])}
+
+
+def countries_of(g):
+    return {str(x).lower() for i in (g.get("items") or []) if isinstance(i, dict)
+            for x in (i.get("countries") or [])}
+
+
+def classify(name, cats):
+    """-> (group label, first channel number)."""
+    low = name.lower()
+    if "sport" in cats:
+        for pat, label, base in SPORT_TYPES:
+            if re.search(pat, low):
+                return f"Sport: {label}", base
+        return "Sport: Multi-Sport", 150
+    cat = next(iter(sorted(cats))) if cats else "other"
+    return NON_SPORT.get(cat, ("Other", 900))
+
+
 def build(groups):
     seen_names, used_ids = set(), set()
     channels = []
+    dropped = 0
 
     def slug(name):
         base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60] or "ch"
@@ -97,6 +139,14 @@ def build(groups):
             continue
         if cats_of(g) & EXCLUDE:
             continue
+        lang = langs_of(g)
+        if lang:
+            if not (lang & LANGUAGES):
+                dropped += 1
+                continue
+        elif not (countries_of(g) & EN_COUNTRIES):
+            dropped += 1
+            continue
         best = max(items, key=lambda i: (float(i.get("availability") or 0), int(i.get("bitrate") or 0)))
         if float(best.get("availability") or 0) < MIN_AVAIL:
             continue
@@ -104,7 +154,7 @@ def build(groups):
         if key in seen_names:
             continue
         seen_names.add(key)
-        cat = next(iter(sorted(cats_of(g)))) if cats_of(g) else "other"
+        group, base = classify(name, cats_of(g))
         icon = ""
         for ic in (g.get("icons") or []):
             if isinstance(ic, dict) and ic.get("url"):
@@ -114,11 +164,20 @@ def build(groups):
             "id": slug(name),
             "name": name,
             "hash": str(best["infohash"]),
-            "cat": CAT_NAMES.get(cat, cat.title()),
+            "group": group,
+            "base": base,
             "icon": icon,
             "epg": [e for e in (g.get("epg") or []) if isinstance(e, dict) and e.get("start")],
         })
-    channels.sort(key=lambda c: (c["cat"], c["name"].lower()))
+    if dropped:
+        print(f"language filter dropped {dropped}", flush=True)
+    channels.sort(key=lambda c: (c["base"], c["name"].lower()))
+    # ponytail: 50-wide number bands; a >50-channel group bleeds into the next
+    # band (cosmetic only) - widen the bands if that ever happens.
+    nxt = {}
+    for c in channels:
+        c["num"] = nxt.get(c["group"], c["base"])
+        nxt[c["group"]] = c["num"] + 1
     return channels
 
 
@@ -134,7 +193,8 @@ def xmltv_time(ts):
 def render(channels):
     m3u = ["#EXTM3U"]
     for c in channels:
-        attrs = f'tvg-id="{c["id"]}" tvg-name="{xml_escape(c["name"])}" group-title="{xml_escape(c["cat"])}"'
+        attrs = (f'tvg-id="{c["id"]}" tvg-chno="{c["num"]}" tvg-name="{xml_escape(c["name"])}" '
+                 f'group-title="{xml_escape(c["group"])}"')
         if c["icon"]:
             attrs += f' tvg-logo="{xml_escape(c["icon"])}"'
         m3u.append(f'#EXTINF:-1 {attrs},{c["name"]}')
