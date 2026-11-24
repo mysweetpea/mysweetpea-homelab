@@ -205,23 +205,30 @@ def render(channels):
         m3u.append(f'{ACEXY}/ace/getstream?infohash={c["hash"]}')
     x = ['<?xml version="1.0" encoding="UTF-8"?>', '<!DOCTYPE tv SYSTEM "xmltv.dtd">',
          '<tv generator-info-name="acesync">']
-    for c in channels:
-        if not c["epg"]:
-            continue
-        x.append(f'  <channel id="{c["id"]}"><display-name>{xml_escape(c["name"])}</display-name>'
-                 + (f'<icon src="{xml_escape(c["icon"])}"/>' if c["icon"] else "") + "</channel>")
     now = time.time()
     for c in channels:
-        for e in c["epg"]:
-            start = float(e["start"])
-            stop = float(e.get("stop") or start + 3600)
-            if stop < now - 3600 or start > now + 72 * 3600:
-                continue
-            x.append(f'  <programme start="{xmltv_time(start)}" stop="{xmltv_time(stop)}" channel="{c["id"]}">')
-            x.append(f'    <title lang="en">{xml_escape(e.get("name") or "")}</title>')
-            if e.get("description"):
-                x.append(f'    <desc lang="en">{xml_escape(e["description"])}</desc>')
-            x.append("  </programme>")
+        x.append(f'  <channel id="{c["id"]}"><display-name>{xml_escape(c["name"])}</display-name>'
+                 + (f'<icon src="{xml_escape(c["icon"])}"/>' if c["icon"] else "") + "</channel>")
+    # One programme per channel so Jellyfin's "On Now" home row always has
+    # something to show: the index's programme when one is actually airing,
+    # otherwise a clearly-labelled placeholder. No event is ever invented.
+    for c in channels:
+        live = next((e for e in c["epg"]
+                     if float(e["start"]) <= now < float(e.get("stop") or 0)), None)
+        if live:
+            start = float(live["start"])
+            stop = float(live.get("stop") or start + 3600)
+            title = live.get("name") or c["name"]
+            desc = live.get("description") or ""
+        else:
+            start, stop = now - 300, now + 3 * 3600
+            title = re.sub(r"\s*\[[A-Z]{2}\]$", "", c["name"])
+            desc = "Live sports feed - no published schedule"
+        x.append(f'  <programme start="{xmltv_time(start)}" stop="{xmltv_time(stop)}" channel="{c["id"]}">')
+        x.append(f'    <title lang="en">{xml_escape(title)}</title>')
+        if desc:
+            x.append(f'    <desc lang="en">{xml_escape(desc)}</desc>')
+        x.append("  </programme>")
     x.append("</tv>")
     return "\n".join(m3u) + "\n", "\n".join(x) + "\n"
 
