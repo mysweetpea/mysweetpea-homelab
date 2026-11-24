@@ -14,7 +14,10 @@ controllers:
       gluetun:
         image:
           repository: qmcgaw/gluetun
-          tag: latest
+          # Pinned by digest 2026-11-24: upstream publishes no stable semver tag,
+          # and `latest` silently re-pulls a new build on every pod start.
+          # (app-template 3.7.3 has no `digest:` field, hence tag@sha256.)
+          tag: latest@sha256:08f6770a4b157787690dcd2d4ddb3560ec28860102530b5cdc4f632f24bfae9e
         env:
         - name: VPN_SERVICE_PROVIDER
           value: privado
@@ -41,8 +44,8 @@ controllers:
       engine:
         image:
           repository: wafy80/acestream
-          # upstream publishes a single rolling tag; pin by digest if it churns
-          tag: latest
+          # Pinned by digest 2026-11-24 (upstream ships a rolling `latest` only)
+          tag: latest@sha256:b46cfabb581b27a235106539dfeb06501745486c4bfdc5b012220c06ce72d1f9
         args: ["--client-console", "--bind-all"]
         env:
         - name: TZ
@@ -61,7 +64,7 @@ controllers:
       acexy:
         image:
           repository: ghcr.io/javinator9889/acexy
-          tag: latest
+          tag: latest@sha256:1be95013319d2a37f309c4e4fdcfff008149436d839225374ae5029a2030368b
         env:
         - name: ACEXY_HOST
           value: 127.0.0.1
@@ -85,9 +88,10 @@ controllers:
 service:
   main:
     controller: acestream
-    type: LoadBalancer
-    loadBalancerIP: 192.168.20.212
-    allocateLoadBalancerNodePorts: false
+    # ClusterIP only: nothing outside the cluster consumes Ace directly (the
+    # homepage tile has no href, Jellyfin streams via in-cluster DNS). The old
+    # LoadBalancer published the engine's unauthenticated web UI on the LAN.
+    type: ClusterIP
     ports:
       engine:
         port: 6878

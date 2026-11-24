@@ -20,6 +20,10 @@ spec:
   - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
     targetRevision: HEAD
     ref: values
+  # Playlist/EPG sync: CronJob + RBAC + the script (kustomize)
+  - repoURL: https://github.com/mysweetpea/mysweetpea-homelab.git
+    targetRevision: HEAD
+    path: apps/private/acestream/manifests
   syncPolicy:
     automated:
       prune: true

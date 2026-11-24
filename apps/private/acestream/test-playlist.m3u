@@ -1,3 +1,6 @@
+# DEPRECATED 2026-11-24: Jellyfin now reads /config/livetv/acestream.m3u, rendered
+# hourly by the acestream-sync CronJob from the engine's channel index.
+# Kept only as a 3-channel smoke-test reference.
 #EXTM3U
 # AceStream test channels for the Jellyfin Live TV try-out (2026-10-15).
 # Streams flow: Jellyfin -> acexy (acestream.private.svc:8080) -> ace engine -> P2P swarm.

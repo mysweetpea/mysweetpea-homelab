@@ -1,0 +1,91 @@
+# Mirrors the AceStream channel index into the acestream-livetv ConfigMap
+# (M3U + XMLTV) that Jellyfin mounts, then asks Jellyfin to re-run the guide
+# refresh -- only when the rendered content actually changed.
+#
+# Hourly, because Jellyfin's XMLTV cache is 1h (XmlTvListingsProvider
+# _maxCacheAge) and the index only carries the *current* programme.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: acestream-sync
+  namespace: private
+  labels:
+    app.kubernetes.io/name: acestream
+    app.kubernetes.io/component: livetv
+spec:
+  schedule: "5 * * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: acestream
+            app.kubernetes.io/component: livetv
+        spec:
+          serviceAccountName: acestream-sync
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sync
+              image: python:3.12-alpine
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-u", "/app/playlist-sync.py"]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: ENGINE_URL
+                  value: http://acestream.private.svc.cluster.local:6878
+                - name: ACEXY_URL
+                  value: http://acestream.private.svc.cluster.local:8080
+                - name: JF_URL
+                  value: http://jellyfin.private.svc.cluster.local:8096
+                - name: CM_NAME
+                  value: acestream-livetv
+                - name: JF_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: acestream-sync-secrets
+                      key: JF_KEY
+                - name: KUMA_PUSH_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: acestream-sync-secrets
+                      key: KUMA_PUSH_URL
+              volumeMounts:
+                - name: src
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: src
+              configMap:
+                name: acestream-sync-src
+                defaultMode: 0444
+            - name: tmp
+              emptyDir:
+                sizeLimit: 32Mi

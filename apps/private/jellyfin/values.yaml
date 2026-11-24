@@ -64,6 +64,15 @@ persistence:
     existingClaim: media-storage-lh
     globalMounts:
     - path: /data
+  # Live TV playlist + guide, rendered hourly by the acestream-sync CronJob
+  # (apps/private/acestream/manifests). Mounted as a directory, not subPath,
+  # so ConfigMap updates reach the running pod.
+  livetv:
+    type: configMap
+    name: acestream-livetv
+    globalMounts:
+    - path: /config/livetv
+      readOnly: true
   # Transcodes in RAM (tmpfs) - instant transcode I/O, no Longhorn network round-trips
   transcodes:
     type: emptyDir
