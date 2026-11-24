@@ -11,7 +11,7 @@ Kubernetes API (stdlib only, no kubectl in the image) and asks Jellyfin to
 re-run its guide refresh only when the content actually changed.
 
 Env: ENGINE_URL ACEXY_URL CM_NAME CM_NAMESPACE JF_URL JF_KEY KUMA_PUSH_URL
-     EXCLUDE_CATS LANGUAGES EN_COUNTRIES MIN_AVAIL DRY_RUN
+     EXCLUDE_CATS CATEGORIES LANGUAGES EN_COUNTRIES MIN_AVAIL DRY_RUN
 """
 import json
 import os
@@ -31,6 +31,8 @@ JF_URL = os.environ.get("JF_URL", "http://jellyfin.private.svc:8096").rstrip("/"
 JF_KEY = os.environ.get("JF_KEY", "")
 KUMA = os.environ.get("KUMA_PUSH_URL", "")
 EXCLUDE = {c.strip().lower() for c in os.environ.get("EXCLUDE_CATS", "erotic_18_plus,amateur").split(",") if c.strip()}
+# Allowlist of index categories to keep; empty string = keep everything.
+CATEGORIES = {c.strip().lower() for c in os.environ.get("CATEGORIES", "sport").split(",") if c.strip()}
 LANGUAGES = {c.strip().lower() for c in os.environ.get("LANGUAGES", "eng").split(",") if c.strip()}
 # ~570 of the index's entries carry no language at all; those are kept only when
 # their country is English-speaking, never guessed from the name.
@@ -138,6 +140,8 @@ def build(groups):
         if not name or not items:
             continue
         if cats_of(g) & EXCLUDE:
+            continue
+        if CATEGORIES and not (cats_of(g) & CATEGORIES):
             continue
         lang = langs_of(g)
         if lang:

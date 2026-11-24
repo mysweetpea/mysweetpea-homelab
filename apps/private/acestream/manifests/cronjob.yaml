@@ -53,6 +53,9 @@ spec:
                   value: http://jellyfin.private.svc.cluster.local:8096
                 - name: CM_NAME
                   value: acestream-livetv
+                # sport-only lineup; "" keeps every category
+                - name: CATEGORIES
+                  value: sport
                 - name: JF_KEY
                   valueFrom:
                     secretKeyRef:
