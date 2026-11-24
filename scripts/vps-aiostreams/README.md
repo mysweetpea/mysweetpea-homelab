@@ -914,3 +914,20 @@ queries both use it; verified 75+75 = 150 on every client class.
 - **Known upstream timing**: AIOStreams caches the resolved config in-process
   (~5 min), so a newly provisioned persona or a rotated PIN can take up to
   ~5 min to authenticate. The PIN card already tells members to wait+retry.
+
+## Quick Connect is switched off at the edge (2026-11-24)
+
+Moonfin decides whether to show Quick Connect from the **server type**, not a
+probe (`packages/server_core/.../feature_detector.dart`: `supportsQuickConnect =>
+_isJellyfin`). So every login opens on the code screen even though AIOStreams has
+nowhere to approve one. Members cannot find the password form and stall.
+
+The vhost now answers the way a disabled Jellyfin server does:
+
+    location ~* ".../QuickConnect/Enabled$"  { return 200 'false'; }
+    location ~* ".../QuickConnect/Initiate$" { return 401 '{"Message":"QuickConnect is disabled"}'; }
+
+Moonfin maps 401 (or any "disabled" body) to `isQcDisabled` and calls
+`_selectPassword()` on first load (`lib/ui/screens/auth/login_screen.dart`), so
+the login lands on username + password. The "Quick Connect" tab still exists in
+the client (only a client patch removes it); tapping it now says it is disabled.
