@@ -336,11 +336,12 @@ def main():
         time.sleep(int(os.environ.get("MOUNT_SETTLE_SECONDS", "120")))
     print(f"configmap_changed={changed} refresh={jf_refresh() if changed else 'skipped'}", flush=True)
     if KUMA:
-        # the push URL carries the monitor; ?status=down alerts on the spot
-        # instead of waiting out the 3h push interval
+        # the push URL ships with ?status=up&msg=OK&ping= baked in; appending a
+        # second status makes Kuma read an ARRAY, which it treats as DOWN
+        # (that is exactly the false page this produced on the first run)
         ok, detail = probe_stream(channels)
-        sep = "&" if "?" in KUMA else "?"
-        url = f"{KUMA}{sep}status={'up' if ok else 'down'}&msg={urllib.parse.quote(detail)}"
+        base = KUMA.split("?", 1)[0]
+        url = f"{base}?status={'up' if ok else 'down'}&msg={urllib.parse.quote(detail)}"
         try:
             http(url, timeout=10)
             print(f"kuma: stream_probe={'ok' if ok else 'FAILED'} {detail}", flush=True)
