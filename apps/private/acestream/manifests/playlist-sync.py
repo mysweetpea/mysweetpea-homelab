@@ -224,10 +224,18 @@ def render(channels):
             start, stop = now - 300, now + 3 * 3600
             title = re.sub(r"\s*\[[A-Z]{2}\]$", "", c["name"])
             desc = "Live sports feed - no published schedule"
+        # Jellyfin's On Now row sorts by title, so prefixing the sport is what
+        # groups the cards (Football -> Multi-Sport -> Cricket ...). The channel
+        # name already follows in the card's subtitle.
+        sport = c["group"].split(": ", 1)[1] if c["group"].startswith("Sport: ") else ""
+        if sport:
+            title = f"{sport} · {title}"
         x.append(f'  <programme start="{xmltv_time(start)}" stop="{xmltv_time(stop)}" channel="{c["id"]}">')
         x.append(f'    <title lang="en">{xml_escape(title)}</title>')
         if desc:
             x.append(f'    <desc lang="en">{xml_escape(desc)}</desc>')
+        if c["icon"]:  # programme art -> the On Now cards stop being blank
+            x.append(f'    <icon src="{xml_escape(c["icon"])}"/>')
         x.append("  </programme>")
     x.append("</tv>")
     return "\n".join(m3u) + "\n", "\n".join(x) + "\n"
