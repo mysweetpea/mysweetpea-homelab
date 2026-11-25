@@ -1144,6 +1144,7 @@ def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None, 
         if not isinstance(personas, list):
             return False, "personas not a list"
         existing = next((p for p in personas if isinstance(p, dict) and p.get("id") == pid), None)
+        renamed = None
         if remove:
             if existing is None:
                 return False, "persona not found"
@@ -1155,19 +1156,20 @@ def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None, 
                 changed = False
                 # Display-name sync: the dashboard's profile form renames the
                 # persona so Moonfin's Who's-watching tile and the sign-in name
-                # follow it. Provisioning (rename=False) keeps the login name
-                # stable for everyone else.
+                # follow it. A taken name is NOT an error here — signing in
+                # resolves a persona by name, so two identical names would
+                # collide; the old label is kept and provisioning still
+                # succeeds (renamed=false tells the caller it did not land).
                 new_name = (name or "").strip()[:32]
                 if rename and new_name and existing.get("name") != new_name:
-                    # Two personas with the same name make mount sign-in
-                    # ambiguous (personaByName picks the first), so a rename
-                    # onto a taken name is refused instead of half-applied.
                     if any(isinstance(p, dict) and p is not existing
                            and str(p.get("name") or "").strip().lower() == new_name.lower()
                            for p in personas):
-                        return False, "name already in use"
-                    existing["name"] = new_name
-                    changed = True
+                        renamed = False
+                    else:
+                        existing["name"] = new_name
+                        changed = True
+                        renamed = True
                 if not existing.get("avatar"):
                     avatar_url = make_avatar_png(pid, name or pid)
                     if avatar_url:
@@ -1184,20 +1186,32 @@ def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None, 
                     existing["lock"] = pin
                     changed = True
                 if not changed:
-                    return True, {"success": True, "exists": True, "persona": pid, "pin": pin,
-                                  "name": existing.get("name") or pid}
+                    out = {"success": True, "exists": True, "persona": pid, "pin": pin,
+                           "name": existing.get("name") or pid}
+                    if renamed is not None:
+                        out["renamed"] = renamed
+                    return True, out
             else:
                 if rename:
                     return False, "persona not found"
                 pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
-                entry = {"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin}
+                entry_name = (name or "").strip()[:32] or pid
+                # Never create a duplicate label: the second member would be
+                # unresolvable at sign-in. Fall back to the unique username.
+                if any(isinstance(p, dict) and str(p.get("name") or "").strip().lower() == entry_name.lower()
+                       for p in personas):
+                    entry_name = pid
+                entry = {"id": pid, "name": entry_name, "history": "own", "lock": pin}
                 avatar_url = make_avatar_png(pid, name or pid)
                 if avatar_url:
                     entry["avatar"] = avatar_url
                 personas.append(entry)
         _aios_config_request("PUT", {"config": user_data})
-        return True, {"success": True, "persona": pid, "pin": pin,
-                      "name": (existing.get("name") if existing is not None else entry.get("name")) or pid}
+        out = {"success": True, "persona": pid, "pin": pin,
+               "name": (existing.get("name") if existing is not None else entry.get("name")) or pid}
+        if renamed is not None:
+            out["renamed"] = renamed
+        return True, out
     except Exception as exc:
         return False, f"config api failed: {exc}"
 
