@@ -109,6 +109,10 @@ def countries_of(g):
             for x in (i.get("countries") or [])}
 
 
+def sport_label(group):
+    return group.split(": ", 1)[1] if group.startswith("Sport: ") else ""
+
+
 def classify(name, cats):
     """-> (group label, first channel number)."""
     low = name.lower()
@@ -169,6 +173,7 @@ def build(groups):
             "name": name,
             "hash": str(best["infohash"]),
             "group": group,
+            "label": f"{sport_label(group)} · {name}" if sport_label(group) else name,
             "base": base,
             "icon": icon,
             "epg": [e for e in (g.get("epg") or []) if isinstance(e, dict) and e.get("start")],
@@ -197,17 +202,17 @@ def xmltv_time(ts):
 def render(channels):
     m3u = ["#EXTM3U"]
     for c in channels:
-        attrs = (f'tvg-id="{c["id"]}" tvg-chno="{c["num"]}" tvg-name="{xml_escape(c["name"])}" '
+        attrs = (f'tvg-id="{c["id"]}" tvg-chno="{c["num"]}" tvg-name="{xml_escape(c["label"])}" '
                  f'group-title="{xml_escape(c["group"])}"')
         if c["icon"]:
             attrs += f' tvg-logo="{xml_escape(c["icon"])}"'
-        m3u.append(f'#EXTINF:-1 {attrs},{c["name"]}')
+        m3u.append(f'#EXTINF:-1 {attrs},{c["label"]}')
         m3u.append(f'{ACEXY}/ace/getstream?infohash={c["hash"]}')
     x = ['<?xml version="1.0" encoding="UTF-8"?>', '<!DOCTYPE tv SYSTEM "xmltv.dtd">',
          '<tv generator-info-name="acesync">']
     now = time.time()
     for c in channels:
-        x.append(f'  <channel id="{c["id"]}"><display-name>{xml_escape(c["name"])}</display-name>'
+        x.append(f'  <channel id="{c["id"]}"><display-name>{xml_escape(c["label"])}</display-name>'
                  + (f'<icon src="{xml_escape(c["icon"])}"/>' if c["icon"] else "") + "</channel>")
     # One programme per channel so Jellyfin's "On Now" home row always has
     # something to show: the index's programme when one is actually airing,
@@ -227,11 +232,14 @@ def render(channels):
         # Jellyfin's On Now row sorts by title, so prefixing the sport is what
         # groups the cards (Football -> Multi-Sport -> Cricket ...). The channel
         # name already follows in the card's subtitle.
-        sport = c["group"].split(": ", 1)[1] if c["group"].startswith("Sport: ") else ""
+        sport = sport_label(c["group"])
         if sport:
             title = f"{sport} · {title}"
         x.append(f'  <programme start="{xmltv_time(start)}" stop="{xmltv_time(stop)}" channel="{c["id"]}">')
         x.append(f'    <title lang="en">{xml_escape(title)}</title>')
+        x.append(f'    <category lang="en">Sports</category>')
+        if sport:
+            x.append(f'    <category lang="en">{xml_escape(sport)}</category>')
         if desc:
             x.append(f'    <desc lang="en">{xml_escape(desc)}</desc>')
         if c["icon"]:  # programme art -> the On Now cards stop being blank
