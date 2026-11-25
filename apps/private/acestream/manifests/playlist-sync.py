@@ -173,7 +173,9 @@ def build(groups):
             "name": name,
             "hash": str(best["infohash"]),
             "group": group,
-            "label": f"{sport_label(group)} · {name}" if sport_label(group) else name,
+            # channel names stay clean (numbers group them); only programme
+            # titles carry the sport prefix, for the home row's ordering
+            "label": name,
             "base": base,
             "icon": icon,
             "epg": [e for e in (g.get("epg") or []) if isinstance(e, dict) and e.get("start")],
