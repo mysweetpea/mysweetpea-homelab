@@ -5,6 +5,9 @@
    every MediaSources array is reduced to H.264 entries only (when any exist).
 2. Codec gate for players that crash or starve on big sources: browser UAs and
    Roku (4K HEVC 10-bit MKV kills the Roku player) get H.264-only MediaSources.
+3. Bitrate cap for EVERY client: sources above BITRATE_CAP are dropped whenever a
+   lighter source exists. The engine tops out around 15-20 Mbps from usenet, so a
+   25-30 Mbps remux starves every player; native apps were picking exactly those.
 3. Series ChildCount fix: AIOStreams puts the EPISODE total in ChildCount, but
    Jellyfin semantics are ChildCount = number of seasons (Moonfin renders it as
    "N Seasons"). For single-Series item responses we replace it with the real
@@ -186,7 +189,7 @@ def _filter(data, ua, path, auth):
         if _fix_view_ar(_it):
             changed = True
     require_h264 = _limited(ua)
-    max_br = BITRATE_CAP if MOBILE_TV.search(ua) else None
+    max_br = BITRATE_CAP          # every client: see (3) in the header
     if require_h264 or max_br:
         if isinstance(j, dict):
             if _filt_obj(j, require_h264, max_br):
@@ -279,9 +282,21 @@ def _selftest():
     assert not MOBILE_TV.search("Mozilla/5.0 (compatible; Moonfin/2.7.0)")
     assert not _limited("Mozilla/5.0 (compatible; Moonfin/2.7.0)")
     assert not _limited("Lavf/62.12.100")
-    # native UA keeps its sources
+    # native UA keeps sources that carry no Bitrate
     out2, ch2 = _filter(body, "Moonfin/2.7.0", "/x", "")
     assert not ch2 and out2 == body
+    # bitrate cap applies to native clients too, and never blanks the list
+    big = json.dumps({"MediaSources": [
+        {"Bitrate": 31000000, "MediaStreams": [{"Type": "Video", "Codec": "h264"}]},
+        {"Bitrate": 6000000, "MediaStreams": [{"Type": "Video", "Codec": "h264"}]},
+    ]}).encode()
+    out3, ch3 = _filter(big, "Lavf/62.12.100", "/x", "")
+    assert ch3 and b"31000000" not in out3 and len(out3) == len(big)
+    only_big = json.dumps({"MediaSources": [
+        {"Bitrate": 31000000, "MediaStreams": [{"Type": "Video", "Codec": "h264"}]},
+    ]}).encode()
+    out4, ch4 = _filter(only_big, "Lavf/62.12.100", "/x", "")
+    assert not ch4 and out4 == only_big
     print("selftest ok")
 
 
