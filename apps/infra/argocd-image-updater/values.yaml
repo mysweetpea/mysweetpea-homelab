@@ -114,7 +114,10 @@ extraObjects:
               imageName: jellyfin/jellyfin
               commonUpdateSettings:
                 updateStrategy: semver
-                allowTags: "regexp:^\\d+\\.\\d+(\\.\\d+)?$"
+                # minor/patch within 12.x auto-apply; a 13.x major needs a human
+                # (LDAP-Auth plugin targetAbi and the local-file M3U/XMLTV parsers
+                # are the breakage class on a major bump)
+                allowTags: "regexp:^12\\.\\d+(\\.\\d+)?$"
               manifestTargets:
                 helm:
                   name: controllers.main.containers.main.image.repository

@@ -298,6 +298,28 @@ def jf_refresh():
     return "triggered"
 
 
+def probe_stream(channels):
+    """Read the first bytes of one live channel through acexy.
+
+    Kuma monitor 68 only asks the engine's webui for its version, which answers
+    even when the VPN is dead or the swarm has no peers - it stayed green
+    through a full multi-hour outage. This does the thing a member does.
+    ponytail: one channel is the canary; per-channel probes would hammer the
+    swarm and fetch NZBs, widen only if a single dead hash proves misleading.
+    """
+    if not channels:
+        return False, "no channels"
+    url = f"{ACEXY}/ace/getstream?infohash={channels[0]['hash']}"
+    try:
+        r = urllib.request.urlopen(url, timeout=int(os.environ.get("PROBE_TIMEOUT", "45")))
+        head = r.read(1024)
+        r.close()
+        ok = len(head) > 0 and head[0] == 0x47  # MPEG-TS sync byte
+        return ok, f"{len(head)}B first=0x{head[0]:02x}" if head else "empty"
+    except Exception as e:
+        return False, str(e)[:80]
+
+
 def main():
     channels = build(fetch_index())
     m3u, xml = render(channels)
@@ -314,8 +336,14 @@ def main():
         time.sleep(int(os.environ.get("MOUNT_SETTLE_SECONDS", "120")))
     print(f"configmap_changed={changed} refresh={jf_refresh() if changed else 'skipped'}", flush=True)
     if KUMA:
+        # the push URL carries the monitor; ?status=down alerts on the spot
+        # instead of waiting out the 3h push interval
+        ok, detail = probe_stream(channels)
+        sep = "&" if "?" in KUMA else "?"
+        url = f"{KUMA}{sep}status={'up' if ok else 'down'}&msg={urllib.parse.quote(detail)}"
         try:
-            print("kuma:", http(KUMA, timeout=10)[:40].decode(errors="replace"), flush=True)
+            http(url, timeout=10)
+            print(f"kuma: stream_probe={'ok' if ok else 'FAILED'} {detail}", flush=True)
         except Exception as e:
             print(f"kuma push failed: {e}", file=sys.stderr)
     return 0
