@@ -1944,7 +1944,10 @@ class Handler(BaseHTTPRequestHandler):
             if remove:
                 pins_update(pid, None, None)
             elif result.get("pin"):
-                pins_update(pid, name, result["pin"])
+                # Persist the CANONICAL name (truncated/unique-fallback applied
+                # by the persona op), not the raw request: the media warmer
+                # matches pins.json names against /Users names exactly.
+                pins_update(pid, result.get("name") or name, result["pin"])
         self._send(200 if ok else 502, result if isinstance(result, dict) else {"error": result})
 
     # -- SSE -----------------------------------------------------------------
