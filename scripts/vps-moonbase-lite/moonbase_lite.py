@@ -1128,15 +1128,15 @@ def _aios_user_data(data):
     return user_data
 
 
-def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
+def aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None, rename: bool = False):
     # Whole GET->modify->PUT is a transaction: concurrent provisioning must not
     # drop personas or unrelated config changes.
     with _config_lock:
-        return _aios_persona_op(pid, name, remove, _valid_pin)
+        return _aios_persona_op(pid, name, remove, _valid_pin, rename)
 
 
-def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
-    """Add or remove a persona in the AIOStreams user config. -> (ok, dict)"""
+def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None, rename: bool = False):
+    """Add, rename or remove a persona in the AIOStreams user config. -> (ok, dict)"""
     try:
         user_data = _aios_user_data(_aios_config_request("GET"))
         jf = user_data.setdefault("jellyfin", {})
@@ -1153,6 +1153,21 @@ def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
         else:
             if existing is not None:
                 changed = False
+                # Display-name sync: the dashboard's profile form renames the
+                # persona so Moonfin's Who's-watching tile and the sign-in name
+                # follow it. Provisioning (rename=False) keeps the login name
+                # stable for everyone else.
+                new_name = (name or "").strip()[:32]
+                if rename and new_name and existing.get("name") != new_name:
+                    # Two personas with the same name make mount sign-in
+                    # ambiguous (personaByName picks the first), so a rename
+                    # onto a taken name is refused instead of half-applied.
+                    if any(isinstance(p, dict) and p is not existing
+                           and str(p.get("name") or "").strip().lower() == new_name.lower()
+                           for p in personas):
+                        return False, "name already in use"
+                    existing["name"] = new_name
+                    changed = True
                 if not existing.get("avatar"):
                     avatar_url = make_avatar_png(pid, name or pid)
                     if avatar_url:
@@ -1169,8 +1184,11 @@ def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
                     existing["lock"] = pin
                     changed = True
                 if not changed:
-                    return True, {"success": True, "exists": True, "persona": pid, "pin": pin}
+                    return True, {"success": True, "exists": True, "persona": pid, "pin": pin,
+                                  "name": existing.get("name") or pid}
             else:
+                if rename:
+                    return False, "persona not found"
                 pin = _valid_pin or "".join(secrets.choice("0123456789") for _ in range(6))
                 entry = {"id": pid, "name": (name or pid)[:32], "history": "own", "lock": pin}
                 avatar_url = make_avatar_png(pid, name or pid)
@@ -1178,7 +1196,8 @@ def _aios_persona_op(pid: str, name: str, remove: bool, _valid_pin: str = None):
                     entry["avatar"] = avatar_url
                 personas.append(entry)
         _aios_config_request("PUT", {"config": user_data})
-        return True, {"success": True, "persona": pid, "pin": pin}
+        return True, {"success": True, "persona": pid, "pin": pin,
+                      "name": (existing.get("name") if existing is not None else entry.get("name")) or pid}
     except Exception as exc:
         return False, f"config api failed: {exc}"
 
@@ -1906,7 +1925,7 @@ class Handler(BaseHTTPRequestHandler):
         if not remove and tier and tier not in allowed:
             self._send(200, {"success": True, "skipped": "tier", "tier": tier})
             return
-        ok, result = aios_persona_op(pid, name, remove, pin or None)
+        ok, result = aios_persona_op(pid, name, remove, pin or None, bool(body.get("rename")))
         if ok and isinstance(result, dict):
             if remove:
                 pins_update(pid, None, None)
