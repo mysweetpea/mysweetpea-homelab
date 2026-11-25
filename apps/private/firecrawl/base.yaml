@@ -95,8 +95,15 @@ spec:
       containers:
         - name: playwright
           image: ghcr.io/firecrawl/playwright-service:latest
+          # upstream default moved 3000 -> 3003 in :latest; config + Service still expect 3000
+          env:
+            - name: PORT
+              value: "3000"
           ports:
             - containerPort: 3000
+          readinessProbe:
+            tcpSocket: {port: 3000}
+            initialDelaySeconds: 5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
